@@ -51,3 +51,13 @@ class Strategy(ABC):
 
         Positive = long, negative = short, missing/zero = no position.
         """
+
+    @classmethod
+    def build(cls, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> Strategy:
+        """Construct a strategy instance, given the bars frame and params.
+
+        Default: ignore bars and instantiate with params only. Strategies that
+        need bars at construction (e.g. for caching signal series) override.
+        """
+        del bars  # unused at the base class
+        return cls(params=params)
