@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 
 import click
+import pandas as pd
 from rich.console import Console
 from rich.table import Table
 
@@ -247,10 +248,44 @@ def validate(
 
 @cli.command(help="Run today's live rebalance across all enabled strategies.")
 @click.option("--dry-run", is_flag=True, help="Print orders only; do not submit.")
-def rebalance(dry_run: bool) -> None:
-    raise click.ClickException(
-        "rebalance is not implemented in Foundation. Plan 6 will wire it up."
-    )
+@click.option("--asof", default=None, help="Override the rebalance date (YYYY-MM-DD).")
+@click.option(
+    "--strategy",
+    "strategy_filter",
+    default=None,
+    help="Only rebalance the named strategy (instead of all live-enabled).",
+)
+def rebalance(dry_run: bool, asof: str | None, strategy_filter: str | None) -> None:
+    from quant.live import run_rebalance
+
+    asof_date = date.fromisoformat(asof) if asof else date.today()
+    strategies_arg = [strategy_filter] if strategy_filter else None
+    report = run_rebalance(asof=asof_date, dry_run=dry_run, strategies=strategies_arg)
+
+    header = Table(title=f"Rebalance {report.asof} — {'DRY RUN' if dry_run else 'LIVE'}")
+    header.add_column("Field")
+    header.add_column("Value", justify="right")
+    header.add_row("Account equity", f"${report.equity:,.2f}")
+    header.add_row("Enabled strategies", str(len(report.enabled_strategies)))
+    header.add_row("Total orders", str(report.total_orders))
+    console.print(header)
+
+    if not report.outcomes:
+        console.print("[dim]No outcomes.[/dim]")
+        return
+
+    detail = Table(title="Per-strategy outcomes", show_header=True)
+    for col in ("Strategy", "Target", "Previous", "Orders", "Error"):
+        detail.add_column(col)
+    for outcome in report.outcomes:
+        detail.add_row(
+            outcome.slug,
+            str(len(outcome.target)),
+            str(len(outcome.previous)),
+            str(len(outcome.orders)),
+            outcome.error or "",
+        )
+    console.print(detail)
 
 
 @cli.command(help="Open the HTML tear-sheet for <strategy> in your default browser.")
@@ -268,10 +303,34 @@ def tearsheet(strategy: str) -> None:
 
 @cli.command(help="Print the structured trade journal.")
 @click.option("--since", default=None, help="Filter trades since YYYY-MM-DD.")
-def journal(since: str | None) -> None:
-    raise click.ClickException(
-        "journal is not implemented in Foundation. Plan 6 will fill this in."
-    )
+@click.option("--strategy", default=None, help="Filter trades by strategy slug.")
+@click.option("--limit", default=50, show_default=True, type=int, help="Cap rows printed.")
+def journal(since: str | None, strategy: str | None, limit: int) -> None:
+    from quant.live import read_journal
+
+    settings = Settings()  # type: ignore[call-arg]
+    since_date = date.fromisoformat(since) if since else None
+    df = read_journal(settings.data_dir, since=since_date, strategy=strategy)
+    if df.empty:
+        console.print("[dim]No trades found.[/dim]")
+        return
+
+    df = df.tail(limit)
+    table = Table(title=f"Trade journal ({len(df)} rows)", show_header=True)
+    for col in ("date", "strategy", "symbol", "side", "qty", "client_order_id", "dry_run"):
+        table.add_column(col)
+    for row in df.itertuples(index=False):
+        ts = pd.Timestamp(str(row.date))
+        table.add_row(
+            ts.date().isoformat(),
+            str(row.strategy),
+            str(row.symbol),
+            str(row.side),
+            str(row.qty),
+            str(row.client_order_id),
+            str(bool(row.dry_run)),
+        )
+    console.print(table)
 
 
 @cli.command(help="Open the Textual TUI monitor.")
