@@ -6,6 +6,7 @@ Plan 2 adds parameter support so walk-forward can grid-search.
 
 from __future__ import annotations
 
+import copy
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
@@ -33,7 +34,9 @@ class Strategy(ABC):
     default_params: ClassVar[dict[str, Any]] = {}
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
-        merged: dict[str, Any] = dict(self.default_params)
+        # Deep-copy so nested defaults (e.g. {"thresholds": {"entry": 1.0}}) can't
+        # be mutated through `self.params` back into the class-level default.
+        merged: dict[str, Any] = copy.deepcopy(self.default_params)
         if params:
             merged.update(params)
         self.params: dict[str, Any] = merged
