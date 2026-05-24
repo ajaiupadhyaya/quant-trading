@@ -2,7 +2,7 @@
 
 Systematic trading project — 5 strategies modeled on what AQR / Bridgewater / Citadel / JPM Quant publish about, paper-traded live on Alpaca via GitHub Actions, terminal-first CLI + TUI for navigation.
 
-**Status:** Brainstorm complete; implementation pending.
+**Status:** All 6 plans landed. Five strategies registered, walk-forward + validation battery green, live rebalance + journal wired to Alpaca paper, GitHub Actions cron + Textual TUI shipped.
 
 **Design spec:** [`docs/specs/2026-05-23-quant-trading-design.md`](docs/specs/2026-05-23-quant-trading-design.md)
 
@@ -38,18 +38,17 @@ The `quant` command-group is installed when you run `uv sync --all-extras`. From
 
 ```bash
 uv run quant --help                  # top-level help
-uv run quant strategies              # list registered strategies (empty until Plan 4)
+uv run quant strategies              # list the 5 registered strategies
 uv run quant status                  # Alpaca account + open positions (needs .env)
 uv run quant data inventory          # show what's on disk under data/
 uv run quant data refresh --start 2010-01-01  # refresh bar cache for all registered universes
 uv run quant backtest <strategy>     # walk-forward backtest + tear-sheet
 uv run quant tearsheet <strategy>    # open the rendered tear-sheet
-
-# Stubs landing in later plans:
-uv run quant validate <strategy>     # Plan 3 — validation harness
-uv run quant rebalance --dry-run     # Plan 6 — live execution
-uv run quant journal                 # Plan 6 — trade log
-uv run quant monitor                 # Plan 6 — Textual TUI
+uv run quant validate <strategy>     # full validation battery (DSR/PSR/CPCV/bootstrap/regimes)
+uv run quant rebalance --dry-run     # daily rebalance pass against Alpaca paper (dry-run prints orders)
+uv run quant rebalance               # daily rebalance — submits orders, snapshots equity + per-strategy positions
+uv run quant journal --since 2026-05-01     # structured trade log
+uv run quant monitor                 # Textual TUI dashboard
 ```
 
 ## Running a backtest
@@ -97,6 +96,34 @@ The report includes:
 - **Combinatorial Purged CV** — path-Sharpe distribution.
 
 Exit code `0` = passes the live gate (DSR ≥ 0.30, PSR ≥ 0.70, bootstrap lower-5% > 0, ≥3 positive regimes). Exit code `2` = fails one or more gates.
+
+## Live paper trading
+
+Daily flow once `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` are set:
+
+```bash
+uv run quant rebalance --dry-run   # see what would happen
+uv run quant rebalance             # for real (paper); snapshots data/live/*.parquet
+uv run quant journal --since 2026-05-01
+uv run quant monitor               # full-screen Textual dashboard
+```
+
+Per-strategy attribution is carried via `client_order_id` (prefix = strategy slug)
+and an append-only `data/live/strategy_positions.parquet` snapshot — so the
+combined Alpaca account is shared but each strategy keeps its own books.
+
+## GitHub Actions
+
+Two production workflows ship in `.github/workflows/`:
+
+- **`daily-rebalance.yml`** — Mon–Fri 19:55 UTC. Refreshes bar caches, runs the
+  rebalance, commits `data/live/*.parquet` + new bars back to the repo. Manual
+  dispatch supports a `dry_run` switch.
+- **`nightly-backtest.yml`** — Tue–Sat 02:00 UTC. Walk-forward backtest in a
+  5-way matrix, each strategy in parallel; commits refreshed tear-sheets under
+  `data/backtests/<slug>/`.
+
+Both need repository secrets `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `FRED_API_KEY`.
 
 ## Local setup
 

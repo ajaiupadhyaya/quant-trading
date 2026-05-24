@@ -1,0 +1,80 @@
+name: daily-rebalance
+
+# 15:55 ET = 19:55 UTC (EST) / 20:55 UTC (EDT). The cron line below is set for
+# 19:55 UTC year-round; the rebalance step explicitly tolerates running a bit
+# early or late, so the DST drift is intentional rather than guarded against.
+on:
+  schedule:
+    - cron: "55 19 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Skip Alpaca order submission?"
+        required: false
+        default: "false"
+        type: choice
+        options: ["true", "false"]
+
+concurrency:
+  group: daily-rebalance
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  rebalance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+      ALPACA_PAPER: "true"
+      ALPACA_BASE_URL: "https://paper-api.alpaca.markets"
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      LOG_LEVEL: INFO
+      DRY_RUN_INPUT: ${{ github.event.inputs.dry_run }}
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install deps
+        run: uv sync --all-extras
+
+      - name: Refresh bar caches
+        run: |
+          uv run quant data refresh --start 2018-01-01 || echo "non-fatal: refresh partial"
+
+      - name: Run rebalance
+        id: rebalance
+        run: |
+          if [ "$DRY_RUN_INPUT" = "true" ]; then
+            uv run quant rebalance --dry-run
+          else
+            uv run quant rebalance
+          fi
+
+      - name: Commit live data updates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/live/ data/raw/ 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "No data changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(live): daily rebalance snapshot $RUN_ID"
+          git push

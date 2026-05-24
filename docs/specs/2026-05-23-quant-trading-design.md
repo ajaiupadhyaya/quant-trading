@@ -1,6 +1,6 @@
 # Quant Trading — Design Spec
 
-> **Implementation status:** Plan 1 ✅ · Plan 2 ✅ · Plan 3 ✅ (this doc) · Plans 4–6 pending.
+> **Implementation status:** Plan 1 ✅ · Plan 2 ✅ · Plan 3 ✅ · Plan 4 ✅ · Plan 5 ✅ · Plan 6 ✅ (all 6 plans landed; 201 tests, mypy strict clean).
 
 **Date:** 2026-05-23
 **Status:** Brainstorm complete, ready for writing-plans → implementation

@@ -1,0 +1,102 @@
+name: nightly-backtest
+
+# 22:00 ET = 02:00 UTC the next day. Re-runs the full walk-forward backtest
+# pipeline so the tear-sheets committed to the repo stay in sync with the
+# latest bar cache. Tear-sheets only — no order submission.
+on:
+  schedule:
+    - cron: "0 2 * * 2-6"
+  workflow_dispatch: {}
+
+concurrency:
+  group: nightly-backtest
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        slug: [momentum, multi-factor, pairs, trend, risk-parity]
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+      ALPACA_PAPER: "true"
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      LOG_LEVEL: INFO
+      SLUG: ${{ matrix.slug }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install deps
+        run: uv sync --all-extras
+
+      - name: Backtest strategy
+        run: uv run quant backtest "$SLUG" --start 2015-01-01
+
+      - name: Upload tear-sheet artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tearsheet-${{ matrix.slug }}
+          path: data/backtests/${{ matrix.slug }}/
+
+  commit:
+    needs: backtest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: always()
+    env:
+      RUN_ID: ${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all tear-sheets
+        uses: actions/download-artifact@v4
+        with:
+          path: data/backtests/
+          pattern: tearsheet-*
+          merge-multiple: false
+
+      - name: Flatten download structure
+        run: |
+          shopt -s nullglob
+          for d in data/backtests/tearsheet-*; do
+            slug=$(basename "$d" | sed 's/^tearsheet-//')
+            mkdir -p "data/backtests/$slug"
+            mv "$d"/* "data/backtests/$slug/"
+            rmdir "$d"
+          done
+
+      - name: Commit refreshed tear-sheets
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/backtests/ 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "No tear-sheet changes."
+            exit 0
+          fi
+          git commit -m "chore(backtest): nightly tear-sheet refresh $RUN_ID"
+          git push

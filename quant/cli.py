@@ -335,9 +335,9 @@ def journal(since: str | None, strategy: str | None, limit: int) -> None:
 
 @cli.command(help="Open the Textual TUI monitor.")
 def monitor() -> None:
-    raise click.ClickException(
-        "monitor is not implemented in Foundation. Plan 6 will fill this in."
-    )
+    from quant.tui import QuantMonitor
+
+    QuantMonitor().run()
 
 
 @cli.group(help="Data subcommands.")
