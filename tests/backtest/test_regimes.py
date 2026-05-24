@@ -6,7 +6,6 @@ import pandas as pd
 from quant.backtest.regimes import (
     REGIMES,
     RegimeBreakdown,
-    Regime,
     compute_regime_breakdown,
     count_positive_regimes,
 )

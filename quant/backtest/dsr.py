@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
+from scipy.stats import norm  # type: ignore[import-untyped]
 
 _STD_EPS = 1e-12
 _EULER_MASCHERONI = 0.5772156649015329
@@ -74,12 +74,13 @@ def deflated_sharpe(returns: pd.Series, trial_sharpes: np.ndarray) -> float:
     if n < 2 or len(trial_sharpes) == 0:
         return 0.0
 
-    n_trials = int(len(trial_sharpes))
+    n_trials = len(trial_sharpes)
     sr_trial_var = float(np.var(trial_sharpes, ddof=1)) if n_trials > 1 else 0.0
     sr_trial_std = float(np.sqrt(max(sr_trial_var, 0.0)))
 
     # Expected maximum of N i.i.d. standard normals (Lopez de Prado 2018):
-    # E[max] ≈ (1 - γ) Φ⁻¹(1 - 1/N) + γ Φ⁻¹(1 - 1/(N e))
+    # E[max] ~= (1 - gamma) * invCDF(1 - 1/N) + gamma * invCDF(1 - 1/(N e))
+    # where gamma is the Euler-Mascheroni constant.
     if n_trials <= 1:
         expected_max_z = 0.0
     else:

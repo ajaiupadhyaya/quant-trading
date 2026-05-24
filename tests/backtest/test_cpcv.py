@@ -14,9 +14,8 @@ from quant.backtest.cpcv import (
     run_cpcv,
 )
 from quant.backtest.engine import BacktestConfig
-from tests.conftest import synthetic_bars
-
 from quant.strategies.base import Strategy, StrategySpec
+from tests.conftest import synthetic_bars
 
 
 class _EqualWeightOneShot(Strategy):

@@ -144,6 +144,7 @@ def test_tearsheet_empty_walkforward(tmp_path: Path) -> None:
 def test_tearsheet_renders_validation_sections_when_report_provided(tmp_path):
     """When write_tearsheet receives a ValidationReport, render new sections."""
     from datetime import date
+
     from quant.backtest.cpcv import CPCVConfig
     from quant.backtest.engine import BacktestConfig
     from quant.backtest.tearsheet import write_tearsheet
@@ -210,6 +211,7 @@ def test_tearsheet_renders_validation_sections_when_report_provided(tmp_path):
 def test_tearsheet_without_validation_still_renders(tmp_path):
     """Tear-sheet remains backwards-compatible when validation is None."""
     from datetime import date
+
     from quant.backtest.engine import BacktestConfig
     from quant.backtest.tearsheet import write_tearsheet
     from quant.backtest.walkforward import run_walkforward

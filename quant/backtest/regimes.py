@@ -55,7 +55,7 @@ def compute_regime_breakdown(returns: pd.Series) -> list[RegimeBreakdown]:
                 name=r.name,
                 start=r.start,
                 end=r.end,
-                n_days=int(len(slice_)),
+                n_days=len(slice_),
                 total_return=total_return(slice_),
                 sharpe=sharpe(slice_),
                 max_drawdown=max_drawdown(slice_),

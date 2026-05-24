@@ -161,6 +161,7 @@ def test_tearsheet_command_missing_file(tmp_data_dir: Path, fake_env: None) -> N
 
 def test_validate_command_exit_code_when_strategy_unknown():
     from click.testing import CliRunner
+
     from quant.cli import cli
 
     runner = CliRunner()

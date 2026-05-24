@@ -146,7 +146,7 @@ def write_tearsheet(
     slug: str,
     strategy_name: str,
     out_dir: Path,
-    validation: "ValidationReport | None" = None,
+    validation: ValidationReport | None = None,
 ) -> Path:
     """Render the HTML tear-sheet + sidecar parquet + JSON. Return the HTML path."""
     out_dir.mkdir(parents=True, exist_ok=True)

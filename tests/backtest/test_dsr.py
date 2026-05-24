@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quant.backtest.dsr import deflated_sharpe, probabilistic_sharpe, _sr_period_from_returns
+from quant.backtest.dsr import _sr_period_from_returns, deflated_sharpe, probabilistic_sharpe
 
 
 def _normal_returns(n: int, mean: float, std: float, seed: int = 0) -> pd.Series:

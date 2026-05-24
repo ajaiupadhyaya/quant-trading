@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -9,8 +10,8 @@ import pytest
 from quant.backtest.cpcv import CPCVConfig
 from quant.backtest.engine import BacktestConfig
 from quant.backtest.validation import (
-    ValidationReport,
     THRESHOLDS,
+    ValidationReport,
     run_validation,
 )
 from quant.backtest.walkforward import run_walkforward
@@ -26,7 +27,7 @@ class _EqualWeightFixture(Strategy):
         universe=["AAA", "BBB", "CCC"],
         rebalance_frequency="monthly",
     )
-    default_params: dict = {"slot": 0}
+    default_params: ClassVar[dict] = {"slot": 0}
 
     def generate_signals(self, asof: date) -> pd.Series:
         return pd.Series({s: 1.0 for s in self.spec.universe})

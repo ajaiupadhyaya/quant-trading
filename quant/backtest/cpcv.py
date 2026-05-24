@@ -12,7 +12,7 @@ measures robustness of OOS Sharpe to test-set placement, not a search.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import combinations
@@ -57,7 +57,7 @@ def make_groups(index: pd.DatetimeIndex, n_groups: int) -> list[list[pd.Timestam
     return [list(pd.DatetimeIndex(s)) for s in splits]
 
 
-def iter_combinations(n_groups: int, k_test: int):
+def iter_combinations(n_groups: int, k_test: int) -> Iterator[tuple[int, ...]]:
     """Yield each combination of k_test group indices out of range(n_groups)."""
     if k_test <= 0 or k_test >= n_groups:
         raise ValueError(f"k_test must satisfy 0 < k_test < n_groups; got {k_test}, {n_groups}")

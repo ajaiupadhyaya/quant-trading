@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -70,12 +69,12 @@ class ValidationReport:
 def _trial_sharpes_from_cpcv(cpcv_paths: np.ndarray) -> np.ndarray:
     """Convert CPCV per-path Sharpes from annualized to per-period scale.
 
-    walk-forward Sharpes are annualized (×√252). DSR's formula expects
-    per-period Sharpes, so we divide back out.
+    walk-forward Sharpes are annualized (multiplied by sqrt(252)). DSR's
+    formula expects per-period Sharpes, so we divide back out.
     """
     if len(cpcv_paths) == 0:
         return cpcv_paths
-    return cpcv_paths / np.sqrt(252.0)
+    return np.asarray(cpcv_paths / np.sqrt(252.0))
 
 
 def run_validation(
@@ -84,12 +83,14 @@ def run_validation(
     strategy_factory: StrategyFactory,
     chosen_params: dict[str, Any],
     backtest_config: BacktestConfig,
-    cpcv_config: CPCVConfig = CPCVConfig(),
+    cpcv_config: CPCVConfig | None = None,
     bootstrap_resamples: int = 1000,
     bootstrap_block_len: int = 5,
     seed: int = 0,
 ) -> ValidationReport:
     """Run DSR, PSR, bootstrap, regimes, and CPCV; build the pass-fail report."""
+    if cpcv_config is None:
+        cpcv_config = CPCVConfig()
     oos_returns = wf_result.oos_returns
 
     # CPCV path Sharpes feed DSR's trial count + variance.
