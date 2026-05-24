@@ -157,3 +157,57 @@ def test_tearsheet_command_missing_file(tmp_data_dir: Path, fake_env: None) -> N
     result = runner.invoke(cli, ["tearsheet", "nonexistent"])
     assert result.exit_code != 0
     assert "tearsheet" in result.output.lower()
+
+
+def test_validate_command_exit_code_when_strategy_unknown():
+    from click.testing import CliRunner
+    from quant.cli import cli
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["validate", "no-such-strategy"])
+    assert result.exit_code != 0
+
+
+def test_validate_command_runs_to_completion_on_known_strategy(monkeypatch, tmp_path, fake_env, tmp_data_dir):
+    """Smoke: validate completes (pass or fail) and writes a tear-sheet."""
+    from datetime import date
+
+    import pandas as pd
+    from click.testing import CliRunner
+
+    from quant.cli import cli
+    from quant.strategies import REGISTRY
+    from quant.strategies.base import Strategy, StrategySpec
+    from tests.conftest import synthetic_bars
+
+    class _Smoke(Strategy):
+        spec = StrategySpec(
+            slug="cli-smoke",
+            name="CLI Smoke",
+            description="",
+            universe=["AAA"],
+            rebalance_frequency="monthly",
+        )
+
+        def generate_signals(self, asof):
+            return pd.Series({"AAA": 1.0})
+
+        def target_positions(self, asof, equity):
+            return {"AAA": 10}
+
+    REGISTRY["cli-smoke"] = _Smoke
+    try:
+        bars = synthetic_bars(["AAA"], date(2010, 1, 1), date(2020, 12, 31))
+        monkeypatch.setattr("quant.cli.get_bars", lambda _req: bars)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["validate", "cli-smoke", "--start", "2010-01-01", "--end", "2020-12-31",
+             "--bootstrap-resamples", "50"],
+        )
+        # exit_code may be 0 (pass) or 2 (fail-gate); both indicate the command ran.
+        assert result.exit_code in (0, 2), result.output
+        assert "Deflated Sharpe" in result.output
+    finally:
+        del REGISTRY["cli-smoke"]
