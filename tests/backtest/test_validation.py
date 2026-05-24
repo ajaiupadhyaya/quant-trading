@@ -38,9 +38,7 @@ class _EqualWeightFixture(Strategy):
 
 @pytest.fixture(scope="module")
 def wf_result_and_bars():
-    bars = synthetic_bars(
-        ["AAA", "BBB", "CCC"], date(2010, 1, 1), date(2020, 12, 31), drift=0.0005
-    )
+    bars = synthetic_bars(["AAA", "BBB", "CCC"], date(2010, 1, 1), date(2020, 12, 31), drift=0.0005)
 
     def factory(params: dict, bars: pd.DataFrame) -> Strategy:
         return _EqualWeightFixture(params=params)

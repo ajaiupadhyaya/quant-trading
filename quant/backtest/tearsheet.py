@@ -132,8 +132,9 @@ def _distribution_chart(returns: pd.Series) -> str:
 def _cpcv_distribution_chart(path_sharpes: np.ndarray) -> str:
     fig, ax = plt.subplots(figsize=(9, 2.5))
     if len(path_sharpes) > 0:
-        ax.hist(path_sharpes, bins=min(30, max(5, len(path_sharpes) // 2)),
-                color="#2c7fb8", alpha=0.75)
+        ax.hist(
+            path_sharpes, bins=min(30, max(5, len(path_sharpes) // 2)), color="#2c7fb8", alpha=0.75
+        )
     ax.set_xlabel("CPCV path Sharpe (annualized)")
     ax.set_ylabel("Frequency")
     ax.set_title("CPCV Path Sharpe Distribution")

@@ -169,7 +169,9 @@ def test_validate_command_exit_code_when_strategy_unknown():
     assert result.exit_code != 0
 
 
-def test_validate_command_runs_to_completion_on_known_strategy(monkeypatch, tmp_path, fake_env, tmp_data_dir):
+def test_validate_command_runs_to_completion_on_known_strategy(
+    monkeypatch, tmp_path, fake_env, tmp_data_dir
+):
     """Smoke: validate completes (pass or fail) and writes a tear-sheet."""
     from datetime import date
 
@@ -204,8 +206,16 @@ def test_validate_command_runs_to_completion_on_known_strategy(monkeypatch, tmp_
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["validate", "cli-smoke", "--start", "2010-01-01", "--end", "2020-12-31",
-             "--bootstrap-resamples", "50"],
+            [
+                "validate",
+                "cli-smoke",
+                "--start",
+                "2010-01-01",
+                "--end",
+                "2020-12-31",
+                "--bootstrap-resamples",
+                "50",
+            ],
         )
         # exit_code may be 0 (pass) or 2 (fail-gate); both indicate the command ran.
         assert result.exit_code in (0, 2), result.output

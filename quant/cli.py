@@ -140,8 +140,9 @@ def backtest(strategy: str, quick: bool, start: str, end: str | None) -> None:
 
 @cli.command(help="Run the full validation battery (walk-forward + CPCV + DSR + ...).")
 @click.argument("strategy")
-@click.option("--start", default="2010-01-01", show_default=True,
-              help="History start date (YYYY-MM-DD).")
+@click.option(
+    "--start", default="2010-01-01", show_default=True, help="History start date (YYYY-MM-DD)."
+)
 @click.option("--end", default=None, help="History end date (YYYY-MM-DD). Default: today.")
 @click.option("--bootstrap-resamples", default=1000, show_default=True, type=int)
 @click.option("--cpcv-groups", default=6, show_default=True, type=int)
@@ -212,16 +213,30 @@ def validate(
     table.add_column("Value")
     table.add_column("Threshold")
     table.add_column("Pass?")
-    table.add_row("Deflated Sharpe", f"{report.deflated_sharpe:.3f}", "≥ 0.30",
-                  "✓" if report.gate_deflated_sharpe else "✗")
-    table.add_row("Probabilistic Sharpe", f"{report.probabilistic_sharpe:.3f}", "≥ 0.70",
-                  "✓" if report.gate_probabilistic_sharpe else "✗")
-    boot_lower = (f"{report.bootstrap_ci.total_return_p05 * 100:+.2f}%"
-                  if report.bootstrap_ci else "—")
-    table.add_row("Bootstrap lower-5%", boot_lower, "> 0",
-                  "✓" if report.gate_bootstrap_lower else "✗")
-    table.add_row("Regime stress (positive)", f"{report.n_positive_regimes}/5", "≥ 3",
-                  "✓" if report.gate_regime else "✗")
+    table.add_row(
+        "Deflated Sharpe",
+        f"{report.deflated_sharpe:.3f}",
+        "≥ 0.30",
+        "✓" if report.gate_deflated_sharpe else "✗",
+    )
+    table.add_row(
+        "Probabilistic Sharpe",
+        f"{report.probabilistic_sharpe:.3f}",
+        "≥ 0.70",
+        "✓" if report.gate_probabilistic_sharpe else "✗",
+    )
+    boot_lower = (
+        f"{report.bootstrap_ci.total_return_p05 * 100:+.2f}%" if report.bootstrap_ci else "—"
+    )
+    table.add_row(
+        "Bootstrap lower-5%", boot_lower, "> 0", "✓" if report.gate_bootstrap_lower else "✗"
+    )
+    table.add_row(
+        "Regime stress (positive)",
+        f"{report.n_positive_regimes}/5",
+        "≥ 3",
+        "✓" if report.gate_regime else "✗",
+    )
     console.print(table)
     console.print(f"\n[bold]Overall: {'PASS' if report.passed else 'FAIL'}[/]")
     console.print(f"Tear-sheet: {html_path}")
