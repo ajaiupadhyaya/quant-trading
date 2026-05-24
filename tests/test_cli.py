@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from datetime import date
+from pathlib import Path
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 from click.testing import CliRunner
 
 from quant.cli import cli
+from quant.strategies import REGISTRY
+from quant.strategies.base import Strategy, StrategySpec
 
 
 def test_cli_help_succeeds() -> None:
@@ -54,3 +60,100 @@ def test_cli_data_inventory_runs(fake_env: None, tmp_data_dir) -> None:
     result = CliRunner().invoke(cli, ["data", "inventory"])
     assert result.exit_code == 0
     assert "universe" in result.output
+
+
+class _CLIToyStrategy(Strategy):
+    spec: ClassVar[StrategySpec] = StrategySpec(
+        slug="cli-toy",
+        name="CLI Toy",
+        description="-",
+        universe=["AAA", "BBB"],
+        rebalance_frequency="monthly",
+    )
+    default_params: ClassVar[dict[str, object]] = {}
+
+    def generate_signals(self, asof: date) -> pd.Series:
+        return pd.Series({"AAA": 1.0})
+
+    def target_positions(self, asof: date, equity: float) -> dict[str, int]:
+        return {"AAA": 1}
+
+    @classmethod
+    def build(cls, bars: pd.DataFrame, params: dict[str, object] | None = None) -> Strategy:
+        return cls(params=params)
+
+
+def test_data_refresh_command(tmp_data_dir: Path, fake_env: None) -> None:
+    runner = CliRunner()
+    with patch("quant.cli.refresh_caches") as mock_refresh:
+        mock_refresh.return_value = type(
+            "R",
+            (),
+            {
+                "symbols": ["SPY"],
+                "symbols_fetched": 1,
+                "rows_total": 5,
+                "elapsed_s": 0.1,
+                "errors": [],
+            },
+        )()
+        result = runner.invoke(cli, ["data", "refresh"])
+    assert result.exit_code == 0, result.output
+    assert "symbols_fetched" in result.output.lower() or "fetched" in result.output.lower()
+
+
+def test_backtest_command_unknown_strategy(fake_env: None) -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["backtest", "definitely-not-a-strategy"])
+    assert result.exit_code != 0
+    assert "unknown strategy" in result.output.lower()
+
+
+def test_backtest_command_runs_registered_strategy(
+    tmp_data_dir: Path,
+    fake_env: None,
+) -> None:
+    REGISTRY["cli-toy"] = _CLIToyStrategy
+    try:
+        runner = CliRunner()
+        with patch("quant.data.bars._fetch_alpaca") as mock_alpaca:
+            # Provide enough synthetic data via the bars fetch mock.
+            dates = pd.bdate_range("2010-01-01", "2024-12-31")
+            df = pd.DataFrame(
+                {
+                    "open": 100.0,
+                    "high": 100.0,
+                    "low": 100.0,
+                    "close": 100.0,
+                    "volume": 1,
+                },
+                index=pd.DatetimeIndex(dates, name="timestamp"),
+            )
+            mock_alpaca.return_value = {"AAA": df, "BBB": df}
+            result = runner.invoke(cli, ["backtest", "cli-toy", "--quick"])
+        assert result.exit_code == 0, result.output
+        # Check the tear-sheet was written:
+        out_dir = tmp_data_dir / "backtests" / "cli-toy"
+        assert (out_dir / "tearsheet.html").exists()
+    finally:
+        REGISTRY.pop("cli-toy", None)
+
+
+def test_tearsheet_command_opens_html(tmp_data_dir: Path, fake_env: None) -> None:
+    # Pre-create a fake tear-sheet
+    out_dir = tmp_data_dir / "backtests" / "stub"
+    out_dir.mkdir(parents=True)
+    (out_dir / "tearsheet.html").write_text("<html></html>")
+
+    runner = CliRunner()
+    with patch("webbrowser.open") as mock_open:
+        result = runner.invoke(cli, ["tearsheet", "stub"])
+    assert result.exit_code == 0, result.output
+    mock_open.assert_called_once()
+
+
+def test_tearsheet_command_missing_file(tmp_data_dir: Path, fake_env: None) -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["tearsheet", "nonexistent"])
+    assert result.exit_code != 0
+    assert "tearsheet" in result.output.lower()

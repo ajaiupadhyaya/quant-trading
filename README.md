@@ -41,15 +41,45 @@ uv run quant --help                  # top-level help
 uv run quant strategies              # list registered strategies (empty until Plan 4)
 uv run quant status                  # Alpaca account + open positions (needs .env)
 uv run quant data inventory          # show what's on disk under data/
+uv run quant data refresh --start 2010-01-01  # refresh bar cache for all registered universes
+uv run quant backtest <strategy>     # walk-forward backtest + tear-sheet
+uv run quant tearsheet <strategy>    # open the rendered tear-sheet
 
 # Stubs landing in later plans:
-uv run quant backtest <strategy>     # Plan 2 — backtest engine
 uv run quant validate <strategy>     # Plan 3 — validation harness
 uv run quant rebalance --dry-run     # Plan 6 — live execution
-uv run quant tearsheet <strategy>    # Plan 2 — tear-sheet viewer
 uv run quant journal                 # Plan 6 — trade log
 uv run quant monitor                 # Plan 6 — Textual TUI
 ```
+
+## Running a backtest
+
+Once at least one strategy is registered (Plans 4-5), run the full walk-forward
+pipeline:
+
+    uv run quant backtest <slug>
+
+This:
+
+1. Fetches daily bars for the strategy's universe (Alpaca primary, yfinance backup).
+2. Runs walk-forward analysis: rolling 5-year train / 1-year test / 6-month step.
+3. For each train window, grid-searches the strategy's parameter space and picks
+   the best by in-sample Sharpe.
+4. Stitches the OOS test segments into one continuous equity curve.
+5. Writes the HTML tear-sheet + sidecar parquet + JSON to
+   `data/backtests/<slug>/`.
+
+Open the tear-sheet:
+
+    uv run quant tearsheet <slug>
+
+Refresh the bar cache for the union of all registered universes + ETFs +
+S&P 500 (run this before a fresh backtest if the cache is stale):
+
+    uv run quant data refresh --start 2010-01-01
+
+The tear-sheet renders: OOS equity curve, drawdown, monthly returns heatmap,
+returns distribution histogram, plus the per-window chosen-parameters table.
 
 ## Local setup
 
