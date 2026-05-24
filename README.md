@@ -81,6 +81,23 @@ S&P 500 (run this before a fresh backtest if the cache is stale):
 The tear-sheet renders: OOS equity curve, drawdown, monthly returns heatmap,
 returns distribution histogram, plus the per-window chosen-parameters table.
 
+### Validation
+
+After a backtest, run the full §4 validation battery:
+
+```bash
+uv run quant validate momentum
+```
+
+The report includes:
+- **Deflated Sharpe Ratio** — multiple-testing-corrected Sharpe (Bailey & Lopez de Prado).
+- **Probabilistic Sharpe Ratio** — Pr(true Sharpe > 0).
+- **Stationary-block bootstrap** — 5/50/95 percentile CIs for total return, Sharpe, max DD.
+- **Regime stress tests** — per-regime metrics across GFC, China '15, COVID, '22 bear, '24 bull.
+- **Combinatorial Purged CV** — path-Sharpe distribution.
+
+Exit code `0` = passes the live gate (DSR ≥ 0.30, PSR ≥ 0.70, bootstrap lower-5% > 0, ≥3 positive regimes). Exit code `2` = fails one or more gates.
+
 ## Local setup
 
 ```bash
