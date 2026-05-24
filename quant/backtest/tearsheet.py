@@ -12,7 +12,7 @@ import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import matplotlib
 
@@ -33,6 +33,9 @@ from quant.backtest.metrics import (
     win_rate,
 )
 from quant.backtest.walkforward import WalkforwardResult
+
+if TYPE_CHECKING:
+    from quant.backtest.validation import ValidationReport
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -126,11 +129,24 @@ def _distribution_chart(returns: pd.Series) -> str:
     return _fig_to_base64(fig)
 
 
+def _cpcv_distribution_chart(path_sharpes: np.ndarray) -> str:
+    fig, ax = plt.subplots(figsize=(9, 2.5))
+    if len(path_sharpes) > 0:
+        ax.hist(path_sharpes, bins=min(30, max(5, len(path_sharpes) // 2)),
+                color="#2c7fb8", alpha=0.75)
+    ax.set_xlabel("CPCV path Sharpe (annualized)")
+    ax.set_ylabel("Frequency")
+    ax.set_title("CPCV Path Sharpe Distribution")
+    ax.grid(True, alpha=0.3)
+    return _fig_to_base64(fig)
+
+
 def write_tearsheet(
     result: WalkforwardResult,
     slug: str,
     strategy_name: str,
     out_dir: Path,
+    validation: "ValidationReport | None" = None,
 ) -> Path:
     """Render the HTML tear-sheet + sidecar parquet + JSON. Return the HTML path."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -159,6 +175,8 @@ def write_tearsheet(
             "monthly": _monthly_chart(result.oos_returns),
             "distribution": _distribution_chart(result.oos_returns),
         }
+    if validation is not None and len(validation.cpcv_path_sharpes) > 0:
+        charts["cpcv"] = _cpcv_distribution_chart(validation.cpcv_path_sharpes)
 
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATE_DIR)),
@@ -186,6 +204,7 @@ def write_tearsheet(
         metrics=metrics,
         charts=charts,
         windows=windows_payload,
+        validation=validation,
     )
 
     html_path = out_dir / "tearsheet.html"
