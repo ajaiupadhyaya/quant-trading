@@ -1,6 +1,7 @@
 """Strategy ABC + StrategySpec dataclass.
 
 Concrete strategies land in Plans 4 and 5. Foundation only needs the contract.
+Plan 2 adds parameter support so walk-forward can grid-search.
 """
 
 from __future__ import annotations
@@ -8,7 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pandas as pd
 
@@ -28,7 +29,14 @@ class StrategySpec:
 class Strategy(ABC):
     """Base class for all strategies. Concrete strategies subclass and register."""
 
-    spec: ClassVar[StrategySpec]  # class attribute provided by subclass
+    spec: ClassVar[StrategySpec]
+    default_params: ClassVar[dict[str, Any]] = {}
+
+    def __init__(self, params: dict[str, Any] | None = None) -> None:
+        merged: dict[str, Any] = dict(self.default_params)
+        if params:
+            merged.update(params)
+        self.params: dict[str, Any] = merged
 
     @abstractmethod
     def generate_signals(self, asof: date) -> pd.Series:
