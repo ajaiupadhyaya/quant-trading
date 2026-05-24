@@ -34,13 +34,31 @@ Pass criteria: deflated Sharpe ≥ 0.3, probabilistic Sharpe ≥ 0.7, positive i
 
 ## CLI
 
+The `quant` command-group is installed when you run `uv sync --all-extras`. From the repo root:
+
 ```bash
-quant backtest <strategy>          # full walk-forward + tear-sheet
-quant validate <strategy>          # full pass/fail validation
-quant rebalance [--dry-run]        # daily rebalance entrypoint
-quant status                       # account + per-strategy snapshot
-quant tearsheet <strategy>         # open HTML tear-sheet
-quant monitor                      # full-screen Textual TUI
+uv run quant --help                  # top-level help
+uv run quant strategies              # list registered strategies (empty until Plan 4)
+uv run quant status                  # Alpaca account + open positions (needs .env)
+uv run quant data inventory          # show what's on disk under data/
+
+# Stubs landing in later plans:
+uv run quant backtest <strategy>     # Plan 2 — backtest engine
+uv run quant validate <strategy>     # Plan 3 — validation harness
+uv run quant rebalance --dry-run     # Plan 6 — live execution
+uv run quant tearsheet <strategy>    # Plan 2 — tear-sheet viewer
+uv run quant journal                 # Plan 6 — trade log
+uv run quant monitor                 # Plan 6 — Textual TUI
+```
+
+## Local setup
+
+```bash
+git clone <repo>
+cd quant-trading
+cp .env.example .env                 # fill in Alpaca paper + FRED keys
+uv venv && uv sync --all-extras
+uv run pytest                        # run the unit tests
 ```
 
 ## License & disclaimer
