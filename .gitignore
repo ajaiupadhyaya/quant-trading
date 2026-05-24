@@ -31,3 +31,13 @@ data/features/    # derived features — regenerated on demand
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+
+# Data — regenerable from APIs
+data/raw/**
+!data/raw/.gitkeep
+data/fundamentals/**
+!data/fundamentals/.gitkeep
+data/macro/**
+!data/macro/.gitkeep
+data/features/**
+!data/features/.gitkeep
