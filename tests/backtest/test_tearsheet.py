@@ -139,3 +139,118 @@ def test_tearsheet_empty_walkforward(tmp_path: Path) -> None:
     assert (out_dir / "tearsheet.html").exists()
     html = (out_dir / "tearsheet.html").read_text()
     assert "no walk-forward windows" in html.lower()
+
+
+def test_tearsheet_renders_validation_sections_when_report_provided(tmp_path):
+    """When write_tearsheet receives a ValidationReport, render new sections."""
+    from datetime import date
+
+    from quant.backtest.cpcv import CPCVConfig
+    from quant.backtest.engine import BacktestConfig
+    from quant.backtest.tearsheet import write_tearsheet
+    from quant.backtest.validation import run_validation
+    from quant.backtest.walkforward import run_walkforward
+    from quant.strategies.base import Strategy, StrategySpec
+    from tests.conftest import synthetic_bars
+
+    class _Eqw(Strategy):
+        spec = StrategySpec(
+            slug="ts-validation",
+            name="TS Validation",
+            description="",
+            universe=["AAA", "BBB"],
+            rebalance_frequency="monthly",
+        )
+
+        def generate_signals(self, asof):
+            return pd.Series({"AAA": 1.0, "BBB": 1.0})
+
+        def target_positions(self, asof, equity):
+            return {"AAA": 10, "BBB": 10}
+
+    bars = synthetic_bars(["AAA", "BBB"], date(2010, 1, 1), date(2020, 12, 31))
+
+    def factory(params, bars):
+        return _Eqw(params=params)
+
+    bt_cfg = BacktestConfig(starting_equity=100_000.0)
+    wf = run_walkforward(
+        strategy_factory=factory,
+        param_grid={},
+        bars=bars,
+        start=date(2010, 1, 1),
+        end=date(2020, 12, 31),
+        config=bt_cfg,
+        train_years=5,
+        test_years=1,
+        step_months=12,
+    )
+    report = run_validation(
+        wf_result=wf,
+        bars=bars,
+        strategy_factory=factory,
+        chosen_params={},
+        backtest_config=bt_cfg,
+        cpcv_config=CPCVConfig(n_groups=4, k_test=2, embargo_days=0),
+        bootstrap_resamples=50,
+    )
+    path = write_tearsheet(
+        wf,
+        slug="ts-validation",
+        strategy_name="TS Validation",
+        out_dir=tmp_path,
+        validation=report,
+    )
+    html = path.read_text(encoding="utf-8")
+    assert "Deflated Sharpe" in html
+    assert "Probabilistic Sharpe" in html
+    assert "Regime Stress" in html
+    assert "Bootstrap" in html
+
+
+def test_tearsheet_without_validation_still_renders(tmp_path):
+    """Tear-sheet remains backwards-compatible when validation is None."""
+    from datetime import date
+
+    from quant.backtest.engine import BacktestConfig
+    from quant.backtest.tearsheet import write_tearsheet
+    from quant.backtest.walkforward import run_walkforward
+    from quant.strategies.base import Strategy, StrategySpec
+    from tests.conftest import synthetic_bars
+
+    class _Eqw(Strategy):
+        spec = StrategySpec(
+            slug="ts-novalid",
+            name="No Validation",
+            description="",
+            universe=["AAA"],
+            rebalance_frequency="monthly",
+        )
+
+        def generate_signals(self, asof):
+            return pd.Series({"AAA": 1.0})
+
+        def target_positions(self, asof, equity):
+            return {"AAA": 10}
+
+    bars = synthetic_bars(["AAA"], date(2014, 1, 1), date(2020, 12, 31))
+
+    def factory(params, bars):
+        return _Eqw(params=params)
+
+    wf = run_walkforward(
+        strategy_factory=factory,
+        param_grid={},
+        bars=bars,
+        start=date(2014, 1, 1),
+        end=date(2020, 12, 31),
+        config=BacktestConfig(),
+        train_years=5,
+        test_years=1,
+        step_months=12,
+    )
+    path = write_tearsheet(wf, slug="ts-novalid", strategy_name="No Validation", out_dir=tmp_path)
+    html = path.read_text(encoding="utf-8")
+    # New sections must NOT appear if report is None
+    assert "Deflated Sharpe" not in html
+    assert "Regime Stress" not in html

@@ -1,5 +1,7 @@
 # Quant Trading — Design Spec
 
+> **Implementation status:** Plan 1 ✅ · Plan 2 ✅ · Plan 3 ✅ (this doc) · Plans 4–6 pending.
+
 **Date:** 2026-05-23
 **Status:** Brainstorm complete, ready for writing-plans → implementation
 **Repo:** `~/Documents/quant-trading` (new standalone)

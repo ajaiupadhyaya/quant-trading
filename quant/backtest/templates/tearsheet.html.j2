@@ -70,5 +70,95 @@
       </tbody>
     </table>
   {% endif %}
+
+{% if validation %}
+<section class="validation">
+  <h2>Validation Battery</h2>
+  <div class="gate-grid">
+    <div class="gate {% if validation.gate_deflated_sharpe %}pass{% else %}fail{% endif %}">
+      <div class="gate-label">Deflated Sharpe</div>
+      <div class="gate-value">{{ "%.3f"|format(validation.deflated_sharpe) }}</div>
+      <div class="gate-thresh">≥ 0.30</div>
+    </div>
+    <div class="gate {% if validation.gate_probabilistic_sharpe %}pass{% else %}fail{% endif %}">
+      <div class="gate-label">Probabilistic Sharpe</div>
+      <div class="gate-value">{{ "%.3f"|format(validation.probabilistic_sharpe) }}</div>
+      <div class="gate-thresh">≥ 0.70</div>
+    </div>
+    <div class="gate {% if validation.gate_bootstrap_lower %}pass{% else %}fail{% endif %}">
+      <div class="gate-label">Bootstrap lower-5% total return</div>
+      <div class="gate-value">
+        {% if validation.bootstrap_ci %}{{ "%.2f%%"|format(validation.bootstrap_ci.total_return_p05 * 100) }}{% else %}—{% endif %}
+      </div>
+      <div class="gate-thresh">&gt; 0</div>
+    </div>
+    <div class="gate {% if validation.gate_regime %}pass{% else %}fail{% endif %}">
+      <div class="gate-label">Regime Stress</div>
+      <div class="gate-value">{{ validation.n_positive_regimes }}/5</div>
+      <div class="gate-thresh">≥ 3 positive</div>
+    </div>
+  </div>
+
+  <h3>Regime Breakdown</h3>
+  <table class="regime-table">
+    <thead><tr><th>Regime</th><th>Window</th><th>Days</th><th>Total Return</th><th>Sharpe</th><th>Max DD</th></tr></thead>
+    <tbody>
+      {% for r in validation.regime_breakdown %}
+      <tr>
+        <td>{{ r.name }}</td>
+        <td>{{ r.start }} → {{ r.end }}</td>
+        <td>{{ r.n_days }}</td>
+        <td>{{ "%+.2f%%"|format(r.total_return * 100) }}</td>
+        <td>{{ "%.2f"|format(r.sharpe) }}</td>
+        <td>{{ "%.2f%%"|format(r.max_drawdown * 100) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if validation.bootstrap_ci %}
+  <h3>Bootstrap CIs (n={{ validation.bootstrap_ci.n_resamples }}, 5/50/95 pct)</h3>
+  <table class="bootstrap-table">
+    <thead><tr><th>Metric</th><th>5%</th><th>median</th><th>95%</th></tr></thead>
+    <tbody>
+      <tr><td>Total return</td>
+        <td>{{ "%+.2f%%"|format(validation.bootstrap_ci.total_return_p05 * 100) }}</td>
+        <td>{{ "%+.2f%%"|format(validation.bootstrap_ci.total_return_median * 100) }}</td>
+        <td>{{ "%+.2f%%"|format(validation.bootstrap_ci.total_return_p95 * 100) }}</td>
+      </tr>
+      <tr><td>Sharpe</td>
+        <td>{{ "%.2f"|format(validation.bootstrap_ci.sharpe_p05) }}</td>
+        <td>{{ "%.2f"|format(validation.bootstrap_ci.sharpe_median) }}</td>
+        <td>{{ "%.2f"|format(validation.bootstrap_ci.sharpe_p95) }}</td>
+      </tr>
+      <tr><td>Max drawdown</td>
+        <td>{{ "%.2f%%"|format(validation.bootstrap_ci.max_drawdown_p05 * 100) }}</td>
+        <td>{{ "%.2f%%"|format(validation.bootstrap_ci.max_drawdown_median * 100) }}</td>
+        <td>{{ "%.2f%%"|format(validation.bootstrap_ci.max_drawdown_p95 * 100) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if charts.cpcv %}
+  <h3>CPCV Path Sharpe Distribution</h3>
+  <img src="data:image/png;base64,{{ charts.cpcv }}" alt="CPCV histogram" />
+  {% endif %}
+</section>
+
+<style>
+  .gate-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+  .gate { padding: 8px; border-radius: 4px; text-align: center; }
+  .gate.pass { background: #d4f4dd; }
+  .gate.fail { background: #f4d4d4; }
+  .gate-label { font-size: 0.9em; color: #444; }
+  .gate-value { font-size: 1.6em; font-weight: 600; margin: 4px 0; }
+  .gate-thresh { font-size: 0.8em; color: #666; }
+  .regime-table, .bootstrap-table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+  .regime-table th, .regime-table td, .bootstrap-table th, .bootstrap-table td {
+    padding: 4px 8px; border-bottom: 1px solid #eee; text-align: left;
+  }
+</style>
+{% endif %}
 </body>
 </html>
