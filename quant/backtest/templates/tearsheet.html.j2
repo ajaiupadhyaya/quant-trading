@@ -46,11 +46,23 @@
     <h2>Drawdown</h2>
     <img class="chart" src="data:image/png;base64,{{ charts.drawdown }}" alt="Drawdown">
 
+    <h2>Underwater (drawdown vs peak)</h2>
+    <img class="chart" src="data:image/png;base64,{{ charts.underwater }}" alt="Underwater plot">
+
+    <h2>Rolling Sharpe (252d)</h2>
+    <img class="chart" src="data:image/png;base64,{{ charts.rolling_sharpe }}" alt="Rolling Sharpe">
+
+    <h2>Rolling Volatility (60d)</h2>
+    <img class="chart" src="data:image/png;base64,{{ charts.rolling_vol }}" alt="Rolling vol">
+
     <h2>Monthly returns</h2>
     <img class="chart" src="data:image/png;base64,{{ charts.monthly }}" alt="Monthly returns heatmap">
 
     <h2>Returns distribution</h2>
     <img class="chart" src="data:image/png;base64,{{ charts.distribution }}" alt="Returns histogram">
+
+    <h2>Round-trip trade P&amp;L</h2>
+    <img class="chart" src="data:image/png;base64,{{ charts.trade_pnl }}" alt="Trade P&L distribution">
 
     <h2>Walk-forward windows</h2>
     <table class="windows">

@@ -2,7 +2,14 @@
 
 Systematic trading project — 5 strategies modeled on what AQR / Bridgewater / Citadel / JPM Quant publish about, paper-traded live on Alpaca via GitHub Actions, terminal-first CLI + TUI for navigation.
 
-**Status:** Spec implementation complete. Five strategies with SOTA enhancements (PCA pair discovery, Ledoit-Wolf shrinkage, drawdown-leverage curve, inverse-vol sizing), walk-forward + validation battery, live rebalance + journal wired to Alpaca paper, Textual TUI with drill-down + tear-sheet shortcuts, four GitHub Actions workflows (daily / nightly / weekly grid search / smoke), combined-book backtest, Hypothesis property tests on the engine. See [§ Status & roadmap](#status--roadmap) for what's explicitly out of scope.
+**Status:** Production-ready for Alpaca paper trading.
+
+- Strategies: PCA pair discovery + Engle-Granger ADF + OU half-life + opt-in Kalman hedge; HRP all-weather with Ledoit-Wolf shrinkage; TSMOM with Daniel-Moskowitz drawdown control; inverse-vol momentum; Hou-Xue-Zhang multi-factor on SEC EDGAR PIT fundamentals.
+- Validation: walk-forward + CPCV + DSR + PSR + stationary-block bootstrap + regime stress + OOS holdout + 0/5/15/30bps cost-sensitivity sweep.
+- Live ops: pre-trade safety guards (market-open, reconciliation, risk circuit breaker, bar freshness), `quant doctor` pre-flight, daily / nightly / weekly-grid / smoke CI workflows.
+- Observability: Textual TUI, combined-book tear-sheet with rolling Sharpe/vol + underwater + round-trip P&L distribution, structured trade journal.
+
+See [§ Status & roadmap](#status--roadmap) for explicitly-deferred items.
 
 **Design spec:** [`docs/specs/2026-05-23-quant-trading-design.md`](docs/specs/2026-05-23-quant-trading-design.md)
 
@@ -50,6 +57,8 @@ uv run quant rebalance               # daily rebalance — submits orders, snaps
 uv run quant journal --since 2026-05-01     # structured trade log
 uv run quant combined-book           # joint equity curve across all live-enabled strategies
 uv run quant monitor                 # Textual TUI dashboard (press ? for keybindings)
+uv run quant doctor                  # pre-flight check before connecting Alpaca
+uv run quant data refresh-fundamentals   # one-time: pull SEC EDGAR PIT facts
 ```
 
 ## Running a backtest
@@ -138,13 +147,11 @@ uv run pytest                        # run the unit tests
 
 ## Status & roadmap
 
-The spec [`docs/specs/2026-05-23-quant-trading-design.md`](docs/specs/2026-05-23-quant-trading-design.md) is fully implemented except for these explicitly deferred items:
+Spec [`docs/specs/2026-05-23-quant-trading-design.md`](docs/specs/2026-05-23-quant-trading-design.md) is fully implemented. Explicitly deferred:
 
-- **SEC EDGAR point-in-time fundamentals** — the multi-factor strategy currently uses price-derivable factors only (momentum / low-vol / reversal / trend). Plugging in EDGAR (book-to-market, gross profitability, asset growth) is the obvious next data-pipeline lift.
-- **Kalman-filter hedge ratios for pairs** — current pairs uses OLS-with-rolling-window plus PCA discovery + cointegration screen + OU half-life; Kalman is a future iteration.
-- **Finnhub earnings calendar** — for skipping earnings days on stat-arb pairs.
-- **Frozen golden tear-sheet PDFs** — spec §8 mentions committing reference PDFs that CI diffs against to catch silent regressions. The HTML tear-sheets currently live in `data/backtests/` but no diff harness is wired up.
-- **Real-money deployment** — explicitly out of scope per spec §7.3. Requires a separate design pass.
+- **Finnhub earnings calendar** — for skipping earnings days on stat-arb pairs. Pairs OU half-life filter already excludes pairs that won't mean-revert within a normal earnings cycle, so this is a refinement.
+- **Frozen golden tear-sheet PDFs** — spec §8 mentions committing reference PDFs that CI diffs against. The HTML tear-sheets are in `data/backtests/`; visual-diff CI is a future iteration.
+- **Real-money deployment** — out of scope per spec §7.3. Requires a separate design pass (per-strategy risk attribution, centralized order netting, multi-strategy capital allocation via HRP across strategies, compliance / tax-loss harvesting / wash-sale handling, real-money Alpaca credentials, pager alerts).
 
 ## License & disclaimer
 
