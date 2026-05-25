@@ -32,6 +32,10 @@ class Strategy(ABC):
 
     spec: ClassVar[StrategySpec]
     default_params: ClassVar[dict[str, Any]] = {}
+    # Walk-forward parameter grid. Keys are param names; values are lists of
+    # candidates to grid-search per training window. An empty dict means
+    # "only the defaults" — walk-forward will run once per window with no sweep.
+    param_grid: ClassVar[dict[str, list[Any]]] = {}
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         # Deep-copy so nested defaults (e.g. {"thresholds": {"entry": 1.0}}) can't

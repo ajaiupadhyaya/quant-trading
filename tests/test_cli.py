@@ -132,9 +132,17 @@ def test_backtest_command_runs_registered_strategy(
             mock_alpaca.return_value = {"AAA": df, "BBB": df}
             result = runner.invoke(cli, ["backtest", "cli-toy", "--quick"])
         assert result.exit_code == 0, result.output
-        # Check the tear-sheet was written:
+        # Check the tear-sheet AND chosen_params.json were written:
         out_dir = tmp_data_dir / "backtests" / "cli-toy"
         assert (out_dir / "tearsheet.html").exists()
+        params_path = out_dir / "chosen_params.json"
+        assert params_path.exists()
+        import json
+
+        payload = json.loads(params_path.read_text())
+        assert "latest" in payload
+        assert "windows" in payload
+        assert isinstance(payload["windows"], list)
     finally:
         REGISTRY.pop("cli-toy", None)
 

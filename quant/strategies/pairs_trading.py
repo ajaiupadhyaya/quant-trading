@@ -67,6 +67,13 @@ class PairsTrading(Strategy):
         "min_history_days": 90,
     }
 
+    # Spec §2.3: entry z (1.5/2.0/2.5), exit z (0/0.5), discovery window.
+    param_grid: ClassVar[dict[str, list[Any]]] = {
+        "entry_z": [1.5, 2.0, 2.5],
+        "exit_z": [0.0, 0.5],
+        "lookback_days": [45, 60, 90],
+    }
+
     def __init__(self, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> None:
         super().__init__(params=params)
         self._bars = bars
