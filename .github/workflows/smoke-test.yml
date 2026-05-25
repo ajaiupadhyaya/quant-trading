@@ -1,0 +1,75 @@
+name: smoke-test
+
+# Spec §8: a separate CI workflow runs `quant rebalance --dry-run` against a
+# snapshot bar cache to confirm the daily rebalance code path doesn't break.
+# Runs on every push and PR to catch regressions in the live execution layer
+# without needing Alpaca credentials in CI.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Dummy creds — the dry-run path never touches the network.
+      ALPACA_API_KEY: ci-dummy
+      ALPACA_SECRET_KEY: ci-dummy
+      ALPACA_PAPER: "true"
+      ALPACA_BASE_URL: https://paper-api.alpaca.markets
+      FRED_API_KEY: ci-dummy
+      LOG_LEVEL: INFO
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-extras
+
+      - name: Smoke: rebalance --dry-run against stubbed Alpaca
+        run: |
+          uv run python - <<'PY'
+          from datetime import date, timedelta
+          from unittest.mock import patch
+          import pandas as pd
+          from quant.execution.alpaca import AccountInfo
+          from quant.live.rebalance import run_rebalance
+          from tests.conftest import synthetic_bars
+          from quant.strategies import REGISTRY
+
+          class _Stub:
+              def account(self):
+                  return AccountInfo(
+                      equity=100_000.0, last_equity=100_000.0,
+                      buying_power=200_000.0, cash=10_000.0,
+                      portfolio_value=100_000.0, pattern_day_trader=False,
+                  )
+              def positions(self):
+                  return []
+              def submit_order(self, order, *, dry_run=False):
+                  return "stub-coid"
+
+          today = date.today()
+
+          def _stub_bars(cls, asof, history_days):
+              return synthetic_bars(
+                  list(cls.spec.universe),
+                  date(asof.year - 3, asof.month, asof.day),
+                  asof,
+                  seed=7,
+              )
+
+          with patch("quant.live.rebalance._bars_for", _stub_bars):
+              report = run_rebalance(asof=today, dry_run=True, client=_Stub())
+          print(f"smoke: {len(report.outcomes)} outcomes; total_orders={report.total_orders}")
+          assert all(o.error is None for o in report.outcomes), [o.error for o in report.outcomes if o.error]
+          PY

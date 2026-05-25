@@ -1,6 +1,6 @@
 # Quant Trading — Design Spec
 
-> **Implementation status:** Plan 1 ✅ · Plan 2 ✅ · Plan 3 ✅ · Plan 4 ✅ · Plan 5 ✅ · Plan 6 ✅ (all 6 plans landed; 201 tests, mypy strict clean).
+> **Implementation status:** Plans 1–6 ✅, plus four follow-up PRs landing per-strategy walk-forward grids, Hypothesis property tests, combined-book backtest, SOTA strategy upgrades (PCA pair discovery / Ledoit-Wolf shrinkage / drawdown-leverage curve / inverse-vol sizing), TUI keybindings, and `.env.example` + smoke-test workflow. mypy strict clean; full test suite green. See README "Status & roadmap" for the deferred items (SEC EDGAR fundamentals, Kalman hedge ratios, Finnhub earnings, frozen tear-sheet PDFs, real-money deployment).
 
 **Date:** 2026-05-23
 **Status:** Brainstorm complete, ready for writing-plans → implementation
@@ -328,15 +328,15 @@ That is a meaningfully different design and should NOT be confused with paper tr
 
 ---
 
-## 9. Open questions deferred to implementation
+## 9. Open questions — resolutions
 
-These don't need answers to start, but the implementer should flag any that block:
+Resolved during implementation; recorded here for the audit trail.
 
-1. **Should the `data/` directory really be committed?** Parquet files grow over time; might exceed GitHub's 1 GB soft limit after 5+ years. Mitigation: Git LFS, or split history with `git rebase --root` annually.
-2. **Should the regime stress test "regimes" be hard-coded or detected algorithmically?** Hard-coded is simpler and more interpretable. Detection (HMM, BCPM, etc.) is fancier but adds another layer to validate.
-3. **Should we adopt `uv` or stick with `pip`?** `uv` is dramatically faster for repeatable env setup; pyproject.toml is the right shape either way.
-4. **Crypto sleeve in risk-parity — default on or off?** Alpaca paper supports crypto. Adds tail risk + 24/7 trading complications.
-5. **Backtest data start date — 2002 (best you can get on free tier) or 2010 (post-GFC)?** Longer is better for regime coverage; shorter is faster compute.
+1. **Should the `data/` directory really be committed?** **Yes for now, with Git LFS as a deferred mitigation.** Live equity + trades are tiny (~10 KB/day). Backtest tear-sheets are bigger (~1 MB each, 5 strategies × 1 weekly grid search) but only the most recent versions are kept (workflows overwrite). Revisit at the 5-year mark.
+2. **Hard-coded vs. detected regime windows?** **Hard-coded.** They're interpretable, reproducible, and the spec's pass criterion is "positive in ≥3 of 5" which only makes sense with named regimes. Adding HMM/BCPM detection would create a second thing to validate.
+3. **`uv` vs `pip`?** **`uv`.** `uv sync --all-extras` is the canonical install path everywhere (local + CI + Actions).
+4. **Crypto sleeve in risk-parity — default on or off?** **Off.** Adds 24/7 trading complications, tail risk, and no clear edge over the 8-ETF universe. Toggle remains available via `default_params` if needed.
+5. **Backtest start date — 2002 or 2010?** **2010-01-01 is the CLI default; 2015-01-01 is the GitHub Actions default.** 2002 is available manually via `--start 2002-01-01` for any strategy whose universe survives that far back. The shorter default trades regime coverage for faster CI iteration.
 
 ---
 
