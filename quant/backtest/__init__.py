@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from quant.backtest.combined import CombinedResult, run_combined_book
 from quant.backtest.engine import BacktestConfig, BacktestResult, run_backtest
-from quant.backtest.tearsheet import write_tearsheet
+from quant.backtest.tearsheet import write_combined_tearsheet, write_tearsheet
 from quant.backtest.walkforward import (
     WalkforwardResult,
     WalkforwardWindow,
@@ -24,5 +24,6 @@ __all__ = [
     "run_combined_book",
     "run_walkforward",
     "select_best_params",
+    "write_combined_tearsheet",
     "write_tearsheet",
 ]

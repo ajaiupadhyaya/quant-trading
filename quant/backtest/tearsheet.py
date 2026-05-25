@@ -24,6 +24,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
+from quant.backtest.combined import CombinedResult
 from quant.backtest.metrics import (
     cagr,
     max_drawdown,
@@ -244,3 +245,107 @@ def write_tearsheet(
     (out_dir / "chosen_params.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     return html_path
+
+
+def write_combined_tearsheet(
+    result: CombinedResult,
+    out_dir: Path,
+) -> Path:
+    """Render the combined-book HTML tear-sheet + sidecar parquet.
+
+    Shows the joint equity / drawdown / monthly heatmap, plus a per-strategy
+    breakdown table (allocation, end equity, Sharpe, CAGR, MaxDD) and a
+    stacked equity-curve chart so the reader can see each strategy's
+    contribution to the combined curve.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    metrics = _MetricsBundle(
+        total_return=total_return(result.returns),
+        cagr=cagr(result.returns),
+        sharpe=sharpe(result.returns),
+        sortino=sortino(result.returns),
+        max_drawdown=max_drawdown(result.returns),
+        win_rate=win_rate(result.returns),
+        n_trades=len(result.trades),
+        starting_equity=float(result.starting_equity),
+        ending_equity=float(result.ending_equity),
+    )
+
+    charts: dict[str, str] = {}
+    if not result.equity_curve.empty:
+        charts["equity"] = _equity_chart(result.equity_curve)
+        charts["drawdown"] = _drawdown_chart(result.equity_curve)
+        charts["monthly"] = _monthly_chart(result.returns)
+        charts["distribution"] = _distribution_chart(result.returns)
+        charts["stacked"] = _stacked_equity_chart(result)
+
+    per_strategy_rows: list[dict[str, Any]] = []
+    for slug in sorted(result.per_strategy):
+        sub = result.per_strategy[slug]
+        per_strategy_rows.append(
+            {
+                "slug": slug,
+                "allocation": result.allocation.get(slug, 0.0),
+                "starting_equity": float(sub.starting_equity),
+                "ending_equity": float(sub.ending_equity),
+                "total_return": total_return(sub.returns),
+                "sharpe": sharpe(sub.returns),
+                "cagr": cagr(sub.returns),
+                "max_drawdown": max_drawdown(sub.returns),
+                "n_trades": len(sub.trades),
+            }
+        )
+
+    env = Environment(
+        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
+        autoescape=select_autoescape(["html"]),
+    )
+    template = env.get_template("combined_tearsheet.html.j2")
+    html = template.render(
+        metrics=metrics,
+        charts=charts,
+        per_strategy=per_strategy_rows,
+        n_strategies=len(per_strategy_rows),
+        oos_start=str(result.equity_curve.index.min().date())
+        if not result.equity_curve.empty
+        else "—",
+        oos_end=str(result.equity_curve.index.max().date())
+        if not result.equity_curve.empty
+        else "—",
+    )
+    html_path = out_dir / "tearsheet.html"
+    html_path.write_text(html, encoding="utf-8")
+
+    # Sidecar parquets
+    if not result.equity_curve.empty:
+        result.equity_curve.to_frame(name="equity").to_parquet(out_dir / "equity.parquet")
+    if not result.trades.empty:
+        result.trades.to_parquet(out_dir / "trades.parquet")
+
+    return html_path
+
+
+def _stacked_equity_chart(result: CombinedResult) -> str:
+    """Per-strategy equity curves stacked into one figure."""
+    fig, ax = plt.subplots(figsize=(9, 4))
+    for slug in sorted(result.per_strategy):
+        sub = result.per_strategy[slug]
+        if sub.equity_curve.empty:
+            continue
+        ax.plot(sub.equity_curve.index, np.asarray(sub.equity_curve.values), label=slug, alpha=0.8)
+    if not result.equity_curve.empty:
+        ax.plot(
+            result.equity_curve.index,
+            np.asarray(result.equity_curve.values),
+            label="COMBINED",
+            color="black",
+            linewidth=2.0,
+        )
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Equity ($)")
+    ax.set_title("Per-strategy + combined equity")
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="upper left", fontsize=8)
+    return _fig_to_base64(fig)

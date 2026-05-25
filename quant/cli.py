@@ -222,13 +222,12 @@ def combined_book(start: str, end: str | None) -> None:
     )
     console.print(table)
 
+    from quant.backtest import write_combined_tearsheet
+
     settings = Settings()  # type: ignore[call-arg]
     out_dir = settings.data_dir / "backtests" / "_combined"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    result.equity_curve.to_frame(name="equity").to_parquet(out_dir / "equity.parquet")
-    if not result.trades.empty:
-        result.trades.to_parquet(out_dir / "trades.parquet")
-    console.print(f"[green]Wrote {out_dir}/equity.parquet[/green]")
+    html_path = write_combined_tearsheet(result=result, out_dir=out_dir)
+    console.print(f"[green]Wrote {html_path}[/green]")
 
 
 @cli.command(help="Run the full validation battery (walk-forward + CPCV + DSR + ...).")
