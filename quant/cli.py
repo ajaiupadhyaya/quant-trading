@@ -357,10 +357,11 @@ def validate(
     table.add_row(
         "Bootstrap lower-5%", boot_lower, "> 0", "✓" if report.gate_bootstrap_lower else "✗"
     )
+    n_tested = sum(1 for r in report.regime_breakdown if r.n_days >= 30)
     table.add_row(
-        "Regime stress (positive)",
-        f"{report.n_positive_regimes}/5",
-        "≥ 3",
+        "Regime stress (positive/tested)",
+        f"{report.n_positive_regimes}/{n_tested}" + (" (of 5 defined)" if n_tested < 5 else ""),
+        "≥ 50%",
         "✓" if report.gate_regime else "✗",
     )
     if report.holdout is not None:

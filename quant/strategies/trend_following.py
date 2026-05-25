@@ -17,7 +17,12 @@ import pandas as pd
 
 from quant.data.universe import etf_universe
 from quant.strategies import register
-from quant.strategies._common import asof_index, field_frame, size_to_shares
+from quant.strategies._common import (
+    asof_index,
+    drawdown_leverage_factor,
+    field_frame,
+    size_to_shares,
+)
 from quant.strategies.base import Strategy, StrategySpec
 
 
@@ -117,38 +122,12 @@ class TrendFollowing(Strategy):
             weights = weights * (max_lev / gross)
 
         if bool(self.params["dd_control_enabled"]):
-            weights = weights * self._dd_leverage_factor(loc)
+            weights = weights * drawdown_leverage_factor(
+                self._returns,
+                loc,
+                lookback_days=int(self.params["dd_lookback_days"]),
+                dd_floor=float(self.params["dd_floor"]),
+            )
 
         prices = self._close.iloc[loc].dropna()
         return size_to_shares(weights, prices, equity)
-
-    def _dd_leverage_factor(self, loc: int) -> float:
-        """Return a [0, 1] multiplier on gross exposure based on recent drawdown.
-
-        Daniel-Moskowitz "managed momentum": when the long-only TSMOM proxy
-        portfolio has drawn down beyond ``dd_floor``, cut leverage linearly.
-        The proxy is an equal-weight long-only basket of the universe — it
-        rises and falls with the same regime that drives TSMOM signals, so
-        its drawdown is a reasonable instrument for the strategy's own.
-        """
-        lookback = int(self.params["dd_lookback_days"])
-        dd_floor = float(self.params["dd_floor"])
-        if dd_floor <= 0:
-            return 1.0
-        window = self._returns.iloc[max(loc - lookback, 0) : loc + 1]
-        if window.empty:
-            return 1.0
-        proxy = window.mean(axis=1).fillna(0.0)
-        equity = (1.0 + proxy).cumprod()
-        if equity.empty:
-            return 1.0
-        peak = float(equity.cummax().iloc[-1])
-        current = float(equity.iloc[-1])
-        if peak <= 0:
-            return 1.0
-        dd = current / peak - 1.0  # non-positive
-        if dd >= 0:
-            return 1.0
-        # Linear ramp: dd = 0 -> 1.0; dd = -dd_floor -> 0.0.
-        factor = 1.0 + dd / dd_floor
-        return float(max(0.0, min(1.0, factor)))

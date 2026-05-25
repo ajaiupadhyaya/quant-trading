@@ -160,13 +160,19 @@ def hrp_weights(cov: pd.DataFrame, corr: pd.DataFrame) -> pd.Series:
 class RiskParity(Strategy):
     """HRP-weighted multi-asset portfolio, monthly rebalance, vol-targeted."""
 
+    # ``enabled_live=False`` per spec §4 validation gate (2026-05-25):
+    # DSR 0.008, PSR 0.243, bootstrap lower-5% -42.93%, 1/5 regimes positive — only the
+    # 1-yr holdout (+11.32%) cleared. The 2022-2023 bond bear market (TLT/IEF heavy
+    # weights in HRP) crushed the OOS curve. Re-enable once we either (a) widen the
+    # universe with negatively-correlated risk assets, or (b) add a rates-regime
+    # filter that scales bond exposure down when yields are rising.
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="risk-parity",
         name="HRP All-Weather",
         description="Hierarchical Risk Parity on ETF universe with constant-vol targeting.",
         universe=etf_universe(),
         rebalance_frequency="monthly",
-        enabled_live=True,
+        enabled_live=False,
     )
 
     default_params: ClassVar[dict[str, Any]] = {

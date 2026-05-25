@@ -20,7 +20,12 @@ import pandas as pd
 
 from quant.data.universe import etf_universe
 from quant.strategies import register
-from quant.strategies._common import asof_index, field_frame, size_to_shares
+from quant.strategies._common import (
+    asof_index,
+    drawdown_leverage_factor,
+    field_frame,
+    size_to_shares,
+)
 from quant.strategies.base import Strategy, StrategySpec
 
 
@@ -28,13 +33,26 @@ from quant.strategies.base import Strategy, StrategySpec
 class CrossSectionalMomentum(Strategy):
     """Top-decile cross-sectional momentum with 200d trend filter."""
 
+    # ``enabled_live=False`` per validation gate (2026-05-25 final):
+    # Passes 4/5 gates strongly — DSR 0.836, PSR 0.991, bootstrap lower-5% +8.79%,
+    # holdout 2025→2026 +18.19%, cost-robust at 30bps. Adding Daniel-Moskowitz
+    # drawdown control reduced max DD from -13.24% to -12.41% but still 1/3
+    # tested regimes positive (only the 2024 bull). Long-biased cross-sectional
+    # momentum is regime-fragile by construction — drawdown control reduces
+    # magnitude but can't flip crash regimes positive.
+    # To enable live, the strategy needs a regime overlay that goes neutral
+    # or short during cross-sectional dispersion collapses (a TSMOM-style
+    # signal on the strategy's own equity, or a VIX-based de-risk).
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="momentum",
         name="Cross-Sectional Momentum",
-        description="Jegadeesh-Titman 12-1, top decile, 200d trend filter on ETF universe.",
+        description=(
+            "JT 12-1, top decile, 200d trend filter, inverse-vol sizing, "
+            "Daniel-Moskowitz drawdown control on ETF universe."
+        ),
         universe=etf_universe(),
         rebalance_frequency="monthly",
-        enabled_live=True,
+        enabled_live=False,
     )
 
     default_params: ClassVar[dict[str, Any]] = {
@@ -48,6 +66,12 @@ class CrossSectionalMomentum(Strategy):
         "vol_scale_enabled": True,
         "vol_lookback_days": 60,
         "vol_target_annual": 0.10,
+        # Daniel-Moskowitz "managed momentum" — scale gross exposure down as
+        # the long-only universe basket draws down. Cross-sectional momentum
+        # is famously fragile to regime breaks; this is the canonical fix.
+        "dd_control_enabled": True,
+        "dd_lookback_days": 252,
+        "dd_floor": 0.20,
     }
 
     # Spec §2.1: lookback (6/9/12), top_pct (0.25/0.30/0.40), trend (150/200/250).
@@ -113,6 +137,14 @@ class CrossSectionalMomentum(Strategy):
             weights = pd.Series(1.0 / len(top), index=top.index)
         if weights.empty:
             return {}
+
+        if bool(self.params["dd_control_enabled"]):
+            weights = weights * drawdown_leverage_factor(
+                self._returns,
+                loc,
+                lookback_days=int(self.params["dd_lookback_days"]),
+                dd_floor=float(self.params["dd_floor"]),
+            )
 
         prices = self._close.iloc[loc].dropna()
         return size_to_shares(weights, prices, equity)
