@@ -9,11 +9,14 @@ error-free.
 
 from __future__ import annotations
 
+import tempfile
 from datetime import date
+from pathlib import Path
 from unittest.mock import patch
 
 from quant.execution.alpaca import AccountInfo
 from quant.live.rebalance import run_rebalance
+from quant.util.config import Settings
 from tests.conftest import synthetic_bars
 
 
@@ -45,12 +48,20 @@ def _stub_bars(strategy_cls, asof, history_days):  # type: ignore[no-untyped-def
 
 
 def main() -> int:
-    with patch("quant.live.rebalance._bars_for", _stub_bars):
-        report = run_rebalance(
-            asof=date.today(),
-            dry_run=True,
-            client=_StubAlpaca(),  # type: ignore[arg-type]
-        )
+    # Use a throwaway temp dir so a local invocation never pollutes real
+    # data/live/* bookkeeping. CI doesn't care — its checkout is ephemeral —
+    # but anyone running this on a workstation would otherwise see phantom
+    # equity rows appear in their live audit log.
+    with tempfile.TemporaryDirectory(prefix="quant-smoke-") as tmp:
+        tmp_settings = Settings(data_dir=Path(tmp))  # type: ignore[call-arg]
+        with patch("quant.live.rebalance._bars_for", _stub_bars):
+            report = run_rebalance(
+                asof=date.today(),
+                dry_run=True,
+                client=_StubAlpaca(),  # type: ignore[arg-type]
+                settings=tmp_settings,
+                skip_safety_checks=True,
+            )
     print(f"smoke: {len(report.outcomes)} outcomes; total_orders={report.total_orders}")
     errors = [(o.slug, o.error) for o in report.outcomes if o.error]
     if errors:
