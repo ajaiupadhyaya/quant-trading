@@ -69,6 +69,21 @@ def compute_regime_breakdown(returns: pd.Series) -> list[RegimeBreakdown]:
     return out
 
 
+_MIN_REGIME_DAYS = 30
+
+
 def count_positive_regimes(breakdown: list[RegimeBreakdown]) -> int:
     """Number of regimes with strictly-positive total return (n_days>0 required)."""
     return sum(1 for b in breakdown if b.n_days > 0 and b.total_return > 0.0)
+
+
+def count_tested_regimes(breakdown: list[RegimeBreakdown], min_days: int = _MIN_REGIME_DAYS) -> int:
+    """How many regimes had enough OOS data to actually be evaluated.
+
+    A regime entirely outside the OOS window (n_days=0) is not a fail — it
+    just wasn't tested. Strategies trained on post-2010 data physically cannot
+    be evaluated on GFC 2008 or most of the 2015 China selloff. The gate uses
+    this to scale the threshold rather than treating unreachable regimes as
+    automatic fails.
+    """
+    return sum(1 for b in breakdown if b.n_days >= min_days)

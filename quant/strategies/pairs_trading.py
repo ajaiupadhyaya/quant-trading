@@ -108,6 +108,14 @@ PAIRS_UNIVERSE: list[str] = PAIRS_DISCOVERY_UNIVERSE
 class PairsTrading(Strategy):
     """PCA-discovered pairs with cointegration screen + z-score mean reversion."""
 
+    # ``enabled_live=False`` per spec §4 validation gate (2026-05-25):
+    # DSR 0.000, PSR 0.073, bootstrap lower-5% -49.41%, 1/5 regimes positive,
+    # holdout -2.94% — failed ALL five gates. Consistent with the academic
+    # consensus that pairs-trading alpha has been arbitraged out post-2010
+    # (Gatev-Goetzmann-Rouwenhorst 2006 returns no longer reproduce). Even
+    # the SOTA pipeline (PCA discovery + ADF + Kalman) doesn't recover what
+    # isn't there. Keep the code for research / future regime where dispersion
+    # spreads widen again. Don't trade it live.
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="pairs",
         name="Pairs Trading",
@@ -117,7 +125,7 @@ class PairsTrading(Strategy):
         ),
         universe=PAIRS_UNIVERSE,
         rebalance_frequency="weekly",
-        enabled_live=True,
+        enabled_live=False,
     )
 
     default_params: ClassVar[dict[str, Any]] = {

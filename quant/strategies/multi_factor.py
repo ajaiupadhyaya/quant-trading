@@ -23,7 +23,12 @@ import numpy as np
 import pandas as pd
 
 from quant.strategies import register
-from quant.strategies._common import asof_index, field_frame, size_to_shares
+from quant.strategies._common import (
+    asof_index,
+    drawdown_leverage_factor,
+    field_frame,
+    size_to_shares,
+)
 from quant.strategies.base import Strategy, StrategySpec
 
 MEGACAP_UNIVERSE: list[str] = [
@@ -65,13 +70,23 @@ def _zscore(row: pd.Series) -> pd.Series:
 class MultiFactor(Strategy):
     """Composite momentum / low-vol / reversal / trend factor portfolio."""
 
+    # ``enabled_live=False`` per validation gate (2026-05-25 final):
+    # Passes 4/5 gates with VERY strong margins — DSR 0.909, PSR 0.998, bootstrap
+    # lower-5% +78.94%, holdout 2025→2026 +11.08%, cost-robust at 30bps. But
+    # only 1/3 tested regimes positive (-37.65% max DD without dd control;
+    # drawdown control helps but doesn't flip crash regimes). Same fundamental
+    # issue as momentum: long-biased cross-sectional equity strategies lose in
+    # sharp drawdowns regardless of factor selection. Enable live once the
+    # composite signal incorporates a market-regime overlay (e.g. neutralize
+    # the long leg + size up the short leg when cross-sectional dispersion
+    # collapses, or kill the strategy when SPY drawdown > 15%).
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="multi-factor",
         name="Multi-Factor Long/Short",
         description="Composite of momentum + low-vol + reversal + trend, top/bottom quintile L/S.",
         universe=MEGACAP_UNIVERSE,
         rebalance_frequency="monthly",
-        enabled_live=True,
+        enabled_live=False,
     )
 
     default_params: ClassVar[dict[str, Any]] = {
@@ -91,6 +106,12 @@ class MultiFactor(Strategy):
         "use_fundamentals": True,
         # EDGAR pulls are network-bound; if the cache for any name is missing
         # at build-time we silently skip that name's fundamentals factors.
+        # Daniel-Moskowitz "managed momentum" — also applies to multi-factor
+        # since the composite is momentum-loaded. Scales gross exposure down
+        # in deep universe-wide drawdowns.
+        "dd_control_enabled": True,
+        "dd_lookback_days": 252,
+        "dd_floor": 0.20,
     }
 
     # Spec §2.2: quintile size, dollar-neutral on/off, lookback per factor.
@@ -235,5 +256,14 @@ class MultiFactor(Strategy):
         loc = asof_index(history, asof)
         if loc is None:
             return {}
+
+        if bool(self.params["dd_control_enabled"]):
+            weights = weights * drawdown_leverage_factor(
+                self._returns,
+                loc,
+                lookback_days=int(self.params["dd_lookback_days"]),
+                dd_floor=float(self.params["dd_floor"]),
+            )
+
         prices = self._close.iloc[loc].dropna()
         return size_to_shares(weights, prices, equity)

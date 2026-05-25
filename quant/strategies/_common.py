@@ -88,3 +88,53 @@ def annualize_vol(daily_returns: pd.Series, trading_days: int = 252) -> float:
     if not np.isfinite(vol) or vol <= 0.0:
         return 0.0
     return vol * float(np.sqrt(trading_days))
+
+
+def drawdown_leverage_factor(
+    returns: pd.DataFrame,
+    loc: int,
+    *,
+    lookback_days: int = 252,
+    dd_floor: float = 0.20,
+) -> float:
+    """Daniel-Moskowitz "managed momentum" exposure attenuator.
+
+    Returns a multiplier in ``[0, 1]`` to apply to a strategy's gross exposure
+    based on the trailing drawdown of an equal-weight long-only proxy basket
+    of the strategy's universe. At zero drawdown the multiplier is 1.0; at
+    ``-dd_floor`` or worse it's 0.0; linear ramp in between.
+
+    Rationale: cross-sectional equity strategies (momentum, multi-factor) and
+    long-only / long-biased TSMOM all share regime fragility — they get
+    crushed in sharp reversal regimes (Daniel-Moskowitz 2016 "momentum
+    crashes"). The proxy basket's drawdown is a fast, model-free instrument
+    for the strategy's own regime risk: when the universe as a whole is in
+    a deep drawdown, halve / cut / zero our exposure rather than rely on
+    the signal logic to time the reversal.
+
+    Args:
+        returns: wide DataFrame of per-symbol daily returns.
+        loc: integer location of the current bar in ``returns.index``.
+        lookback_days: trailing window over which to compute the drawdown.
+        dd_floor: drawdown magnitude at which leverage hits zero.
+
+    Returns 1.0 on insufficient history (warm-up) or zero dd_floor.
+    """
+    if dd_floor <= 0:
+        return 1.0
+    window = returns.iloc[max(loc - lookback_days, 0) : loc + 1]
+    if window.empty:
+        return 1.0
+    proxy = window.mean(axis=1).fillna(0.0)
+    equity = (1.0 + proxy).cumprod()
+    if equity.empty:
+        return 1.0
+    peak = float(equity.cummax().iloc[-1])
+    current = float(equity.iloc[-1])
+    if peak <= 0:
+        return 1.0
+    dd = current / peak - 1.0  # non-positive
+    if dd >= 0:
+        return 1.0
+    factor = 1.0 + dd / dd_floor  # linear ramp from 1.0 to 0.0
+    return float(max(0.0, min(1.0, factor)))

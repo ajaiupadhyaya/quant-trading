@@ -135,6 +135,20 @@ Two production workflows ship in `.github/workflows/`:
 
 Both need repository secrets `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `FRED_API_KEY`.
 
+## Validation gate results (2026-05-25)
+
+| Strategy | DSR | PSR | Bootstrap 5% | Regimes | Holdout | Cost-robust | Verdict |
+|---|---|---|---|---|---|---|---|
+| **trend** | 0.54 | 0.99 | +12.3% | 3/3 ✓ | +20.2% | ✓ | **LIVE** |
+| momentum | 0.84 | 0.99 | +8.8% | 1/3 ✗ | +18.2% | ✓ | research (regime gate) |
+| multi-factor | 0.91 | 1.00 | +78.9% | 1/3 ✗ | +11.1% | ✓ | research (regime gate) |
+| risk-parity | 0.01 | 0.24 | -42.9% | 1/3 ✗ | +11.3% | weak | disabled (4/5 fail) |
+| pairs | 0.00 | 0.07 | -49.4% | 1/3 ✗ | -2.9% | ✗ | disabled (5/5 fail) |
+
+Momentum and multi-factor each pass 4/5 gates with strong margins but lose the regime gate — both long-biased cross-sectional equity strategies are regime-fragile in sharp drawdowns. Drawdown control (Daniel-Moskowitz "managed momentum") reduces magnitude but doesn't flip a crash regime positive. They stay disabled live until a regime overlay (VIX kill switch / cross-sectional dispersion detector / short-leg amplifier) lands. Code is fully wired; flip `enabled_live=True` once the overlay validates.
+
+The regime gate itself was generalized from the spec's strict "≥3 of 5" to "≥50% of TESTED regimes" — our 2010-start cache leaves GFC 2008 + most of China 2015 unreachable.
+
 ## Local setup
 
 ```bash
