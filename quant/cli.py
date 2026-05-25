@@ -8,8 +8,10 @@ fully functional; the rest are scaffolded so the command surface is stable.
 from __future__ import annotations
 
 import webbrowser
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import click
 import pandas as pd
@@ -87,7 +89,9 @@ def status() -> None:
 @cli.command(help="Run full walk-forward backtest for <strategy> and write tear-sheet.")
 @click.argument("strategy")
 @click.option(
-    "--quick", is_flag=True, help="Skip combinatorial CV + bootstrap (Plan 3-only knobs)."
+    "--quick",
+    is_flag=True,
+    help="Skip grid search; use strategy defaults only (much faster).",
 )
 @click.option(
     "--start",
@@ -98,9 +102,6 @@ def status() -> None:
 @click.option("--end", default=None, help="History end date (YYYY-MM-DD). Default: today.")
 def backtest(strategy: str, quick: bool, start: str, end: str | None) -> None:
     _require_strategy(strategy)
-    if quick:
-        # Plan 2 has no Plan-3 knobs to skip; flag is reserved for forward-compat.
-        logger.info("--quick: skipping Plan-3 validation layers (none active in this plan).")
 
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end) if end else date.today()
@@ -108,6 +109,18 @@ def backtest(strategy: str, quick: bool, start: str, end: str | None) -> None:
     settings = Settings()  # type: ignore[call-arg]
     strategy_cls = REGISTRY[strategy]
     universe = list(strategy_cls.spec.universe)
+    grid: dict[str, Sequence[Any]] = (
+        {} if quick else {k: list(v) for k, v in strategy_cls.param_grid.items()}
+    )
+    if quick:
+        logger.info("--quick: skipping grid search; running with strategy defaults only.")
+    else:
+        n_combos = 1
+        for vals in grid.values():
+            n_combos *= max(len(vals), 1)
+        logger.info(
+            "Grid search across {} param combos: {}", n_combos, ", ".join(grid) or "(defaults)"
+        )
 
     console.print(f"[bold]Fetching bars for {len(universe)} symbols...[/bold]")
     bars = get_bars(BarRequest(symbols=universe, start=start_date, end=end_date))
@@ -122,7 +135,7 @@ def backtest(strategy: str, quick: bool, start: str, end: str | None) -> None:
     console.print("[bold]Running walk-forward...[/bold]")
     result = run_walkforward(
         strategy_factory=factory,
-        param_grid={},
+        param_grid=grid,
         bars=bars,
         start=start_date,
         end=end_date,
@@ -148,6 +161,7 @@ def backtest(strategy: str, quick: bool, start: str, end: str | None) -> None:
 @click.option("--bootstrap-resamples", default=1000, show_default=True, type=int)
 @click.option("--cpcv-groups", default=6, show_default=True, type=int)
 @click.option("--cpcv-k-test", default=2, show_default=True, type=int)
+@click.option("--quick", is_flag=True, help="Skip grid search; use strategy defaults only.")
 def validate(
     strategy: str,
     start: str,
@@ -155,6 +169,7 @@ def validate(
     bootstrap_resamples: int,
     cpcv_groups: int,
     cpcv_k_test: int,
+    quick: bool,
 ) -> None:
     from quant.backtest.cpcv import CPCVConfig
     from quant.backtest.validation import run_validation
@@ -167,6 +182,9 @@ def validate(
     settings = Settings()  # type: ignore[call-arg]
     strategy_cls = REGISTRY[strategy]
     universe = list(strategy_cls.spec.universe)
+    grid: dict[str, Sequence[Any]] = (
+        {} if quick else {k: list(v) for k, v in strategy_cls.param_grid.items()}
+    )
 
     console.print(f"[bold]Fetching bars for {len(universe)} symbols...[/bold]")
     bars = get_bars(BarRequest(symbols=universe, start=start_date, end=end_date))
@@ -181,7 +199,7 @@ def validate(
     console.print("[bold]Running walk-forward...[/bold]")
     wf = run_walkforward(
         strategy_factory=factory,
-        param_grid={},
+        param_grid=grid,
         bars=bars,
         start=start_date,
         end=end_date,

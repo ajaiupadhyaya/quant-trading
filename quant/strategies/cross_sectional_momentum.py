@@ -45,6 +45,13 @@ class CrossSectionalMomentum(Strategy):
         "min_history_days": 252,
     }
 
+    # Spec §2.1: lookback (6/9/12), top_pct (0.25/0.30/0.40), trend (150/200/250).
+    param_grid: ClassVar[dict[str, list[Any]]] = {
+        "lookback_months": [6, 9, 12],
+        "top_pct": [0.25, 0.30, 0.40],
+        "trend_filter_days": [150, 200, 250],
+    }
+
     def __init__(self, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> None:
         super().__init__(params=params)
         self._bars = bars

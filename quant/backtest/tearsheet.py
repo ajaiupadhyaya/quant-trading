@@ -53,6 +53,17 @@ class _MetricsBundle:
     ending_equity: float
 
 
+def _json_safe(v: object) -> object:
+    """Best-effort coercion of param values into JSON-serializable shapes."""
+    if isinstance(v, tuple):
+        return [_json_safe(x) for x in v]
+    if isinstance(v, list):
+        return [_json_safe(x) for x in v]
+    if isinstance(v, str | int | float | bool) or v is None:
+        return v
+    return str(v)
+
+
 def _fig_to_base64(fig: Figure) -> str:
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
@@ -215,11 +226,19 @@ def write_tearsheet(
     equity_df = result.oos_equity_curve.to_frame(name="equity")
     equity_df.to_parquet(out_dir / "walkforward.parquet")
 
-    # Sidecar JSON
+    # Sidecar JSON. ``latest`` is the most-recent window's chosen params — i.e.
+    # what live trading should use. Live rebalance can read this directly
+    # instead of re-running a full walk-forward each day.
+    latest_params = (
+        {k: _json_safe(v) for k, v in dict(result.per_window_params[-1][1]).items()}
+        if result.per_window_params
+        else {}
+    )
     payload: dict[str, Any] = {
         "slug": slug,
         "strategy_name": strategy_name,
         "n_windows": n_windows,
+        "latest": latest_params,
         "windows": windows_payload,
     }
     (out_dir / "chosen_params.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")

@@ -167,6 +167,41 @@ def test_second_run_reconciles_against_prior_snapshot(
     assert len(client.submitted) == n_first
 
 
+def test_rebalance_loads_chosen_params_when_present(
+    fake_settings: Settings, patched_bars: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If data/backtests/<slug>/chosen_params.json exists, its ``latest`` is fed to build()."""
+    import json
+
+    chosen_dir = fake_settings.data_dir / "backtests" / "momentum"
+    chosen_dir.mkdir(parents=True, exist_ok=True)
+    (chosen_dir / "chosen_params.json").write_text(
+        json.dumps({"latest": {"top_pct": 0.99}, "windows": []})
+    )
+
+    captured: dict[str, Any] = {}
+    from quant.strategies import REGISTRY
+
+    original_build = REGISTRY["momentum"].build
+
+    @classmethod  # type: ignore[misc]
+    def _capturing_build(cls, bars, params=None):  # type: ignore[no-untyped-def]
+        captured["params"] = params
+        return original_build(bars=bars, params=params)
+
+    monkeypatch.setattr(REGISTRY["momentum"], "build", _capturing_build)
+
+    client = _StubAlpacaClient()
+    run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+    )
+    assert captured.get("params") == {"top_pct": 0.99}
+
+
 def test_no_enabled_strategies_is_noop(fake_settings: Settings, patched_bars: None) -> None:
     client = _StubAlpacaClient()
     report = run_rebalance(

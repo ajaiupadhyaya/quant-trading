@@ -85,6 +85,13 @@ class MultiFactor(Strategy):
         "min_history_days": 252,
     }
 
+    # Spec §2.2: quintile size, dollar-neutral on/off, lookback per factor.
+    param_grid: ClassVar[dict[str, list[Any]]] = {
+        "quintile_pct": [0.15, 0.20, 0.25],
+        "dollar_neutral": [True, False],
+        "vol_lookback": [30, 60, 90],
+    }
+
     def __init__(self, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> None:
         super().__init__(params=params)
         self._bars = bars

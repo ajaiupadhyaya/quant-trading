@@ -104,6 +104,12 @@ class RiskParity(Strategy):
         "min_history_days": 252,
     }
 
+    # Spec §2.5: vol target (8/10/12%), lookback for cov estimation.
+    param_grid: ClassVar[dict[str, list[Any]]] = {
+        "vol_target_annual": [0.08, 0.10, 0.12],
+        "lookback_days": [126, 252, 504],
+    }
+
     def __init__(self, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> None:
         super().__init__(params=params)
         self._bars = bars

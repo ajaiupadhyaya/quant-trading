@@ -1,24 +1,26 @@
-name: nightly-backtest
+name: weekly-grid-search
 
-# 22:00 ET = 02:00 UTC the next day. Re-runs the full walk-forward backtest
-# pipeline so the tear-sheets committed to the repo stay in sync with the
-# latest bar cache. Tear-sheets only — no order submission.
+# Saturdays 06:00 UTC. Re-runs walk-forward with each strategy's full
+# param_grid and commits the refreshed chosen_params.json so live rebalance
+# picks up the latest best-by-Sharpe-per-window params automatically.
+# Splitting this off the nightly job keeps nightly fast (defaults only) and
+# this job slow-but-thorough on the weekend.
 on:
   schedule:
-    - cron: "0 2 * * 2-6"
+    - cron: "0 6 * * 6"
   workflow_dispatch: {}
 
 concurrency:
-  group: nightly-backtest
+  group: weekly-grid-search
   cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
-  backtest:
+  grid-search:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -49,21 +51,18 @@ jobs:
       - name: Install deps
         run: uv sync --all-extras
 
-      # Nightly runs with --quick (defaults only) so the 60-min budget fits.
-      # The full grid search runs in the separate weekly-grid-search workflow
-      # (Saturdays) and that's what populates chosen_params.json["latest"].
-      - name: Backtest strategy
-        run: uv run quant backtest "$SLUG" --start 2015-01-01 --quick
+      - name: Grid-search strategy
+        run: uv run quant backtest "$SLUG" --start 2015-01-01
 
       - name: Upload tear-sheet artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tearsheet-${{ matrix.slug }}
+          name: tearsheet-grid-${{ matrix.slug }}
           path: data/backtests/${{ matrix.slug }}/
 
   commit:
-    needs: backtest
+    needs: grid-search
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always()
@@ -79,27 +78,27 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: data/backtests/
-          pattern: tearsheet-*
+          pattern: tearsheet-grid-*
           merge-multiple: false
 
       - name: Flatten download structure
         run: |
           shopt -s nullglob
-          for d in data/backtests/tearsheet-*; do
-            slug=$(basename "$d" | sed 's/^tearsheet-//')
+          for d in data/backtests/tearsheet-grid-*; do
+            slug=$(basename "$d" | sed 's/^tearsheet-grid-//')
             mkdir -p "data/backtests/$slug"
             mv "$d"/* "data/backtests/$slug/"
             rmdir "$d"
           done
 
-      - name: Commit refreshed tear-sheets
+      - name: Commit refreshed chosen-params + tear-sheets
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/backtests/ 2>/dev/null || true
           if git diff --staged --quiet; then
-            echo "No tear-sheet changes."
+            echo "No artifact changes."
             exit 0
           fi
-          git commit -m "chore(backtest): nightly tear-sheet refresh $RUN_ID"
+          git commit -m "chore(grid): weekly chosen_params refresh $RUN_ID"
           git push

@@ -20,8 +20,11 @@ Both real and dry-run modes go through the same code path; dry-run flips the
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -71,6 +74,28 @@ def _bars_for(strategy_cls: type[Strategy], asof: date, history_days: int) -> pd
     start = asof - timedelta(days=history_days)
     req = BarRequest(symbols=list(strategy_cls.spec.universe), start=start, end=asof)
     return get_bars(req)
+
+
+def _latest_chosen_params(data_dir: Path, slug: str) -> dict[str, Any]:
+    """Read ``data/backtests/<slug>/chosen_params.json`` and return its ``latest`` field.
+
+    Returns an empty dict if the file is missing or doesn't contain ``latest`` —
+    in that case the strategy will simply run with its own ``default_params``,
+    so live trading never silently breaks just because the nightly backtest
+    artifact is stale or missing.
+    """
+    path = data_dir / "backtests" / slug / "chosen_params.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text())
+    except Exception as exc:  # corrupt JSON shouldn't crash the rebalance
+        logger.warning("Could not read {} ({}); falling back to defaults", path, exc)
+        return {}
+    latest = payload.get("latest", {})
+    if not isinstance(latest, dict):
+        return {}
+    return latest
 
 
 def run_rebalance(
@@ -159,7 +184,10 @@ def run_rebalance(
             )
             continue
 
-        strategy = strategy_cls.build(bars=bars)
+        chosen = _latest_chosen_params(settings.data_dir, slug)
+        if chosen:
+            logger.info("Using chosen_params.json[latest] for {}: {}", slug, chosen)
+        strategy = strategy_cls.build(bars=bars, params=chosen or None)
         try:
             target = strategy.target_positions(asof, per_strategy_equity)
         except Exception as exc:

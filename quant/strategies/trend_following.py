@@ -43,6 +43,13 @@ class TrendFollowing(Strategy):
         "min_history_days": 252,
     }
 
+    # Spec §2.4: vol target (8-12%), allow_short on/off, lookback ensemble.
+    param_grid: ClassVar[dict[str, list[Any]]] = {
+        "vol_target_annual": [0.08, 0.10, 0.12],
+        "allow_short": [True, False],
+        "lookbacks_months": [(3, 6, 12), (1, 3, 6, 12)],
+    }
+
     def __init__(self, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> None:
         super().__init__(params=params)
         self._bars = bars
