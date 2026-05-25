@@ -1,16 +1,24 @@
-"""Statistical-arbitrage pairs trading on a small hand-picked set.
+"""Statistical-arbitrage pairs trading with PCA discovery + cointegration screen.
 
-Each pair holds two correlated names — the strategy estimates a rolling OLS
-hedge ratio on log prices, builds a spread, normalizes to a z-score, and
-enters when the spread is more than ``entry_z`` standard deviations from zero,
-exits when it crosses ``exit_z``. Capital is split equally across active
-pairs; each leg of an active pair gets half of the pair's allocation, with
-opposite signs.
+Spec §2.3 SOTA pipeline:
 
-The hand-picked seed pairs are well-known historical co-movers (same sector,
-similar business). A future iteration would discover pairs via
-PCA-on-returns + cointegration screening; until that lands, these defaults
-give a working strategy that runs through the engine end-to-end.
+1. **Pair discovery** — Avellaneda-Lee 2008 style: PCA on returns gives per-name
+   loadings; closest pairs in loading space are candidates.
+2. **Cointegration screen** — OLS hedge regression on logs, AR(1) on residuals;
+   keep pairs with AR(1) coefficient strictly in (0, 0.95) (mean-reverting but
+   not noise) and Ornstein-Uhlenbeck half-life in [1, 30] trading days.
+3. **OLS hedge ratio** — point-in-time refit each lookback window, so the
+   hedge tracks regime changes without the Kalman complexity. (A future
+   iteration can swap in a Kalman filter; the entry/exit contract here doesn't
+   change.)
+4. **Z-score entry/exit** — enter when |z| > entry_z, exit when |z| < exit_z.
+5. **Risk-parity legs** — each pair is split equal-dollar within the pair.
+6. **Portfolio overlay** — equal capital across active pairs, capped at
+   ``max_active_pairs``.
+
+Discovery is gated by data availability. If the universe is too small or the
+returns panel too short for PCA to fit, we fall back to ``SEED_PAIRS`` —
+which keeps the strategy walk-forward-clean during the early warm-up bars.
 """
 
 from __future__ import annotations
@@ -23,8 +31,14 @@ import pandas as pd
 
 from quant.strategies import register
 from quant.strategies._common import asof_index, field_frame, size_to_shares
+from quant.strategies._pairs_discovery import (
+    PairCandidate,
+    discover_and_screen_pairs,
+)
 from quant.strategies.base import Strategy, StrategySpec
 
+# Seed pairs — used as fallback when discovery is unavailable, and as the
+# default trading universe. The discovery layer expands this dynamically.
 SEED_PAIRS: list[tuple[str, str]] = [
     ("KO", "PEP"),
     ("MA", "V"),
@@ -33,27 +47,74 @@ SEED_PAIRS: list[tuple[str, str]] = [
     ("WFC", "BAC"),
 ]
 
-PAIRS_UNIVERSE: list[str] = sorted({s for pair in SEED_PAIRS for s in pair})
+# Broader universe for PCA discovery — sector-balanced US large caps.
+PAIRS_DISCOVERY_UNIVERSE: list[str] = sorted(
+    {
+        # Consumer staples
+        "KO",
+        "PEP",
+        "PG",
+        "WMT",
+        "COST",
+        "MO",
+        "CL",
+        # Financials
+        "JPM",
+        "BAC",
+        "WFC",
+        "C",
+        "GS",
+        "MS",
+        "USB",
+        # Energy
+        "XOM",
+        "CVX",
+        "COP",
+        "EOG",
+        "SLB",
+        # Tech
+        "AAPL",
+        "MSFT",
+        "ORCL",
+        "CSCO",
+        "IBM",
+        # Healthcare
+        "JNJ",
+        "PFE",
+        "MRK",
+        "ABT",
+        "BMY",
+        # Industrials
+        "HON",
+        "GE",
+        "MMM",
+        "CAT",
+        "DE",
+        # Payments / cards
+        "MA",
+        "V",
+        "AXP",
+        # Retail
+        "HD",
+        "LOW",
+        "TGT",
+    }
+)
 
-
-def _hedge_ratio(log_a: pd.Series, log_b: pd.Series) -> float:
-    """OLS regression of log_a on log_b through the origin (after demean)."""
-    a = log_a - log_a.mean()
-    b = log_b - log_b.mean()
-    denom = float((b * b).sum())
-    if denom <= 0.0 or not np.isfinite(denom):
-        return float("nan")
-    return float((a * b).sum() / denom)
+PAIRS_UNIVERSE: list[str] = PAIRS_DISCOVERY_UNIVERSE
 
 
 @register
 class PairsTrading(Strategy):
-    """Mean-reversion on z-scored OLS-hedged spreads across a small pair list."""
+    """PCA-discovered pairs with cointegration screen + z-score mean reversion."""
 
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="pairs",
         name="Pairs Trading",
-        description="OLS hedge ratio + z-score mean-reversion across hand-picked pairs.",
+        description=(
+            "PCA-discovered pairs + AR(1)/half-life cointegration screen + "
+            "OLS hedge + z-score entry/exit on a sector-balanced US large-cap universe."
+        ),
         universe=PAIRS_UNIVERSE,
         rebalance_frequency="weekly",
         enabled_live=True,
@@ -64,10 +125,16 @@ class PairsTrading(Strategy):
         "entry_z": 2.0,
         "exit_z": 0.5,
         "max_active_pairs": 5,
-        "min_history_days": 90,
+        "min_history_days": 252,
+        "discovery_window_days": 252,
+        "min_half_life": 1.0,
+        "max_half_life": 30.0,
+        "n_pca_components": 5,
+        "max_pca_candidates": 60,
+        "max_screened_pairs": 20,
+        "rediscover_every_days": 60,
     }
 
-    # Spec §2.3: entry z (1.5/2.0/2.5), exit z (0/0.5), discovery window.
     param_grid: ClassVar[dict[str, list[Any]]] = {
         "entry_z": [1.5, 2.0, 2.5],
         "exit_z": [0.0, 0.5],
@@ -78,50 +145,93 @@ class PairsTrading(Strategy):
         super().__init__(params=params)
         self._bars = bars
         self._close = field_frame(bars, "close")
-        # Held positions persist across rebalance days so we can apply exit-z logic.
-        self._state: dict[
-            tuple[str, str], int
-        ] = {}  # value: -1 short-spread, +1 long-spread, 0 flat
+        self._returns = self._close.pct_change(fill_method=None)
+        # State held across rebalance days.
+        self._state: dict[tuple[str, str], int] = {}
+        self._discovered: list[PairCandidate] = []
+        self._last_discovery_loc: int = -(10**9)
 
     @classmethod
     def build(cls, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> Strategy:
         return cls(bars=bars, params=params)
 
-    def _spread_z(self, a: str, b: str, loc: int) -> tuple[float, float]:
-        """Return (z, hedge) for the spread on the day at ``loc``."""
+    # --- discovery ---------------------------------------------------------
+
+    def _maybe_rediscover(self, loc: int) -> None:
+        """Refresh ``self._discovered`` if enough bars have elapsed."""
+        cadence = int(self.params["rediscover_every_days"])
+        if loc - self._last_discovery_loc < cadence and self._discovered:
+            return
+
+        window = int(self.params["discovery_window_days"])
+        start_loc = max(loc - window, 0)
+        prices_window = self._close.iloc[start_loc : loc + 1]
+        returns_window = self._returns.iloc[start_loc : loc + 1]
+
+        pairs = discover_and_screen_pairs(
+            prices=prices_window,
+            returns=returns_window,
+            n_components=int(self.params["n_pca_components"]),
+            max_candidates=int(self.params["max_pca_candidates"]),
+            min_half_life=float(self.params["min_half_life"]),
+            max_half_life=float(self.params["max_half_life"]),
+            max_kept=int(self.params["max_screened_pairs"]),
+        )
+
+        if not pairs:
+            # Fallback to the seed list when discovery yields nothing — keeps
+            # the strategy functional in tiny / synthetic universes.
+            pairs = [
+                fit for fit in (self._fit_seed(loc, a, b) for a, b in SEED_PAIRS) if fit is not None
+            ]
+
+        self._discovered = pairs
+        self._last_discovery_loc = loc
+
+    def _fit_seed(self, loc: int, a: str, b: str) -> PairCandidate | None:
         if a not in self._close.columns or b not in self._close.columns:
-            return float("nan"), float("nan")
+            return None
+        lookback = int(self.params["discovery_window_days"])
+        start = max(loc - lookback, 0)
+        from quant.strategies._pairs_discovery import fit_pair
+
+        return fit_pair(
+            self._close[a].iloc[start : loc + 1].rename(a),
+            self._close[b].iloc[start : loc + 1].rename(b),
+        )
+
+    # --- per-pair spread + z-score ----------------------------------------
+
+    def _spread_z(self, pair: PairCandidate, loc: int) -> float:
         lookback = int(self.params["lookback_days"])
-        win_a = self._close[a].iloc[max(loc - lookback, 0) : loc + 1].dropna()
-        win_b = self._close[b].iloc[max(loc - lookback, 0) : loc + 1].dropna()
-        common = win_a.index.intersection(win_b.index)
+        start = max(loc - lookback, 0)
+        a = self._close[pair.a].iloc[start : loc + 1].dropna()
+        b = self._close[pair.b].iloc[start : loc + 1].dropna()
+        common = a.index.intersection(b.index)
         if len(common) < 10:
-            return float("nan"), float("nan")
-        log_a = np.log(win_a.loc[common])
-        log_b = np.log(win_b.loc[common])
-        hedge = _hedge_ratio(log_a, log_b)
-        if not np.isfinite(hedge):
-            return float("nan"), float("nan")
-        spread = log_a - hedge * log_b
-        mu = float(spread.mean())
-        sd = float(spread.std(ddof=1))
-        if sd <= 0.0 or not np.isfinite(sd):
-            return float("nan"), float("nan")
-        latest_spread = float(spread.iloc[-1])
-        z = (latest_spread - mu) / sd
-        return z, hedge
+            return float("nan")
+        log_a = np.log(a.loc[common].values)
+        log_b = np.log(b.loc[common].values)
+        spread = log_a - pair.beta * log_b - pair.alpha
+        mu = float(np.mean(spread))
+        sd = float(np.std(spread, ddof=1))
+        if sd <= 0 or not np.isfinite(sd):
+            return float("nan")
+        return float((spread[-1] - mu) / sd)
+
+    # --- public API --------------------------------------------------------
 
     def generate_signals(self, asof: date) -> pd.Series:
-        """Emit one signal per pair, encoded as ``"A/B": z``."""
         history = pd.DatetimeIndex(self._close.index)
         loc = asof_index(history, asof)
         if loc is None or loc < int(self.params["min_history_days"]):
             return pd.Series(dtype=float)
+        self._maybe_rediscover(loc)
         signals: dict[str, float] = {}
-        for a, b in SEED_PAIRS:
-            z, _ = self._spread_z(a, b, loc)
+        for pair in self._discovered:
+            z = self._spread_z(pair, loc)
             if np.isfinite(z):
-                signals[f"{a}/{b}"] = z
+                signals[f"{pair.a}/{pair.b}"] = z
         return pd.Series(signals)
 
     def target_positions(self, asof: date, equity: float) -> dict[str, int]:
@@ -129,29 +239,31 @@ class PairsTrading(Strategy):
         loc = asof_index(history, asof)
         if loc is None or loc < int(self.params["min_history_days"]) or equity <= 0:
             return {}
+        self._maybe_rediscover(loc)
 
         entry_z = float(self.params["entry_z"])
         exit_z = float(self.params["exit_z"])
         max_active = int(self.params["max_active_pairs"])
 
-        decisions: list[tuple[tuple[str, str], int, float]] = []  # (pair, side, hedge)
-        for a, b in SEED_PAIRS:
-            z, hedge = self._spread_z(a, b, loc)
-            if not np.isfinite(z) or not np.isfinite(hedge):
-                self._state[(a, b)] = 0
+        decisions: list[tuple[PairCandidate, int]] = []
+        for pair in self._discovered:
+            key = (pair.a, pair.b)
+            z = self._spread_z(pair, loc)
+            if not np.isfinite(z):
+                self._state[key] = 0
                 continue
-            current = self._state.get((a, b), 0)
+            current = self._state.get(key, 0)
             new_side = current
             if current == 0:
                 if z > entry_z:
-                    new_side = -1  # short spread: sell A, buy hedge*B
+                    new_side = -1  # short the spread: sell A, buy hedge*B
                 elif z < -entry_z:
                     new_side = +1
             elif abs(z) < exit_z:
                 new_side = 0
-            self._state[(a, b)] = new_side
+            self._state[key] = new_side
             if new_side != 0:
-                decisions.append(((a, b), new_side, hedge))
+                decisions.append((pair, new_side))
 
         if not decisions:
             return {}
@@ -159,11 +271,11 @@ class PairsTrading(Strategy):
 
         per_pair_dollars = equity / len(decisions)
         weights: dict[str, float] = {}
-        for (a, b), side, hedge in decisions:
-            # Equal-dollar split per leg, then signed by side.
+        for pair, side in decisions:
             half = (per_pair_dollars / 2.0) / equity
-            weights[a] = weights.get(a, 0.0) + side * half
-            weights[b] = weights.get(b, 0.0) + (-side) * half * float(np.sign(hedge) or 1.0)
+            sign_b = float(np.sign(pair.beta) or 1.0)
+            weights[pair.a] = weights.get(pair.a, 0.0) + side * half
+            weights[pair.b] = weights.get(pair.b, 0.0) + (-side) * half * sign_b
 
         prices = self._close.iloc[loc].dropna()
         return size_to_shares(pd.Series(weights), prices, equity)
