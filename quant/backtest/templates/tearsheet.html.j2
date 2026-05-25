@@ -144,6 +144,40 @@
   <h3>CPCV Path Sharpe Distribution</h3>
   <img src="data:image/png;base64,{{ charts.cpcv }}" alt="CPCV histogram" />
   {% endif %}
+
+  {% if validation.holdout %}
+  <h3>Out-of-Sample Holdout</h3>
+  <table class="regime-table">
+    <thead><tr><th>Window</th><th>Days</th><th>Total Return</th><th>Sharpe</th><th>Max DD</th><th>Gate</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{{ validation.holdout.start }} → {{ validation.holdout.end }}</td>
+        <td>{{ validation.holdout.n_days }}</td>
+        <td>{{ "%+.2f%%"|format(validation.holdout.total_return * 100) }}</td>
+        <td>{{ "%.2f"|format(validation.holdout.sharpe) }}</td>
+        <td>{{ "%.2f%%"|format(validation.holdout.max_drawdown * 100) }}</td>
+        <td>{% if validation.gate_holdout %}✓{% else %}✗{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if validation.cost_sensitivity %}
+  <h3>Cost-Sensitivity Sweep</h3>
+  <table class="regime-table">
+    <thead><tr><th>Slippage (bps)</th><th>Total Return</th><th>Sharpe</th><th>Max DD</th></tr></thead>
+    <tbody>
+      {% for row in validation.cost_sensitivity %}
+      <tr>
+        <td>{{ "%g"|format(row.slippage_bps) }}</td>
+        <td>{{ "%+.2f%%"|format(row.total_return * 100) }}</td>
+        <td>{{ "%.2f"|format(row.sharpe) }}</td>
+        <td>{{ "%.2f%%"|format(row.max_drawdown * 100) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
 </section>
 
 <style>

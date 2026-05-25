@@ -43,12 +43,17 @@ def compute_regime_breakdown(returns: pd.Series) -> list[RegimeBreakdown]:
     """Slice ``returns`` into each regime window and compute key metrics.
 
     Returns one entry per regime in REGIMES order. Regimes with no overlap
-    yield zero metrics (n_days=0).
+    (including the all-empty case where ``returns`` has no rows) yield zero
+    metrics with ``n_days=0``.
     """
     out: list[RegimeBreakdown] = []
+    is_dt = isinstance(returns.index, pd.DatetimeIndex) and len(returns) > 0
     for r in REGIMES:
-        mask = (returns.index >= pd.Timestamp(r.start)) & (returns.index <= pd.Timestamp(r.end))
-        slice_ = returns[mask]
+        if is_dt:
+            mask = (returns.index >= pd.Timestamp(r.start)) & (returns.index <= pd.Timestamp(r.end))
+            slice_ = returns[mask]
+        else:
+            slice_ = returns.iloc[0:0]
         out.append(
             RegimeBreakdown(
                 slug=r.slug,
