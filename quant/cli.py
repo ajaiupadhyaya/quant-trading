@@ -615,6 +615,35 @@ def data_refresh(start: str, end: str | None) -> None:
             console.print(f"  {err}")
 
 
+@data.command(
+    "refresh-fundamentals",
+    help="Pull SEC EDGAR fundamentals for the multi-factor strategy universe.",
+)
+def data_refresh_fundamentals() -> None:
+    """Download EDGAR /companyfacts for every name in the multi-factor universe."""
+    from quant.data.edgar import fetch_company_facts
+
+    if "multi-factor" not in REGISTRY:
+        raise click.ClickException("multi-factor strategy is not registered.")
+    universe = list(REGISTRY["multi-factor"].spec.universe)
+    table = Table(title=f"EDGAR refresh — {len(universe)} symbols", show_header=True)
+    table.add_column("Symbol")
+    table.add_column("Status")
+    table.add_column("Rows", justify="right")
+    n_ok = 0
+    for sym in universe:
+        try:
+            df = fetch_company_facts(sym)
+            status = "[green]OK[/]" if not df.empty else "[yellow]empty[/]"
+            table.add_row(sym, status, str(len(df)))
+            if not df.empty:
+                n_ok += 1
+        except Exception as exc:  # network flake / SEC throttle
+            table.add_row(sym, "[red]FAIL[/]", f"{exc!r}")
+    console.print(table)
+    console.print(f"[bold]{n_ok}/{len(universe)} symbols cached.[/]")
+
+
 @data.command("inventory", help="Show what's currently on disk under data/.")
 def data_inventory() -> None:
     settings = Settings()  # type: ignore[call-arg]
