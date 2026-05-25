@@ -24,6 +24,78 @@ from quant.strategies._common import asof_index, field_frame, size_to_shares
 from quant.strategies.base import Strategy, StrategySpec
 
 
+def ledoit_wolf_shrinkage(returns: pd.DataFrame) -> tuple[pd.DataFrame, float]:
+    """Closed-form Ledoit-Wolf 2004 shrinkage to a constant-correlation target.
+
+    Estimates the shrinkage intensity ``δ`` that minimizes expected mean-squared
+    distance between the sample covariance and the true covariance, then
+    returns ``(1 - δ) * sample_cov + δ * shrinkage_target``.
+
+    The shrinkage target is the constant-correlation matrix: the diagonal is
+    the sample variances, off-diagonals are sample variances scaled by the
+    average pairwise correlation. This is the variant Lopez de Prado recommends
+    for HRP — it preserves the per-name volatilities (which HRP uses directly)
+    while damping noisy off-diagonal correlations.
+
+    Returns ``(shrunk_cov, delta)`` where ``delta`` ∈ [0, 1].
+    """
+    rets = returns.dropna(axis=1, how="any")
+    n_obs, n_assets = rets.shape
+    if n_obs < 5 or n_assets < 2:
+        return rets.cov(), 0.0
+
+    x_centered = rets.values - rets.values.mean(axis=0, keepdims=True)
+    # ddof=1 (sample cov) to match pandas .cov() everywhere else in the project.
+    sample = (x_centered.T @ x_centered) / max(n_obs - 1, 1)
+    var = np.diag(sample)
+    std = np.sqrt(var)
+    std_outer = np.outer(std, std)
+    safe_outer = np.where(std_outer > 0, std_outer, 1.0)
+    corr = sample / safe_outer
+    np.fill_diagonal(corr, 1.0)
+    iu = np.triu_indices(n_assets, k=1)
+    if iu[0].size == 0:
+        return rets.cov(), 0.0
+    mean_corr = float(np.mean(corr[iu]))
+    target = mean_corr * std_outer
+    np.fill_diagonal(target, var)
+
+    # Asymptotic estimator of pi (sum of asymp variances of sample cov entries).
+    x_sq = x_centered**2
+    pi_mat = (x_sq.T @ x_sq) / n_obs - sample**2
+    pi_hat = float(pi_mat.sum())
+
+    # Estimator of rho (covariance between sample variances + cross terms).
+    # We use the simplified form from LW (2004) eqs (A.7)-(A.10).
+    y_var = np.diag(pi_mat).copy()
+    rho_diag = float(y_var.sum())
+    rho_off = 0.0
+    for i in range(n_assets):
+        for j in range(n_assets):
+            if i == j:
+                continue
+            ratio_i = std[j] / std[i] if std[i] > 0 else 0.0
+            ratio_j = std[i] / std[j] if std[j] > 0 else 0.0
+            term_i = (x_centered[:, i] ** 2 * x_centered[:, i] * x_centered[:, j]).mean() - sample[
+                i, i
+            ] * sample[i, j]
+            term_j = (x_centered[:, j] ** 2 * x_centered[:, i] * x_centered[:, j]).mean() - sample[
+                j, j
+            ] * sample[i, j]
+            rho_off += 0.5 * mean_corr * (ratio_i * term_i + ratio_j * term_j)
+    rho_hat = rho_diag + rho_off
+
+    gamma = float(np.sum((target - sample) ** 2))
+    if gamma <= 0:
+        delta = 0.0
+    else:
+        kappa = (pi_hat - rho_hat) / gamma
+        delta = float(np.clip(kappa / n_obs, 0.0, 1.0))
+
+    shrunk = (1.0 - delta) * sample + delta * target
+    return pd.DataFrame(shrunk, index=rets.columns, columns=rets.columns), delta
+
+
 def _seriation(link: np.ndarray, num_items: int, cur: int) -> list[int]:
     """Reorder leaves so distance between consecutive leaves is minimized."""
     if cur < num_items:
@@ -102,6 +174,7 @@ class RiskParity(Strategy):
         "vol_target_annual": 0.10,
         "max_leverage": 1.0,
         "min_history_days": 252,
+        "use_ledoit_wolf": True,
     }
 
     # Spec §2.5: vol target (8/10/12%), lookback for cov estimation.
@@ -126,8 +199,18 @@ class RiskParity(Strategy):
         window = window.dropna(axis=1, thresh=int(0.8 * len(window)))
         if window.shape[1] < 2 or window.shape[0] < 20:
             return pd.Series(dtype=float)
-        cov = window.cov()
-        corr = window.corr().fillna(0.0)
+        if bool(self.params["use_ledoit_wolf"]):
+            cov, _ = ledoit_wolf_shrinkage(window)
+        else:
+            cov = window.cov()
+        # Correlation derived from the (shrunk or sample) covariance keeps the
+        # distance matrix consistent with the covariance HRP uses to weight.
+        diag = np.sqrt(np.diag(cov.values))
+        safe = np.where(diag > 0, diag, 1.0)
+        corr_values = cov.values / np.outer(safe, safe)
+        corr_values = np.nan_to_num(corr_values, nan=0.0)
+        np.fill_diagonal(corr_values, 1.0)
+        corr = pd.DataFrame(corr_values, index=cov.index, columns=cov.columns)
         weights = hrp_weights(cov, corr)
         if weights.sum() <= 0:
             return pd.Series(dtype=float)

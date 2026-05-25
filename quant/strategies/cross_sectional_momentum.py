@@ -43,6 +43,11 @@ class CrossSectionalMomentum(Strategy):
         "top_pct": 0.30,
         "trend_filter_days": 200,
         "min_history_days": 252,
+        # Sizing: per-name equal risk contribution (inverse-vol weighting).
+        # When False, sizing reverts to equal-dollar across picked names.
+        "vol_scale_enabled": True,
+        "vol_lookback_days": 60,
+        "vol_target_annual": 0.10,
     }
 
     # Spec §2.1: lookback (6/9/12), top_pct (0.25/0.30/0.40), trend (150/200/250).
@@ -56,6 +61,7 @@ class CrossSectionalMomentum(Strategy):
         super().__init__(params=params)
         self._bars = bars
         self._close = field_frame(bars, "close")
+        self._returns = self._close.pct_change(fill_method=None)
 
     @classmethod
     def build(cls, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> Strategy:
@@ -95,11 +101,41 @@ class CrossSectionalMomentum(Strategy):
         top = top[top > 0]
         if top.empty:
             return {}
-        weights = pd.Series(1.0 / len(top), index=top.index)
 
         history = pd.DatetimeIndex(self._close.index)
         loc = asof_index(history, asof)
         if loc is None:
             return {}
+
+        if bool(self.params["vol_scale_enabled"]):
+            weights = self._vol_scaled_weights(top.index.tolist(), loc)
+        else:
+            weights = pd.Series(1.0 / len(top), index=top.index)
+        if weights.empty:
+            return {}
+
         prices = self._close.iloc[loc].dropna()
         return size_to_shares(weights, prices, equity)
+
+    def _vol_scaled_weights(self, picks: list[str], loc: int) -> pd.Series:
+        """Inverse-vol weights normalized to ``vol_target_annual`` total portfolio vol.
+
+        Each name's weight is ``(target_vol / sqrt(N)) / annualized_vol``. The
+        sum of |weights| is then renormalized to <= 1 by max_leverage in the
+        caller. When realized vol is zero (constant series) we fall back to
+        equal-weight on the picks.
+        """
+        vol_lb = int(self.params["vol_lookback_days"])
+        win = self._returns.loc[:, picks].iloc[max(loc - vol_lb, 0) : loc + 1]
+        ann_vol = win.std(ddof=1) * float(np.sqrt(252))
+        ann_vol = ann_vol.replace(0.0, np.nan)
+        if ann_vol.dropna().empty:
+            return pd.Series(1.0 / len(picks), index=picks)
+        n = len(picks)
+        per_name_vol = float(self.params["vol_target_annual"]) / float(np.sqrt(n))
+        weights = per_name_vol / ann_vol
+        weights = weights.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        gross = float(weights.abs().sum())
+        if gross > 1.0 and gross > 0:
+            weights = weights / gross
+        return weights
