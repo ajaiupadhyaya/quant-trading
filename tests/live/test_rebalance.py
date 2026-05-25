@@ -39,6 +39,9 @@ class _StubAlpacaClient:
             pattern_day_trader=False,
         )
 
+    def positions(self) -> list:  # type: ignore[type-arg]
+        return []
+
     def submit_order(self, order: OrderTemplate, *, dry_run: bool = False) -> str:
         self.submitted.append(order)
         self.dry_run_flags.append(dry_run)
