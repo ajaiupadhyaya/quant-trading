@@ -1,0 +1,111 @@
+{
+  "slug": "pairs",
+  "strategy_name": "Pairs Trading",
+  "n_windows": 9,
+  "latest": {
+    "entry_z": 2.5,
+    "exit_z": 0.0,
+    "lookback_days": 45
+  },
+  "windows": [
+    {
+      "train_start": "2015-01-01",
+      "train_end": "2019-12-31",
+      "test_start": "2020-01-01",
+      "test_end": "2020-12-31",
+      "params": {
+        "entry_z": 2.5,
+        "exit_z": 0.5,
+        "lookback_days": 90
+      }
+    },
+    {
+      "train_start": "2015-07-01",
+      "train_end": "2020-06-30",
+      "test_start": "2020-07-01",
+      "test_end": "2021-06-30",
+      "params": {
+        "entry_z": 2.0,
+        "exit_z": 0.0,
+        "lookback_days": 60
+      }
+    },
+    {
+      "train_start": "2016-01-01",
+      "train_end": "2020-12-31",
+      "test_start": "2021-01-01",
+      "test_end": "2021-12-31",
+      "params": {
+        "entry_z": 2.5,
+        "exit_z": 0.0,
+        "lookback_days": 90
+      }
+    },
+    {
+      "train_start": "2016-07-01",
+      "train_end": "2021-06-30",
+      "test_start": "2021-07-01",
+      "test_end": "2022-06-30",
+      "params": {
+        "entry_z": 2.0,
+        "exit_z": 0.0,
+        "lookback_days": 60
+      }
+    },
+    {
+      "train_start": "2017-01-01",
+      "train_end": "2021-12-31",
+      "test_start": "2022-01-01",
+      "test_end": "2022-12-31",
+      "params": {
+        "entry_z": 2.0,
+        "exit_z": 0.0,
+        "lookback_days": 60
+      }
+    },
+    {
+      "train_start": "2017-07-01",
+      "train_end": "2022-06-30",
+      "test_start": "2022-07-01",
+      "test_end": "2023-06-30",
+      "params": {
+        "entry_z": 2.5,
+        "exit_z": 0.0,
+        "lookback_days": 60
+      }
+    },
+    {
+      "train_start": "2018-01-01",
+      "train_end": "2022-12-31",
+      "test_start": "2023-01-01",
+      "test_end": "2023-12-31",
+      "params": {
+        "entry_z": 2.0,
+        "exit_z": 0.0,
+        "lookback_days": 60
+      }
+    },
+    {
+      "train_start": "2018-07-01",
+      "train_end": "2023-06-30",
+      "test_start": "2023-07-01",
+      "test_end": "2024-06-30",
+      "params": {
+        "entry_z": 2.5,
+        "exit_z": 0.0,
+        "lookback_days": 45
+      }
+    },
+    {
+      "train_start": "2019-01-01",
+      "train_end": "2023-12-31",
+      "test_start": "2024-01-01",
+      "test_end": "2024-12-31",
+      "params": {
+        "entry_z": 2.5,
+        "exit_z": 0.0,
+        "lookback_days": 45
+      }
+    }
+  ]
+}

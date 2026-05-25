@@ -41,3 +41,6 @@ data/macro/**
 !data/macro/.gitkeep
 data/features/**
 !data/features/.gitkeep
+
+# Local-only research scratch
+resources.md
