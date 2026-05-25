@@ -107,7 +107,9 @@ def _ticker_to_cik_map(data_dir: Path) -> dict[str, str]:
     """Return {TICKER: 10-digit-CIK} from EDGAR's master mapping file."""
     cache_path = data_dir / "fundamentals" / "_ticker_to_cik.json"
     if cache_path.exists():
-        cached: dict[str, str] = {str(k): str(v) for k, v in json.loads(cache_path.read_text()).items()}
+        cached: dict[str, str] = {
+            str(k): str(v) for k, v in json.loads(cache_path.read_text()).items()
+        }
         return cached
 
     logger.info("Fetching EDGAR ticker→CIK map…")
