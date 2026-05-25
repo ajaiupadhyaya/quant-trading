@@ -43,6 +43,60 @@ class PairCandidate:
     ar1_rho: float  # AR(1) coefficient on residuals (< 1 means mean-reverting)
     half_life_days: float  # OU half-life in trading days
     spread_std: float  # std of the residuals
+    adf_stat: float = 0.0  # Engle-Granger ADF statistic (more negative = stronger rejection)
+    adf_passes: bool = False  # True iff adf_stat < EG critical value at 5%
+
+
+# Engle-Granger ADF critical values for residuals of a 2-variable cointegration
+# regression with constant term. Values from MacKinnon (2010), Table 2.
+# These differ from the standard ADF critical values because we're testing
+# residuals from a pre-estimated cointegrating regression.
+_EG_CV_5PCT = -3.34
+_EG_CV_1PCT = -3.90
+
+
+def engle_granger_adf_stat(residuals: np.ndarray, max_lag: int = 1) -> float:
+    """Augmented Dickey-Fuller t-statistic on cointegration residuals.
+
+    Implements the test from Engle & Granger (1987): regress Δε_t on ε_{t-1}
+    and ``max_lag`` lagged differences, then compute the t-statistic on the
+    coefficient of ε_{t-1}. Under the null of unit root the statistic follows
+    the non-standard EG distribution; a value below ``_EG_CV_5PCT`` rejects
+    the null (the residuals are stationary → the pair is cointegrated).
+
+    Returns ``+inf`` on degenerate input so the downstream screen treats it
+    as a non-cointegrated pair.
+    """
+    e = np.asarray(residuals, dtype=float)
+    n = len(e)
+    if n < max_lag + 5:
+        return float("inf")
+    de = np.diff(e)  # length n-1
+    # Build regressors: ε_{t-1}, plus max_lag lagged differences.
+    y = de[max_lag:]  # length n - 1 - max_lag
+    n_eff = len(y)
+    if n_eff < 5:
+        return float("inf")
+    cols: list[np.ndarray] = [e[max_lag : max_lag + n_eff]]
+    for k in range(1, max_lag + 1):
+        cols.append(de[max_lag - k : max_lag - k + n_eff])
+    cols.append(np.ones(n_eff))  # constant
+    x = np.column_stack(cols)
+    try:
+        coef, *_ = np.linalg.lstsq(x, y, rcond=None)
+    except np.linalg.LinAlgError:
+        return float("inf")
+    pred = x @ coef
+    resid = y - pred
+    sigma_sq = float((resid**2).sum() / max(n_eff - x.shape[1], 1))
+    try:
+        xtx_inv = np.linalg.inv(x.T @ x)
+    except np.linalg.LinAlgError:
+        return float("inf")
+    se_gamma = float(np.sqrt(sigma_sq * xtx_inv[0, 0]))
+    if se_gamma <= 0.0:
+        return float("inf")
+    return float(coef[0] / se_gamma)
 
 
 def pca_candidate_pairs(
@@ -145,6 +199,9 @@ def fit_pair(prices_a: pd.Series, prices_b: pd.Series) -> PairCandidate | None:
         return None
 
     _ = n  # retain sample size in scope for future logging
+    # Engle-Granger ADF on the cointegration residuals.
+    adf_stat = engle_granger_adf_stat(resid, max_lag=1)
+    adf_passes = bool(np.isfinite(adf_stat) and adf_stat < _EG_CV_5PCT)
     return PairCandidate(
         a=str(a.name) if a.name is not None else "A",
         b=str(b.name) if b.name is not None else "B",
@@ -153,6 +210,8 @@ def fit_pair(prices_a: pd.Series, prices_b: pd.Series) -> PairCandidate | None:
         ar1_rho=rho,
         half_life_days=half_life,
         spread_std=spread_std,
+        adf_stat=float(adf_stat) if np.isfinite(adf_stat) else 0.0,
+        adf_passes=adf_passes,
     )
 
 
@@ -167,12 +226,15 @@ def discover_and_screen_pairs(
     min_ar1_rho: float = 0.0,
     max_ar1_rho: float = 0.95,
     max_kept: int = 20,
+    require_adf: bool = True,
 ) -> list[PairCandidate]:
-    """End-to-end discovery: PCA -> fit -> half-life + AR(1) filter.
+    """End-to-end discovery: PCA -> fit -> half-life + AR(1) + ADF filter.
 
     ``prices`` is a wide close-price frame indexed by date; ``returns`` is its
     pct-change. We return up to ``max_kept`` PairCandidate records, sorted by
-    half-life ascending (faster reversion first).
+    half-life ascending (faster reversion first). ``require_adf=True`` adds
+    an Engle-Granger ADF stationarity gate (p < 5%) on top of the AR(1) and
+    half-life screens — spec §2.3 "≥2 cointegration tests pass" lives here.
     """
     candidates = pca_candidate_pairs(
         returns, n_components=n_components, max_candidates=max_candidates
@@ -193,6 +255,8 @@ def discover_and_screen_pairs(
         if not (min_ar1_rho < fit.ar1_rho < max_ar1_rho):
             continue
         if not (min_half_life <= fit.half_life_days <= max_half_life):
+            continue
+        if require_adf and not fit.adf_passes:
             continue
         fits.append(fit)
 

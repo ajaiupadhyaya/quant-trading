@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from dataclasses import replace as dc_replace
+from datetime import date
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -16,7 +18,10 @@ import pandas as pd
 from quant.backtest.bootstrap import BootstrapCI, bootstrap_ci
 from quant.backtest.cpcv import CPCVConfig, run_cpcv
 from quant.backtest.dsr import deflated_sharpe, probabilistic_sharpe
-from quant.backtest.engine import BacktestConfig
+from quant.backtest.engine import BacktestConfig, run_backtest
+from quant.backtest.metrics import max_drawdown as metric_max_dd
+from quant.backtest.metrics import sharpe as metric_sharpe
+from quant.backtest.metrics import total_return as metric_total_return
 from quant.backtest.regimes import (
     RegimeBreakdown,
     compute_regime_breakdown,
@@ -42,6 +47,28 @@ THRESHOLDS = _Thresholds()
 
 
 @dataclass(frozen=True)
+class HoldoutResult:
+    """Backtest run on the post-walk-forward holdout window."""
+
+    start: date | None
+    end: date | None
+    total_return: float
+    sharpe: float
+    max_drawdown: float
+    n_days: int
+
+
+@dataclass(frozen=True)
+class CostSensitivityRow:
+    """One row of the slippage-curve sensitivity sweep."""
+
+    slippage_bps: float
+    total_return: float
+    sharpe: float
+    max_drawdown: float
+
+
+@dataclass(frozen=True)
 class ValidationReport:
     deflated_sharpe: float
     probabilistic_sharpe: float
@@ -54,6 +81,9 @@ class ValidationReport:
     gate_probabilistic_sharpe: bool
     gate_bootstrap_lower: bool
     gate_regime: bool
+    holdout: HoldoutResult | None = None
+    cost_sensitivity: list[CostSensitivityRow] = field(default_factory=list)
+    gate_holdout: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -63,6 +93,7 @@ class ValidationReport:
             and self.gate_probabilistic_sharpe
             and self.gate_bootstrap_lower
             and self.gate_regime
+            and self.gate_holdout
         )
 
 
@@ -77,6 +108,60 @@ def _trial_sharpes_from_cpcv(cpcv_paths: np.ndarray) -> np.ndarray:
     return np.asarray(cpcv_paths / np.sqrt(252.0))
 
 
+def _holdout_result(
+    bars: pd.DataFrame,
+    strategy_factory: StrategyFactory,
+    chosen_params: dict[str, Any],
+    backtest_config: BacktestConfig,
+    holdout_start: date | None,
+    holdout_end: date | None,
+) -> HoldoutResult | None:
+    """Run a single backtest over the post-walk-forward holdout window."""
+    if holdout_start is None or holdout_end is None or holdout_end <= holdout_start:
+        return None
+    strategy = strategy_factory(chosen_params, bars)
+    result = run_backtest(
+        strategy=strategy,
+        bars=bars,
+        config=backtest_config,
+        start=holdout_start,
+        end=holdout_end,
+    )
+    return HoldoutResult(
+        start=holdout_start,
+        end=holdout_end,
+        total_return=metric_total_return(result.returns),
+        sharpe=metric_sharpe(result.returns),
+        max_drawdown=metric_max_dd(result.returns),
+        n_days=len(result.equity_curve),
+    )
+
+
+def _cost_sensitivity(
+    bars: pd.DataFrame,
+    strategy_factory: StrategyFactory,
+    chosen_params: dict[str, Any],
+    base_config: BacktestConfig,
+    start: date,
+    end: date,
+    bps_sweep: tuple[float, ...],
+) -> list[CostSensitivityRow]:
+    rows: list[CostSensitivityRow] = []
+    for bps in bps_sweep:
+        cfg = dc_replace(base_config, slippage_bps=float(bps))
+        strategy = strategy_factory(chosen_params, bars)
+        result = run_backtest(strategy=strategy, bars=bars, config=cfg, start=start, end=end)
+        rows.append(
+            CostSensitivityRow(
+                slippage_bps=float(bps),
+                total_return=metric_total_return(result.returns),
+                sharpe=metric_sharpe(result.returns),
+                max_drawdown=metric_max_dd(result.returns),
+            )
+        )
+    return rows
+
+
 def run_validation(
     wf_result: WalkforwardResult,
     bars: pd.DataFrame,
@@ -87,6 +172,9 @@ def run_validation(
     bootstrap_resamples: int = 1000,
     bootstrap_block_len: int = 5,
     seed: int = 0,
+    holdout_start: date | None = None,
+    holdout_end: date | None = None,
+    cost_sensitivity_bps: tuple[float, ...] = (0.0, 5.0, 15.0, 30.0),
 ) -> ValidationReport:
     """Run DSR, PSR, bootstrap, regimes, and CPCV; build the pass-fail report."""
     if cpcv_config is None:
@@ -131,6 +219,31 @@ def run_validation(
     gate_boot = ci is not None and ci.total_return_p05 > 0.0
     gate_regime = n_positive >= THRESHOLDS.min_positive_regimes
 
+    holdout = _holdout_result(
+        bars=bars,
+        strategy_factory=strategy_factory,
+        chosen_params=chosen_params,
+        backtest_config=backtest_config,
+        holdout_start=holdout_start,
+        holdout_end=holdout_end,
+    )
+    # Holdout gate: positive total return if a holdout window was provided.
+    # If no holdout was supplied, the gate is vacuously True (passes).
+    gate_holdout = holdout is None or holdout.total_return > 0.0
+
+    if cost_sensitivity_bps and len(oos_returns) > 0:
+        cost_rows = _cost_sensitivity(
+            bars=bars,
+            strategy_factory=strategy_factory,
+            chosen_params=chosen_params,
+            base_config=backtest_config,
+            start=oos_returns.index.min().date(),
+            end=oos_returns.index.max().date(),
+            bps_sweep=cost_sensitivity_bps,
+        )
+    else:
+        cost_rows = []
+
     return ValidationReport(
         deflated_sharpe=dsr,
         probabilistic_sharpe=psr,
@@ -143,4 +256,7 @@ def run_validation(
         gate_probabilistic_sharpe=gate_psr,
         gate_bootstrap_lower=gate_boot,
         gate_regime=gate_regime,
+        holdout=holdout,
+        cost_sensitivity=cost_rows,
+        gate_holdout=gate_holdout,
     )

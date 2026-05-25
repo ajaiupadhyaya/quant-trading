@@ -240,6 +240,13 @@ def combined_book(start: str, end: str | None) -> None:
 @click.option("--cpcv-groups", default=6, show_default=True, type=int)
 @click.option("--cpcv-k-test", default=2, show_default=True, type=int)
 @click.option("--quick", is_flag=True, help="Skip grid search; use strategy defaults only.")
+@click.option(
+    "--holdout-years",
+    default=1,
+    show_default=True,
+    type=int,
+    help="Reserve trailing N years as never-seen holdout test (0 = disabled).",
+)
 def validate(
     strategy: str,
     start: str,
@@ -248,7 +255,10 @@ def validate(
     cpcv_groups: int,
     cpcv_k_test: int,
     quick: bool,
+    holdout_years: int,
 ) -> None:
+    from datetime import timedelta as _td
+
     from quant.backtest.cpcv import CPCVConfig
     from quant.backtest.validation import run_validation
 
@@ -256,6 +266,20 @@ def validate(
 
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end) if end else date.today()
+
+    # Reserve trailing `holdout_years` as never-seen holdout.
+    wf_end = end_date
+    holdout_start: date | None = None
+    holdout_end: date | None = None
+    if holdout_years > 0:
+        holdout_end = end_date
+        holdout_start = end_date.replace(year=end_date.year - holdout_years) + _td(days=1)
+        wf_end = holdout_start - _td(days=1)
+        if wf_end <= start_date:
+            raise click.ClickException(
+                f"holdout-years={holdout_years} leaves no walk-forward window "
+                f"({start_date}..{wf_end}); shrink the holdout or extend --start."
+            )
 
     settings = Settings()  # type: ignore[call-arg]
     strategy_cls = REGISTRY[strategy]
@@ -274,13 +298,16 @@ def validate(
     def factory(params: dict[str, object], bars_for_strategy):  # type: ignore[no-untyped-def]
         return strategy_cls.build(bars=bars_for_strategy, params=params)
 
-    console.print("[bold]Running walk-forward...[/bold]")
+    console.print(
+        f"[bold]Running walk-forward over {start_date}..{wf_end} "
+        f"(holdout {holdout_start}..{holdout_end})...[/bold]"
+    )
     wf = run_walkforward(
         strategy_factory=factory,
         param_grid=grid,
         bars=bars,
         start=start_date,
-        end=end_date,
+        end=wf_end,
         config=BacktestConfig(),
     )
     chosen = wf.per_window_params[-1][1] if wf.per_window_params else {}
@@ -294,6 +321,8 @@ def validate(
         backtest_config=BacktestConfig(),
         cpcv_config=CPCVConfig(n_groups=cpcv_groups, k_test=cpcv_k_test),
         bootstrap_resamples=bootstrap_resamples,
+        holdout_start=holdout_start,
+        holdout_end=holdout_end,
     )
 
     out_dir = settings.data_dir / "backtests" / strategy
@@ -334,7 +363,30 @@ def validate(
         "≥ 3",
         "✓" if report.gate_regime else "✗",
     )
+    if report.holdout is not None:
+        table.add_row(
+            f"Holdout {report.holdout.start}→{report.holdout.end} total return",
+            f"{report.holdout.total_return:+.2%}",
+            "> 0",
+            "✓" if report.gate_holdout else "✗",
+        )
     console.print(table)
+
+    if report.cost_sensitivity:
+        cost_table = Table(title="Cost-sensitivity sweep (OOS)", show_header=True)
+        cost_table.add_column("Slippage bps", justify="right")
+        cost_table.add_column("Total return", justify="right")
+        cost_table.add_column("Sharpe", justify="right")
+        cost_table.add_column("Max DD", justify="right")
+        for row in report.cost_sensitivity:
+            cost_table.add_row(
+                f"{row.slippage_bps:g}",
+                f"{row.total_return:+.2%}",
+                f"{row.sharpe:.2f}",
+                f"{row.max_drawdown:.2%}",
+            )
+        console.print(cost_table)
+
     console.print(f"\n[bold]Overall: {'PASS' if report.passed else 'FAIL'}[/]")
     console.print(f"Tear-sheet: {html_path}")
 

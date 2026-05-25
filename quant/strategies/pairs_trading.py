@@ -133,6 +133,11 @@ class PairsTrading(Strategy):
         "max_pca_candidates": 60,
         "max_screened_pairs": 20,
         "rediscover_every_days": 60,
+        "require_adf": True,  # Engle-Granger ADF screen during discovery
+        # Hedge regression: "ols" (rolling per window) or "kalman" (Elliott et al. 2005).
+        "hedge_mode": "ols",
+        "kalman_delta": 1e-5,
+        "kalman_obs_var": 1e-3,
     }
 
     param_grid: ClassVar[dict[str, list[Any]]] = {
@@ -176,6 +181,7 @@ class PairsTrading(Strategy):
             min_half_life=float(self.params["min_half_life"]),
             max_half_life=float(self.params["max_half_life"]),
             max_kept=int(self.params["max_screened_pairs"]),
+            require_adf=bool(self.params["require_adf"]),
         )
 
         if not pairs:
@@ -212,6 +218,22 @@ class PairsTrading(Strategy):
             return float("nan")
         log_a = np.log(a.loc[common].values)
         log_b = np.log(b.loc[common].values)
+
+        if self.params.get("hedge_mode") == "kalman":
+            from quant.strategies._kalman import kalman_hedge
+
+            fit = kalman_hedge(
+                log_a,
+                log_b,
+                delta=float(self.params["kalman_delta"]),
+                obs_var=float(self.params["kalman_obs_var"]),
+            )
+            if fit is None:
+                return float("nan")
+            spread_now = log_a[-1] - fit.beta * log_b[-1] - fit.alpha
+            mu = float(np.mean(fit.residuals))
+            return float((spread_now - mu) / fit.spread_std)
+
         spread = log_a - pair.beta * log_b - pair.alpha
         mu = float(np.mean(spread))
         sd = float(np.std(spread, ddof=1))
