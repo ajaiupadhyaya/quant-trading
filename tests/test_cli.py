@@ -147,6 +147,12 @@ def test_backtest_command_runs_registered_strategy(
         REGISTRY.pop("cli-toy", None)
 
 
+def test_combined_book_help_succeeds() -> None:
+    result = CliRunner().invoke(cli, ["combined-book", "--help"])
+    assert result.exit_code == 0
+    assert "combined" in result.output.lower() or "all live-enabled" in result.output.lower()
+
+
 def test_tearsheet_command_opens_html(tmp_data_dir: Path, fake_env: None) -> None:
     # Pre-create a fake tear-sheet
     out_dir = tmp_data_dir / "backtests" / "stub"
