@@ -152,6 +152,85 @@ def backtest(strategy: str, quick: bool, start: str, end: str | None) -> None:
     console.print(f"[green]Wrote {html_path}[/green]")
 
 
+@cli.command(
+    "combined-book",
+    help="Backtest all live-enabled strategies into one joint equity curve.",
+)
+@click.option(
+    "--start", default="2018-01-01", show_default=True, help="History start (YYYY-MM-DD)."
+)
+@click.option("--end", default=None, help="History end (YYYY-MM-DD). Default: today.")
+def combined_book(start: str, end: str | None) -> None:
+    from quant.backtest import run_combined_book
+    from quant.backtest.metrics import cagr, max_drawdown, sharpe
+
+    start_date = date.fromisoformat(start)
+    end_date = date.fromisoformat(end) if end else date.today()
+
+    enabled = sorted(slug for slug, cls in REGISTRY.items() if cls.spec.enabled_live)
+    if not enabled:
+        raise click.ClickException("No live-enabled strategies registered.")
+
+    strategies: dict[str, Any] = {}
+    bars_per: dict[str, pd.DataFrame] = {}
+    for slug in enabled:
+        cls = REGISTRY[slug]
+        console.print(f"[bold]Fetching bars for {slug} ({len(cls.spec.universe)} symbols)...[/]")
+        b = get_bars(BarRequest(symbols=list(cls.spec.universe), start=start_date, end=end_date))
+        if b.empty:
+            console.print(f"[red]No bars for {slug}; skipping.[/]")
+            continue
+        strategies[slug] = cls.build(bars=b)
+        bars_per[slug] = b
+
+    if not strategies:
+        raise click.ClickException("No strategies had bars to run on.")
+
+    result = run_combined_book(
+        strategies=strategies,
+        bars_per_strategy=bars_per,
+        config=BacktestConfig(),
+        start=start_date,
+        end=end_date,
+    )
+
+    table = Table(title="Combined-book result", show_header=True)
+    table.add_column("Strategy")
+    table.add_column("Alloc", justify="right")
+    table.add_column("End Equity", justify="right")
+    table.add_column("Sharpe", justify="right")
+    table.add_column("CAGR", justify="right")
+    table.add_column("Max DD", justify="right")
+    for slug in sorted(result.per_strategy):
+        sub = result.per_strategy[slug]
+        table.add_row(
+            slug,
+            f"{result.allocation.get(slug, 0):.1%}",
+            f"${sub.ending_equity:,.0f}",
+            f"{sharpe(sub.returns):.2f}",
+            f"{cagr(sub.returns):.2%}",
+            f"{max_drawdown(sub.returns):.2%}",
+        )
+    table.add_section()
+    table.add_row(
+        "[bold]COMBINED[/]",
+        "100.0%",
+        f"${result.ending_equity:,.0f}",
+        f"{sharpe(result.returns):.2f}",
+        f"{cagr(result.returns):.2%}",
+        f"{max_drawdown(result.returns):.2%}",
+    )
+    console.print(table)
+
+    settings = Settings()  # type: ignore[call-arg]
+    out_dir = settings.data_dir / "backtests" / "_combined"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    result.equity_curve.to_frame(name="equity").to_parquet(out_dir / "equity.parquet")
+    if not result.trades.empty:
+        result.trades.to_parquet(out_dir / "trades.parquet")
+    console.print(f"[green]Wrote {out_dir}/equity.parquet[/green]")
+
+
 @cli.command(help="Run the full validation battery (walk-forward + CPCV + DSR + ...).")
 @click.argument("strategy")
 @click.option(
