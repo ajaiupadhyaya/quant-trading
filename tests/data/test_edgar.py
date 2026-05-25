@@ -1,0 +1,167 @@
+"""Tests for the SEC EDGAR PIT fundamentals pipeline.
+
+Tests use mocked HTTP responses so they're hermetic / fast / never hit SEC.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+from pathlib import Path
+
+from quant.data.edgar import (
+    asset_growth_yoy,
+    book_to_market,
+    cik_for_ticker,
+    fetch_company_facts,
+    get_facts_asof,
+    gross_profitability,
+)
+
+
+def _mock_ticker_map() -> dict[str, dict[str, object]]:
+    return {
+        "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+        "1": {"cik_str": 789019, "ticker": "MSFT", "title": "Microsoft Corp."},
+    }
+
+
+def _mock_companyfacts() -> dict[str, object]:
+    """Synthetic AAPL company-facts payload with the concepts we care about."""
+    return {
+        "facts": {
+            "us-gaap": {
+                "Assets": {
+                    "units": {
+                        "USD": [
+                            {"val": 300_000_000_000, "end": "2022-09-24", "filed": "2022-10-28"},
+                            {"val": 350_000_000_000, "end": "2023-09-30", "filed": "2023-11-03"},
+                            {"val": 365_000_000_000, "end": "2024-09-28", "filed": "2024-11-01"},
+                        ]
+                    }
+                },
+                "StockholdersEquity": {
+                    "units": {
+                        "USD": [
+                            {"val": 50_000_000_000, "end": "2023-09-30", "filed": "2023-11-03"},
+                            {"val": 55_000_000_000, "end": "2024-09-28", "filed": "2024-11-01"},
+                        ]
+                    }
+                },
+                "GrossProfit": {
+                    "units": {
+                        "USD": [
+                            {"val": 170_000_000_000, "end": "2023-09-30", "filed": "2023-11-03"},
+                        ]
+                    }
+                },
+            }
+        }
+    }
+
+
+class _Resp:
+    def __init__(self, payload: dict, status_code: int = 200) -> None:  # type: ignore[type-arg]
+        self._payload = payload
+        self.status_code = status_code
+
+    def json(self) -> dict:  # type: ignore[type-arg]
+        return self._payload
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+def _patch_http(monkeypatch, ticker_map=None, facts=None):  # type: ignore[no-untyped-def]
+    ticker_map = ticker_map or _mock_ticker_map()
+    facts = facts or _mock_companyfacts()
+
+    def _fake_get(url: str, **_kw):  # type: ignore[no-untyped-def]
+        if "company_tickers.json" in url:
+            return _Resp(ticker_map)
+        if "companyfacts" in url:
+            return _Resp(facts)
+        raise RuntimeError(f"unexpected URL {url}")
+
+    monkeypatch.setattr("quant.data.edgar._http_get", _fake_get)
+
+
+def test_cik_lookup_uppercase(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    assert cik_for_ticker("aapl", data_dir=tmp_path) == "0000320193"
+
+
+def test_cik_lookup_unknown(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    assert cik_for_ticker("NOPE", data_dir=tmp_path) is None
+
+
+def test_fetch_company_facts_caches(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    df = fetch_company_facts("AAPL", data_dir=tmp_path)
+    assert not df.empty
+    assert set(df["concept"]).issuperset({"total_assets", "stockholders_equity", "gross_profit"})
+    # Hitting again with the cached file should not call _http_get.
+    monkeypatch.setattr(
+        "quant.data.edgar._http_get",
+        lambda url, **_: (_ for _ in ()).throw(AssertionError(f"unexpected fetch: {url}")),
+    )
+    df2 = fetch_company_facts("AAPL", data_dir=tmp_path)
+    assert len(df2) == len(df)
+
+
+def test_get_facts_asof_is_pit_correct(monkeypatch, tmp_path: Path) -> None:
+    """A fact filed AFTER asof must not appear in the PIT cut."""
+    _patch_http(monkeypatch)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    # 2023-10-01 is BEFORE the 2023-11-03 filing → that fact is invisible.
+    pit = get_facts_asof("AAPL", date(2023, 10, 1), data_dir=tmp_path)
+    assert "total_assets" in pit
+    assert pit["total_assets"].period_end == date(2022, 9, 24)
+    assert pit["total_assets"].filed == date(2022, 10, 28)
+
+
+def test_get_facts_asof_picks_latest_available(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    pit = get_facts_asof("AAPL", date(2024, 12, 1), data_dir=tmp_path)
+    # 2024-11-01 filing IS visible → latest = period_end 2024-09-28.
+    assert pit["total_assets"].period_end == date(2024, 9, 28)
+    assert pit["total_assets"].value == 365_000_000_000
+
+
+def test_book_to_market_and_profitability(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    btm = book_to_market("AAPL", date(2024, 1, 1), market_cap=2_500_000_000_000, data_dir=tmp_path)
+    assert btm is not None
+    assert abs(btm - (50_000_000_000 / 2_500_000_000_000)) < 1e-12
+    gp = gross_profitability("AAPL", date(2024, 1, 1), data_dir=tmp_path)
+    assert gp is not None
+    assert abs(gp - (170_000_000_000 / 350_000_000_000)) < 1e-12
+
+
+def test_asset_growth_yoy(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    ag = asset_growth_yoy("AAPL", date(2024, 1, 1), data_dir=tmp_path)
+    # 2023-09-30 vs 2022-09-24 → ~16.67% growth
+    assert ag is not None
+    assert 0.15 < ag < 0.18
+
+
+def test_returns_none_when_ticker_missing(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch, ticker_map={})  # empty map
+    df = fetch_company_facts("XYZ", data_dir=tmp_path)
+    assert df.empty
+    assert get_facts_asof("XYZ", date(2024, 1, 1), data_dir=tmp_path) == {}
+
+
+def test_ticker_map_caches_locally(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    cik_for_ticker("AAPL", data_dir=tmp_path)
+    cache = tmp_path / "fundamentals" / "_ticker_to_cik.json"
+    assert cache.exists()
+    payload = json.loads(cache.read_text())
+    assert payload["AAPL"] == "0000320193"
