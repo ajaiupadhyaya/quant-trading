@@ -2,7 +2,7 @@
 
 Systematic trading project — 5 strategies modeled on what AQR / Bridgewater / Citadel / JPM Quant publish about, paper-traded live on Alpaca via GitHub Actions, terminal-first CLI + TUI for navigation.
 
-**Status:** All 6 plans landed. Five strategies registered, walk-forward + validation battery green, live rebalance + journal wired to Alpaca paper, GitHub Actions cron + Textual TUI shipped.
+**Status:** Spec implementation complete. Five strategies with SOTA enhancements (PCA pair discovery, Ledoit-Wolf shrinkage, drawdown-leverage curve, inverse-vol sizing), walk-forward + validation battery, live rebalance + journal wired to Alpaca paper, Textual TUI with drill-down + tear-sheet shortcuts, four GitHub Actions workflows (daily / nightly / weekly grid search / smoke), combined-book backtest, Hypothesis property tests on the engine. See [§ Status & roadmap](#status--roadmap) for what's explicitly out of scope.
 
 **Design spec:** [`docs/specs/2026-05-23-quant-trading-design.md`](docs/specs/2026-05-23-quant-trading-design.md)
 
@@ -48,7 +48,8 @@ uv run quant validate <strategy>     # full validation battery (DSR/PSR/CPCV/boo
 uv run quant rebalance --dry-run     # daily rebalance pass against Alpaca paper (dry-run prints orders)
 uv run quant rebalance               # daily rebalance — submits orders, snapshots equity + per-strategy positions
 uv run quant journal --since 2026-05-01     # structured trade log
-uv run quant monitor                 # Textual TUI dashboard
+uv run quant combined-book           # joint equity curve across all live-enabled strategies
+uv run quant monitor                 # Textual TUI dashboard (press ? for keybindings)
 ```
 
 ## Running a backtest
@@ -134,6 +135,16 @@ cp .env.example .env                 # fill in Alpaca paper + FRED keys
 uv venv && uv sync --all-extras
 uv run pytest                        # run the unit tests
 ```
+
+## Status & roadmap
+
+The spec [`docs/specs/2026-05-23-quant-trading-design.md`](docs/specs/2026-05-23-quant-trading-design.md) is fully implemented except for these explicitly deferred items:
+
+- **SEC EDGAR point-in-time fundamentals** — the multi-factor strategy currently uses price-derivable factors only (momentum / low-vol / reversal / trend). Plugging in EDGAR (book-to-market, gross profitability, asset growth) is the obvious next data-pipeline lift.
+- **Kalman-filter hedge ratios for pairs** — current pairs uses OLS-with-rolling-window plus PCA discovery + cointegration screen + OU half-life; Kalman is a future iteration.
+- **Finnhub earnings calendar** — for skipping earnings days on stat-arb pairs.
+- **Frozen golden tear-sheet PDFs** — spec §8 mentions committing reference PDFs that CI diffs against to catch silent regressions. The HTML tear-sheets currently live in `data/backtests/` but no diff harness is wired up.
+- **Real-money deployment** — explicitly out of scope per spec §7.3. Requires a separate design pass.
 
 ## License & disclaimer
 

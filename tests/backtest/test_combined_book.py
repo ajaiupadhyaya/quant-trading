@@ -133,6 +133,29 @@ def test_allocation_must_sum_to_one() -> None:
         )
 
 
+def test_write_combined_tearsheet_renders_html(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from quant.backtest import write_combined_tearsheet
+
+    strategies, bars_per = _two_strats()
+    result = run_combined_book(
+        strategies=strategies,
+        bars_per_strategy=bars_per,
+        config=BacktestConfig(starting_equity=200_000.0),
+        start=date(2022, 1, 1),
+        end=date(2023, 12, 31),
+    )
+    out_dir = tmp_path / "combined"
+    html_path = write_combined_tearsheet(result=result, out_dir=out_dir)
+    assert html_path.exists()
+    assert (out_dir / "equity.parquet").exists()
+    html = html_path.read_text()
+    assert "Combined Book" in html
+    assert "Per-strategy breakdown" in html
+    # Each sub-strategy slug should appear in the breakdown table.
+    for slug in result.per_strategy:
+        assert slug in html
+
+
 def test_allocation_missing_keys_raises() -> None:
     strategies, bars_per = _two_strats()
     with pytest.raises(ValueError, match="missing keys"):

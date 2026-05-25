@@ -21,6 +21,7 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Static
 
 from quant.execution.alpaca import AccountInfo, AlpacaClient, PositionRow
@@ -111,15 +112,20 @@ def render_account_table(account: AccountInfo, today_pnl: float) -> Table:
     return table
 
 
-def render_strategies_table(strategies: list[StrategySnapshot]) -> Table:
+def render_strategies_table(
+    strategies: list[StrategySnapshot],
+    selected: str | None = None,
+) -> Table:
     table = Table(title="Strategies", expand=True)
+    table.add_column("#", justify="right")
     table.add_column("Slug")
     table.add_column("Name")
     table.add_column("Live", justify="center")
     table.add_column("# Pos", justify="right")
-    for s in strategies:
+    for i, s in enumerate(strategies, start=1):
         live = "[green]on[/]" if s.enabled_live else "[dim]off[/]"
-        table.add_row(s.slug, s.name, live, str(s.n_positions))
+        slug_display = f"[reverse]{s.slug}[/]" if s.slug == selected else s.slug
+        table.add_row(str(i), slug_display, s.name, live, str(s.n_positions))
     return table
 
 
@@ -140,8 +146,8 @@ def render_positions_table(positions: list[PositionRow]) -> Table:
     return table
 
 
-def render_trades_table(trades: pd.DataFrame) -> Table:
-    table = Table(title=f"Trades today ({len(trades)})", expand=True)
+def render_trades_table(trades: pd.DataFrame, title_suffix: str = "") -> Table:
+    table = Table(title=f"Trades today ({len(trades)}){title_suffix}", expand=True)
     for col in ("Time", "Strategy", "Symbol", "Side", "Qty"):
         table.add_column(col)
     if trades.empty:
@@ -196,6 +202,14 @@ class QuantMonitor(App[None]):
     BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
+        Binding("b", "open_tearsheet", "Open tearsheet"),
+        Binding("question_mark", "help", "Help"),
+        Binding("0", "clear_filter", "All strategies"),
+        Binding("1", "select_index('1')", "Strat 1", show=False),
+        Binding("2", "select_index('2')", "Strat 2", show=False),
+        Binding("3", "select_index('3')", "Strat 3", show=False),
+        Binding("4", "select_index('4')", "Strat 4", show=False),
+        Binding("5", "select_index('5')", "Strat 5", show=False),
     ]
 
     def __init__(
@@ -215,6 +229,10 @@ class QuantMonitor(App[None]):
         self._positions_pane: Static | None = None
         self._trades_pane: Static | None = None
         self._equity_pane: Static | None = None
+        # Currently-selected strategy slug for drill-down. None means "all".
+        self._strategy_filter: str | None = None
+        # Cache the last snapshot so tear-sheet + filter actions don't re-fetch.
+        self._last_snapshot: MonitorSnapshot | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -241,6 +259,34 @@ class QuantMonitor(App[None]):
     def action_refresh(self) -> None:
         self._refresh()
 
+    def action_help(self) -> None:
+        self.push_screen(HelpOverlay())
+
+    def action_clear_filter(self) -> None:
+        self._strategy_filter = None
+        self._render(self._last_snapshot) if self._last_snapshot else self._refresh()
+
+    def action_select_index(self, idx: str) -> None:
+        if self._last_snapshot is None:
+            return
+        slugs = [s.slug for s in self._last_snapshot.strategies]
+        i = int(idx) - 1
+        if 0 <= i < len(slugs):
+            self._strategy_filter = slugs[i]
+            self._render(self._last_snapshot)
+
+    def action_open_tearsheet(self) -> None:
+        """Open the current strategy's tear-sheet (or the combined book if no filter)."""
+        import webbrowser
+
+        slug = self._strategy_filter or "_combined"
+        path = self._data_dir / "backtests" / slug / "tearsheet.html"
+        if path.exists():
+            webbrowser.open(path.resolve().as_uri())
+            self.notify(f"Opened {slug} tear-sheet")
+        else:
+            self.notify(f"No tear-sheet at {path}", severity="warning")
+
     def _refresh(self) -> None:
         try:
             snap = MonitorSnapshot.build(
@@ -259,15 +305,63 @@ class QuantMonitor(App[None]):
                 if pane is not None:
                     pane.update(f"[red]refresh failed: {exc!r}[/]")
             return
+        self._last_snapshot = snap
+        self._render(snap)
 
+    def _render(self, snap: MonitorSnapshot | None) -> None:
+        if snap is None:
+            return
         today_pnl = snap.account.equity - snap.account.last_equity
+
+        # Apply the optional drill-down filter on positions + trades.
+        slug_filter = self._strategy_filter
+        filtered_trades = snap.today_trades
+        if slug_filter is not None and not snap.today_trades.empty:
+            filtered_trades = snap.today_trades[snap.today_trades["strategy"] == slug_filter]
+
         if self._account_pane is not None:
             self._account_pane.update(render_account_table(snap.account, today_pnl))
         if self._strategies_pane is not None:
-            self._strategies_pane.update(render_strategies_table(snap.strategies))
+            self._strategies_pane.update(
+                render_strategies_table(snap.strategies, selected=slug_filter)
+            )
         if self._positions_pane is not None:
             self._positions_pane.update(render_positions_table(snap.positions))
         if self._trades_pane is not None:
-            self._trades_pane.update(render_trades_table(snap.today_trades))
+            title_suffix = f" [{slug_filter}]" if slug_filter else ""
+            self._trades_pane.update(
+                render_trades_table(filtered_trades, title_suffix=title_suffix)
+            )
         if self._equity_pane is not None:
             self._equity_pane.update(render_equity_sparkline(snap.equity_history))
+
+
+class HelpOverlay(ModalScreen[None]):
+    """Modal help screen — dismissed by any key."""
+
+    BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("q", "dismiss", "Close"),
+        Binding("question_mark", "dismiss", "Close"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Static(
+            "\n".join(
+                [
+                    "[bold]Quant Monitor — keybindings[/]",
+                    "",
+                    "  [cyan]r[/]      refresh now (also auto-refreshes every 60s)",
+                    "  [cyan]b[/]      open the current selection's tear-sheet in your browser",
+                    "  [cyan]1-5[/]    drill down into the Nth registered strategy",
+                    "  [cyan]0[/]      clear drill-down filter (show all strategies)",
+                    "  [cyan]?[/]      this help",
+                    "  [cyan]q[/]      quit",
+                    "",
+                    "[dim]press any of escape / q / ? to dismiss[/]",
+                ]
+            ),
+        )
+
+    def action_dismiss(self) -> None:  # type: ignore[override]
+        self.app.pop_screen()

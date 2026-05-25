@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Combined Book — Tear-Sheet</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+         margin: 2rem; color: #1a1a1a; max-width: 1100px; }
+  h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+  .subtitle { color: #555; margin-bottom: 1.5rem; }
+  table.metrics { border-collapse: collapse; margin-bottom: 2rem; }
+  table.metrics td { padding: 0.4rem 1.25rem 0.4rem 0; font-variant-numeric: tabular-nums; }
+  table.metrics td.label { color: #555; }
+  table.metrics td.value { font-weight: 600; text-align: right; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: 0.25rem; }
+  img.chart { max-width: 100%; height: auto; display: block; margin: 0.5rem 0 1rem 0; }
+  table.per-strategy { border-collapse: collapse; font-size: 0.9rem; }
+  table.per-strategy th, table.per-strategy td { border: 1px solid #ddd; padding: 0.35rem 0.7rem; }
+  table.per-strategy th { background: #f5f5f5; text-align: left; }
+  table.per-strategy td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .empty { color: #777; font-style: italic; }
+</style>
+</head>
+<body>
+  <h1>Combined Book</h1>
+  <div class="subtitle">{{ n_strategies }} strategies · {{ oos_start }} → {{ oos_end }}</div>
+
+  {% if n_strategies == 0 %}
+    <p class="empty">No strategies in this run.</p>
+  {% else %}
+    <h2>Combined metrics</h2>
+    <table class="metrics">
+      <tr><td class="label">Total Return</td><td class="value">{{ "{:+.2%}".format(metrics.total_return) }}</td></tr>
+      <tr><td class="label">CAGR</td><td class="value">{{ "{:+.2%}".format(metrics.cagr) }}</td></tr>
+      <tr><td class="label">Sharpe</td><td class="value">{{ "{:.2f}".format(metrics.sharpe) }}</td></tr>
+      <tr><td class="label">Sortino</td><td class="value">{{ "{:.2f}".format(metrics.sortino) }}</td></tr>
+      <tr><td class="label">Max Drawdown</td><td class="value">{{ "{:.2%}".format(metrics.max_drawdown) }}</td></tr>
+      <tr><td class="label">Win Rate (daily)</td><td class="value">{{ "{:.1%}".format(metrics.win_rate) }}</td></tr>
+      <tr><td class="label">Trades</td><td class="value">{{ metrics.n_trades }}</td></tr>
+      <tr><td class="label">Starting Equity</td><td class="value">${{ "{:,.0f}".format(metrics.starting_equity) }}</td></tr>
+      <tr><td class="label">Ending Equity</td><td class="value">${{ "{:,.0f}".format(metrics.ending_equity) }}</td></tr>
+    </table>
+
+    <h2>Per-strategy + combined equity</h2>
+    <img class="chart" src="data:image/png;base64,{{ charts.stacked }}" alt="Stacked equity curves">
+
+    <h2>Combined equity</h2>
+    <img class="chart" src="data:image/png;base64,{{ charts.equity }}" alt="Combined equity">
+
+    <h2>Drawdown</h2>
+    <img class="chart" src="data:image/png;base64,{{ charts.drawdown }}" alt="Combined drawdown">
+
+    <h2>Monthly returns</h2>
+    <img class="chart" src="data:image/png;base64,{{ charts.monthly }}" alt="Monthly returns heatmap">
+
+    <h2>Returns distribution</h2>
+    <img class="chart" src="data:image/png;base64,{{ charts.distribution }}" alt="Returns histogram">
+
+    <h2>Per-strategy breakdown</h2>
+    <table class="per-strategy">
+      <thead>
+        <tr>
+          <th>Strategy</th><th>Alloc</th><th>Start $</th><th>End $</th>
+          <th>Total Ret</th><th>Sharpe</th><th>CAGR</th><th>Max DD</th><th>Trades</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in per_strategy %}
+          <tr>
+            <td><code>{{ s.slug }}</code></td>
+            <td class="num">{{ "{:.1%}".format(s.allocation) }}</td>
+            <td class="num">${{ "{:,.0f}".format(s.starting_equity) }}</td>
+            <td class="num">${{ "{:,.0f}".format(s.ending_equity) }}</td>
+            <td class="num">{{ "{:+.2%}".format(s.total_return) }}</td>
+            <td class="num">{{ "{:.2f}".format(s.sharpe) }}</td>
+            <td class="num">{{ "{:+.2%}".format(s.cagr) }}</td>
+            <td class="num">{{ "{:.2%}".format(s.max_drawdown) }}</td>
+            <td class="num">{{ s.n_trades }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</body>
+</html>

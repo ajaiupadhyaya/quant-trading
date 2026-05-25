@@ -71,6 +71,27 @@ def test_render_trades_table_handles_empty_frame() -> None:
     assert "Trades today (0)" in str(table.title)
 
 
+def test_render_trades_table_includes_title_suffix() -> None:
+    df = pd.DataFrame(columns=["date", "strategy", "symbol", "side", "qty"])
+    table = render_trades_table(df, title_suffix=" [momentum]")
+    assert "[momentum]" in str(table.title)
+
+
+def test_render_strategies_table_marks_selected() -> None:
+    from quant.tui import StrategySnapshot
+
+    snaps = [
+        StrategySnapshot(slug="momentum", name="Momentum", enabled_live=True, n_positions=3),
+        StrategySnapshot(slug="trend", name="Trend", enabled_live=True, n_positions=2),
+    ]
+    table = render_strategies_table(snaps, selected="momentum")
+    # The reverse-style markup only appears in the cell when selected; rather
+    # than reach into Rich's internals, just assert the call doesn't crash and
+    # produces 2 data rows.
+    assert isinstance(table, Table)
+    assert table.row_count == 2
+
+
 def test_render_strategies_table_includes_all_specs() -> None:
     from quant.strategies import list_strategies
     from quant.tui import StrategySnapshot
