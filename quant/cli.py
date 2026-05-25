@@ -397,6 +397,106 @@ def tearsheet(strategy: str) -> None:
     console.print(f"Opened {path}")
 
 
+@cli.command(help="Pre-flight check before connecting Alpaca for paper trading.")
+def doctor() -> None:
+    """Run a series of environment + state checks. Exit 0 = ready; >0 = fix needed."""
+    from quant.live.safety import (
+        check_bar_freshness,
+        check_market_open,
+        check_reconciliation,
+        check_risk_limits,
+        enabled_strategy_slugs,
+    )
+
+    checks: list[tuple[str, bool, str]] = []
+
+    # 1. Settings load (.env present + required keys).
+    try:
+        s = Settings()  # type: ignore[call-arg]
+        cfg_ok = bool(s.alpaca_api_key) and bool(s.alpaca_secret_key) and bool(s.fred_api_key)
+        checks.append(
+            (
+                "config",
+                cfg_ok,
+                f"data_dir={s.data_dir}; alpaca_paper={s.alpaca_paper}",
+            )
+        )
+        settings_obj: Settings | None = s if cfg_ok else None
+    except Exception as exc:
+        checks.append(("config", False, f"Settings() raised: {exc!r}"))
+        settings_obj = None
+
+    # 2. Alpaca connectivity (account fetch).
+    alpaca_positions: list[object] = []
+    if settings_obj is not None:
+        try:
+            client = AlpacaClient(settings=settings_obj)
+            acct = client.account()
+            alpaca_positions = list(client.positions())
+            checks.append(
+                (
+                    "alpaca_connectivity",
+                    True,
+                    f"equity=${acct.equity:,.2f}; paper={settings_obj.alpaca_paper}",
+                )
+            )
+        except Exception as exc:
+            checks.append(("alpaca_connectivity", False, f"{exc!r}"))
+
+    # 3. Trading-day check.
+    market = check_market_open(date.today())
+    checks.append(("market_open", market.ok, market.detail))
+
+    # 4. Bar cache freshness.
+    if settings_obj is not None:
+        # Sample one strategy's universe — pick the smallest one.
+        sample_slug = enabled_strategy_slugs()[:1]
+        sample_symbols = list(REGISTRY[sample_slug[0]].spec.universe) if sample_slug else []
+        if sample_symbols:
+            fresh = check_bar_freshness(
+                settings_obj.data_dir, symbols=sample_symbols, asof=date.today()
+            )
+            checks.append(("bar_freshness", fresh.ok, fresh.detail))
+
+    # 5. Reconciliation guard (informational on first run).
+    if settings_obj is not None:
+        recon = check_reconciliation(
+            data_dir=settings_obj.data_dir,
+            alpaca_positions=alpaca_positions,  # type: ignore[arg-type]
+            enabled_slugs=enabled_strategy_slugs(),
+        )
+        checks.append(("reconciliation", recon.ok, recon.detail))
+
+    # 6. Risk limits.
+    if settings_obj is not None:
+        risk = check_risk_limits(
+            data_dir=settings_obj.data_dir, enabled_slugs=enabled_strategy_slugs()
+        )
+        checks.append(("risk_limits", risk.ok, risk.detail))
+
+    # Render table.
+    table = Table(title="quant doctor", show_header=True)
+    table.add_column("Check")
+    table.add_column("Status", justify="center")
+    table.add_column("Detail")
+    n_pass = 0
+    for name, ok, detail in checks:
+        status = "[green]PASS[/]" if ok else "[red]FAIL[/]"
+        table.add_row(name, status, detail)
+        n_pass += int(ok)
+    console.print(table)
+    console.print(
+        f"\n[bold]{n_pass}/{len(checks)} checks passed[/]"
+        + (
+            " — ready to connect Alpaca for paper trading."
+            if n_pass == len(checks)
+            else " — fix the failing checks above before going live."
+        )
+    )
+    if n_pass < len(checks):
+        raise SystemExit(1)
+
+
 @cli.command(help="Print the structured trade journal.")
 @click.option("--since", default=None, help="Filter trades since YYYY-MM-DD.")
 @click.option("--strategy", default=None, help="Filter trades by strategy slug.")

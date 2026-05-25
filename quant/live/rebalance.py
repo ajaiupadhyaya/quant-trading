@@ -60,6 +60,9 @@ class RebalanceReport:
     enabled_strategies: list[str]
     outcomes: list[StrategyRebalanceOutcome] = field(default_factory=list)
     dry_run: bool = False
+    safety_checks: list[Any] = field(default_factory=list)
+    halted_strategies: frozenset[str] = frozenset()
+    skipped_reason: str | None = None
 
     @property
     def total_orders(self) -> int:
@@ -106,11 +109,38 @@ def run_rebalance(
     client: AlpacaClient | None = None,
     settings: Settings | None = None,
     strategies: list[str] | None = None,
+    skip_safety_checks: bool = False,
+    risk_budget: object | None = None,
 ) -> RebalanceReport:
     """Execute one rebalance pass. Returns a structured report for the CLI to render."""
+    from quant.live.safety import (
+        StrategyRiskBudget,
+        check_market_open,
+        check_reconciliation,
+        check_risk_limits,
+    )
+
     settings = settings or Settings()  # type: ignore[call-arg]
     client = client or AlpacaClient(settings=settings)
     asof = asof or date.today()
+
+    safety_results: list[Any] = []
+
+    # Guard 1: is today a trading day at all? Skip everything if not.
+    if not skip_safety_checks:
+        market_check = check_market_open(asof)
+        safety_results.append(market_check)
+        if not market_check.ok:
+            logger.warning("safety: {} — {}", market_check.name, market_check.detail)
+            return RebalanceReport(
+                asof=asof,
+                equity=0.0,
+                enabled_strategies=[],
+                outcomes=[],
+                dry_run=dry_run,
+                safety_checks=safety_results,
+                skipped_reason=market_check.detail,
+            )
 
     account = client.account()
     append_equity_row(
@@ -132,7 +162,45 @@ def run_rebalance(
             enabled_strategies=[],
             outcomes=[],
             dry_run=dry_run,
+            safety_checks=safety_results,
         )
+
+    # Guard 2: reconciliation against Alpaca's aggregate position book.
+    halted: frozenset[str] = frozenset()
+    if not skip_safety_checks:
+        recon = check_reconciliation(
+            data_dir=settings.data_dir,
+            alpaca_positions=client.positions(),
+            enabled_slugs=enabled,
+        )
+        safety_results.append(recon)
+        if not recon.ok:
+            logger.error("safety: reconciliation MISMATCH — refusing to trade. {}", recon.detail)
+            return RebalanceReport(
+                asof=asof,
+                equity=account.equity,
+                enabled_strategies=enabled,
+                outcomes=[],
+                dry_run=dry_run,
+                safety_checks=safety_results,
+                skipped_reason=recon.detail,
+            )
+
+        # Guard 3: risk-limit circuit breaker on the account-level equity history.
+        budget_obj = (
+            risk_budget if isinstance(risk_budget, StrategyRiskBudget) else StrategyRiskBudget()
+        )
+        risk = check_risk_limits(
+            data_dir=settings.data_dir, enabled_slugs=enabled, budget=budget_obj
+        )
+        safety_results.append(risk)
+        if not risk.ok:
+            logger.error(
+                "safety: risk circuit breaker tripped — {} strategies halted. {}",
+                len(risk.halted_strategies),
+                risk.detail,
+            )
+            halted = risk.halted_strategies
 
     per_strategy_equity = account.equity / len(enabled)
     report = RebalanceReport(
@@ -140,11 +208,25 @@ def run_rebalance(
         equity=account.equity,
         enabled_strategies=enabled,
         dry_run=dry_run,
+        safety_checks=safety_results,
+        halted_strategies=halted,
     )
 
     all_trade_rows: list[dict[str, object]] = []
 
     for slug in enabled:
+        if slug in halted:
+            report.outcomes.append(
+                StrategyRebalanceOutcome(
+                    slug=slug,
+                    target={},
+                    previous=last_strategy_positions(settings.data_dir, slug),
+                    orders=[],
+                    error="halted by risk circuit breaker",
+                )
+            )
+            continue
+
         if slug not in REGISTRY:
             report.outcomes.append(
                 StrategyRebalanceOutcome(
