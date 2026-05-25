@@ -1,6 +1,6 @@
 # Quant Trading — Design Spec
 
-> **Implementation status:** Plans 1–6 ✅, plus four follow-up PRs landing per-strategy walk-forward grids, Hypothesis property tests, combined-book backtest, SOTA strategy upgrades (PCA pair discovery / Ledoit-Wolf shrinkage / drawdown-leverage curve / inverse-vol sizing), TUI keybindings, and `.env.example` + smoke-test workflow. mypy strict clean; full test suite green. See README "Status & roadmap" for the deferred items (SEC EDGAR fundamentals, Kalman hedge ratios, Finnhub earnings, frozen tear-sheet PDFs, real-money deployment).
+> **Implementation status:** Production-ready for Alpaca paper trading. Plans 1–6 ✅, plus follow-up PRs landing: walk-forward param grids, Hypothesis property tests, combined-book backtest, SOTA strategy upgrades (PCA pair discovery / Ledoit-Wolf shrinkage / drawdown-leverage curve / inverse-vol sizing), TUI keybindings, smoke-test workflow, **trading safety net** (calendar / reconciliation / risk circuit breaker / `quant doctor`), **academic rigor** (Engle-Granger ADF / Kalman hedge ratios / OOS holdout / cost-sensitivity sweep), **SEC EDGAR PIT fundamentals** + Hou-Xue-Zhang multi-factor, and tear-sheet polish (rolling Sharpe/vol, underwater, round-trip P&L). mypy strict clean; full test suite green. Deferred: Finnhub earnings calendar, frozen tear-sheet PDF diffs, real-money deployment.
 
 **Date:** 2026-05-23
 **Status:** Brainstorm complete, ready for writing-plans → implementation

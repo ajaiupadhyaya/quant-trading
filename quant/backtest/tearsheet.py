@@ -141,6 +141,110 @@ def _distribution_chart(returns: pd.Series) -> str:
     return _fig_to_base64(fig)
 
 
+def _rolling_sharpe_chart(returns: pd.Series, window: int = 252) -> str:
+    """252-day rolling annualized Sharpe ratio."""
+    fig, ax = plt.subplots(figsize=(9, 2.5))
+    if len(returns) >= window:
+        roll = returns.rolling(window=window, min_periods=window // 2)
+        sharpe_series = roll.mean() / roll.std(ddof=1) * float(np.sqrt(252))
+        ax.plot(
+            sharpe_series.index,
+            np.asarray(sharpe_series.values),
+            color="#1a6b3a",
+            linewidth=1.2,
+        )
+        ax.axhline(0.0, color="#888", linewidth=0.5, linestyle="--")
+    else:
+        ax.text(0.5, 0.5, "insufficient history", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+    ax.set_ylabel("Rolling Sharpe")
+    ax.set_title(f"Rolling Sharpe ({window}d)")
+    ax.grid(True, alpha=0.3)
+    return _fig_to_base64(fig)
+
+
+def _rolling_vol_chart(returns: pd.Series, window: int = 60) -> str:
+    """60-day rolling annualized volatility."""
+    fig, ax = plt.subplots(figsize=(9, 2.5))
+    if len(returns) >= window:
+        roll_std = returns.rolling(window=window, min_periods=window // 2).std(ddof=1) * float(
+            np.sqrt(252)
+        )
+        ax.plot(
+            roll_std.index,
+            np.asarray(roll_std.values),
+            color="#a64b00",
+            linewidth=1.2,
+        )
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:.0%}"))
+    else:
+        ax.text(0.5, 0.5, "insufficient history", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+    ax.set_ylabel("Annualized vol")
+    ax.set_title(f"Rolling Volatility ({window}d)")
+    ax.grid(True, alpha=0.3)
+    return _fig_to_base64(fig)
+
+
+def _underwater_chart(equity: pd.Series) -> str:
+    """Underwater (cumulative drawdown vs peak) plot."""
+    fig, ax = plt.subplots(figsize=(9, 2.5))
+    if len(equity) > 0:
+        peak = equity.cummax()
+        dd = equity / peak - 1.0
+        dd_arr = np.asarray(dd.values)
+        ax.fill_between(dd.index, dd_arr, 0, color="#5e1a8f", alpha=0.5)
+        ax.plot(dd.index, dd_arr, color="#5e1a8f", linewidth=0.8)
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:.0%}"))
+    ax.set_ylabel("Drawdown vs peak")
+    ax.set_title("Underwater Plot")
+    ax.grid(True, alpha=0.3)
+    return _fig_to_base64(fig)
+
+
+def _trade_pnl_chart(trades: pd.DataFrame, equity: pd.Series) -> str:
+    """Histogram of per-trade dollar P&L (matched buys/sells per symbol)."""
+    fig, ax = plt.subplots(figsize=(9, 2.5))
+    pnls: list[float] = []
+    if not trades.empty and {"symbol", "qty", "side", "fill_price"}.issubset(trades.columns):
+        # FIFO match per symbol; close out positions on the opposite-side trade.
+        from collections import deque
+
+        lots: dict[str, deque[tuple[int, float]]] = {}
+        for row in trades.itertuples(index=False):
+            sym = str(row.symbol)
+            qty = int(str(row.qty))
+            price = float(str(row.fill_price))
+            sign = +1 if str(row.side) == "buy" else -1
+            book = lots.setdefault(sym, deque())
+            remaining = qty
+            while remaining > 0 and book and (book[0][0] * sign < 0):
+                lot_qty, lot_px = book.popleft()
+                close_size = min(abs(lot_qty), remaining)
+                pnl = (price - lot_px) * close_size * np.sign(lot_qty)
+                pnls.append(float(pnl))
+                remaining -= close_size
+                if abs(lot_qty) > close_size:
+                    book.appendleft(
+                        (int(np.sign(lot_qty)) * (abs(lot_qty) - close_size), lot_px),
+                    )
+            if remaining > 0:
+                book.append((sign * remaining, price))
+    if pnls:
+        ax.hist(pnls, bins=40, color="#1a3a8f", alpha=0.75)
+        ax.axvline(0, color="#444", linewidth=0.6)
+        wins = sum(1 for p in pnls if p > 0)
+        ax.set_title(
+            f"Round-trip P&L distribution (n={len(pnls)}, win rate {wins / len(pnls):.0%})"
+        )
+    else:
+        ax.text(0.5, 0.5, "no closed round-trips", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+    ax.set_xlabel("Trade P&L ($)")
+    ax.grid(True, alpha=0.3)
+    return _fig_to_base64(fig)
+
+
 def _cpcv_distribution_chart(path_sharpes: np.ndarray) -> str:
     fig, ax = plt.subplots(figsize=(9, 2.5))
     if len(path_sharpes) > 0:
@@ -187,6 +291,10 @@ def write_tearsheet(
             "drawdown": _drawdown_chart(result.oos_equity_curve),
             "monthly": _monthly_chart(result.oos_returns),
             "distribution": _distribution_chart(result.oos_returns),
+            "rolling_sharpe": _rolling_sharpe_chart(result.oos_returns),
+            "rolling_vol": _rolling_vol_chart(result.oos_returns),
+            "underwater": _underwater_chart(result.oos_equity_curve),
+            "trade_pnl": _trade_pnl_chart(result.oos_trades, result.oos_equity_curve),
         }
     if validation is not None and len(validation.cpcv_path_sharpes) > 0:
         charts["cpcv"] = _cpcv_distribution_chart(validation.cpcv_path_sharpes)
