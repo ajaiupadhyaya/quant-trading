@@ -9,12 +9,12 @@ Thin layer over alpaca-py's TradingClient that:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide as AlpacaSide
-from alpaca.trading.enums import TimeInForce
-from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import QueryOrderStatus, TimeInForce
+from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest
 
 from quant.execution.orders import OrderSide, OrderTemplate, make_client_order_id
 from quant.util.config import Settings
@@ -40,6 +40,21 @@ class PositionRow:
     unrealized_pl: float
     current_price: float
     side: str  # "long" or "short"
+
+
+@dataclass(frozen=True)
+class OrderRow:
+    """A single Alpaca order with fill outcome, in plain Python types."""
+
+    client_order_id: str
+    symbol: str
+    side: str  # "buy" | "sell"
+    submitted_qty: int
+    filled_qty: int
+    filled_avg_price: float | None
+    submitted_at: datetime
+    filled_at: datetime | None
+    status: str  # alpaca-py OrderStatus.value, e.g. "filled" | "canceled" | "rejected"
 
 
 def _f(x: object) -> float:
@@ -89,6 +104,39 @@ class AlpacaClient:
                     unrealized_pl=_f(p.unrealized_pl),  # type: ignore[union-attr]
                     current_price=_f(p.current_price),  # type: ignore[union-attr]
                     side=side,
+                )
+            )
+        return rows
+
+    def list_orders(
+        self,
+        *,
+        since: date,
+        until: date,
+        limit: int = 500,
+    ) -> list[OrderRow]:
+        """Fetch orders submitted on [since, until] inclusive, newest first."""
+        req = GetOrdersRequest(
+            status=QueryOrderStatus.ALL,
+            after=datetime.combine(since, datetime.min.time()),
+            until=datetime.combine(until, datetime.max.time()),
+            limit=limit,
+        )
+        orders = self._trading.get_orders(filter=req)
+        rows: list[OrderRow] = []
+        for o in orders:
+            filled_avg = o.filled_avg_price  # type: ignore[union-attr]
+            rows.append(
+                OrderRow(
+                    client_order_id=str(o.client_order_id),  # type: ignore[union-attr]
+                    symbol=str(o.symbol),  # type: ignore[union-attr]
+                    side=str(o.side.value),  # type: ignore[union-attr]
+                    submitted_qty=_i(o.qty),  # type: ignore[union-attr]
+                    filled_qty=_i(o.filled_qty),  # type: ignore[union-attr]
+                    filled_avg_price=_f(filled_avg) if filled_avg is not None else None,
+                    submitted_at=o.submitted_at,  # type: ignore[union-attr]
+                    filled_at=o.filled_at,  # type: ignore[union-attr]
+                    status=str(o.status.value),  # type: ignore[union-attr]
                 )
             )
         return rows
