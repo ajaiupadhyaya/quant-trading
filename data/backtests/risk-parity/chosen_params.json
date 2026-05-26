@@ -1,11 +1,11 @@
 {
   "slug": "risk-parity",
   "strategy_name": "HRP All-Weather",
-  "n_windows": 11,
+  "n_windows": 9,
   "latest": {
-    "vol_target_annual": 0.12,
+    "vol_target_annual": 0.1,
     "lookback_days": 504,
-    "shrinkage_floor": 0.0
+    "shrinkage_floor": 0.4
   },
   "windows": [
     {
@@ -25,8 +25,8 @@
       "test_start": "2020-07-01",
       "test_end": "2021-06-30",
       "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 252,
+        "vol_target_annual": 0.1,
+        "lookback_days": 126,
         "shrinkage_floor": 0.0
       }
     },
@@ -36,9 +36,9 @@
       "test_start": "2021-01-01",
       "test_end": "2021-12-31",
       "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 252,
-        "shrinkage_floor": 0.0
+        "vol_target_annual": 0.06,
+        "lookback_days": 504,
+        "shrinkage_floor": 0.4
       }
     },
     {
@@ -71,7 +71,7 @@
       "params": {
         "vol_target_annual": 0.06,
         "lookback_days": 504,
-        "shrinkage_floor": 0.0
+        "shrinkage_floor": 0.4
       }
     },
     {
@@ -82,7 +82,7 @@
       "params": {
         "vol_target_annual": 0.06,
         "lookback_days": 504,
-        "shrinkage_floor": 0.0
+        "shrinkage_floor": 0.4
       }
     },
     {
@@ -93,7 +93,7 @@
       "params": {
         "vol_target_annual": 0.06,
         "lookback_days": 504,
-        "shrinkage_floor": 0.2
+        "shrinkage_floor": 0.4
       }
     },
     {
@@ -102,31 +102,9 @@
       "test_start": "2024-01-01",
       "test_end": "2024-12-31",
       "params": {
-        "vol_target_annual": 0.06,
-        "lookback_days": 504,
-        "shrinkage_floor": 0.2
-      }
-    },
-    {
-      "train_start": "2019-07-01",
-      "train_end": "2024-06-30",
-      "test_start": "2024-07-01",
-      "test_end": "2025-06-30",
-      "params": {
         "vol_target_annual": 0.1,
         "lookback_days": 504,
         "shrinkage_floor": 0.4
-      }
-    },
-    {
-      "train_start": "2020-01-01",
-      "train_end": "2024-12-31",
-      "test_start": "2025-01-01",
-      "test_end": "2025-12-31",
-      "params": {
-        "vol_target_annual": 0.12,
-        "lookback_days": 504,
-        "shrinkage_floor": 0.0
       }
     }
   ]
