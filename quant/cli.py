@@ -639,6 +639,82 @@ def monitor() -> None:
     QuantMonitor().run()
 
 
+def _governance_state_labels(data_dir: Path) -> dict[str, str]:
+    from quant.governance.models import GovernanceError
+    from quant.governance.store import load_strategy_states, strategy_states_path
+
+    try:
+        states = load_strategy_states(strategy_states_path(data_dir))
+    except GovernanceError:
+        return {}
+    return {slug: state.state.value for slug, state in states.items()}
+
+
+@cli.group(help="Strategy governance and evidence-gated live eligibility.")
+def governance() -> None:
+    pass
+
+
+@governance.command("refresh", help="Recompute governance artifacts from validation evidence.")
+@click.option("--asof", default=None, help="Evaluation date (YYYY-MM-DD). Default: today.")
+@click.option("--max-age-days", default=30, show_default=True, type=int)
+def governance_refresh(asof: str | None, max_age_days: int) -> None:
+    from quant.governance import GovernancePolicy, build_governance_artifacts
+
+    settings = Settings()  # type: ignore[call-arg]
+    asof_date = date.fromisoformat(asof) if asof else date.today()
+    states = build_governance_artifacts(
+        data_dir=settings.data_dir,
+        registry=REGISTRY,
+        policy=GovernancePolicy(max_validation_age_days=max_age_days),
+        asof=asof_date,
+    )
+    table = Table(title=f"Governance refresh — {asof_date}", show_header=True)
+    table.add_column("Strategy")
+    table.add_column("State")
+    table.add_column("Reason")
+    for slug, state in sorted(states.items()):
+        table.add_row(slug, state.state.value, state.reason)
+    console.print(table)
+
+
+@governance.command("status", help="Show current governance state for each strategy.")
+def governance_status() -> None:
+    from quant.governance.models import GovernanceError, GovernanceState
+    from quant.governance.store import load_strategy_states, strategy_states_path
+
+    settings = Settings()  # type: ignore[call-arg]
+    try:
+        states = load_strategy_states(strategy_states_path(settings.data_dir))
+    except GovernanceError as exc:
+        states = {}
+        console.print(f"[yellow]{exc}; run `quant governance refresh`.[/yellow]")
+
+    table = Table(title="Strategy governance", show_header=True)
+    for col in ("Strategy", "Code Live", "Governance", "Age", "Reasons"):
+        table.add_column(col)
+    for spec in list_strategies():
+        state = states.get(spec.slug)
+        if state is None:
+            table.add_row(
+                spec.slug,
+                "yes" if spec.enabled_live else "no",
+                GovernanceState.UNKNOWN.value,
+                "",
+                "no governance artifact",
+            )
+            continue
+        age = "" if state.validation_age_days is None else f"{state.validation_age_days}d"
+        table.add_row(
+            spec.slug,
+            "yes" if spec.enabled_live else "no",
+            state.state.value,
+            age,
+            ", ".join(state.reason_codes) or "ok",
+        )
+    console.print(table)
+
+
 @cli.group(help="Data subcommands.")
 def data() -> None:
     pass
@@ -716,12 +792,20 @@ def data_inventory() -> None:
 
 @cli.command(help="List all registered strategies.")
 def strategies() -> None:
+    settings = (
+        Settings.model_construct(data_dir=Path("./data"))  # type: ignore[call-arg]
+        if not _can_load_settings()
+        else Settings()  # type: ignore[call-arg]
+    )
+    governance_labels = _governance_state_labels(settings.data_dir)
+
     table = Table(title="Registered strategies", show_header=True)
     table.add_column("Slug")
     table.add_column("Name")
     table.add_column("Rebalance")
     table.add_column("Universe size", justify="right")
     table.add_column("Live", justify="center")
+    table.add_column("Governance", justify="center")
     for spec in list_strategies():
         table.add_row(
             spec.slug,
@@ -729,6 +813,7 @@ def strategies() -> None:
             spec.rebalance_frequency,
             str(len(spec.universe)),
             "yes" if spec.enabled_live else "no",
+            governance_labels.get(spec.slug, "unknown"),
         )
     console.print(table)
 

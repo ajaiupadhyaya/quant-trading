@@ -236,3 +236,31 @@ def test_validate_command_runs_to_completion_on_known_strategy(
         assert "Deflated Sharpe" in result.output
     finally:
         del REGISTRY["cli-smoke"]
+
+
+def test_governance_help_succeeds(fake_env: None) -> None:
+    result = CliRunner().invoke(cli, ["governance", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "status" in result.output
+    assert "refresh" in result.output
+
+
+def test_governance_refresh_writes_artifacts(tmp_data_dir: Path, fake_env: None) -> None:
+    result = CliRunner().invoke(cli, ["governance", "refresh", "--asof", "2026-05-26"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_data_dir / "governance" / "validation_manifest.json").exists()
+    assert (tmp_data_dir / "governance" / "strategy_states.json").exists()
+
+
+def test_governance_status_renders_unknown_when_artifacts_missing(
+    tmp_data_dir: Path, fake_env: None
+) -> None:
+    result = CliRunner().invoke(cli, ["governance", "status"])
+    assert result.exit_code == 0, result.output
+    assert "unknown" in result.output.lower()
+
+
+def test_strategies_shows_governance_column(tmp_data_dir: Path, fake_env: None) -> None:
+    result = CliRunner().invoke(cli, ["strategies"])
+    assert result.exit_code == 0, result.output
+    assert "Governance" in result.output
