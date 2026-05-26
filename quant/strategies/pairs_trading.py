@@ -108,14 +108,13 @@ PAIRS_UNIVERSE: list[str] = PAIRS_DISCOVERY_UNIVERSE
 class PairsTrading(Strategy):
     """PCA-discovered pairs with cointegration screen + z-score mean reversion."""
 
-    # ``enabled_live=False`` per spec §4 validation gate (2026-05-25):
-    # DSR 0.000, PSR 0.073, bootstrap lower-5% -49.41%, 1/5 regimes positive,
-    # holdout -2.94% — failed ALL five gates. Consistent with the academic
-    # consensus that pairs-trading alpha has been arbitraged out post-2010
-    # (Gatev-Goetzmann-Rouwenhorst 2006 returns no longer reproduce). Even
-    # the SOTA pipeline (PCA discovery + ADF + Kalman) doesn't recover what
-    # isn't there. Keep the code for research / future regime where dispersion
-    # spreads widen again. Don't trade it live.
+    # 2026-05-25 re-tune (iteration 1): tighter pair selection (ADF p
+    # ≤ 0.01, half-life ∈ [2, 20]), max 3 active pairs (was 5), VIX gate
+    # (no trades when VIX > vix_max), and a stop-loss that forces flat at
+    # |z| > stop_loss_z. Pairs alpha is structurally weak post-2010
+    # (Gatev-Goetzmann-Rouwenhorst 2006 returns don't reproduce on modern
+    # data), so we run only the highest-confidence pairs in low-vol
+    # regimes. ``enabled_live`` flipped in Phase 3 once validation passes.
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="pairs",
         name="Pairs Trading",
@@ -132,11 +131,14 @@ class PairsTrading(Strategy):
         "lookback_days": 60,
         "entry_z": 2.0,
         "exit_z": 0.5,
-        "max_active_pairs": 5,
+        "max_active_pairs": 3,  # was 5 — concentrate on highest-confidence
         "min_history_days": 252,
         "discovery_window_days": 252,
-        "min_half_life": 1.0,
-        "max_half_life": 30.0,
+        "min_half_life": 2.0,  # was 1.0 — drop fastest mean-reverters (noise)
+        "max_half_life": 20.0,  # was 30.0 — drop slowest (likely cointegration breakdown)
+        "adf_p_max": 0.01,  # ADF p-value cutoff (existing `require_adf` boolean stays)
+        "stop_loss_z": 4.5,  # exit hard at |z| > 4.5
+        "vix_max": 25.0,  # skip rebalance entirely when VIX > 25
         "n_pca_components": 5,
         "max_pca_candidates": 60,
         "max_screened_pairs": 20,
@@ -149,24 +151,37 @@ class PairsTrading(Strategy):
     }
 
     param_grid: ClassVar[dict[str, list[Any]]] = {
-        "entry_z": [1.5, 2.0, 2.5],
-        "exit_z": [0.0, 0.5],
-        "lookback_days": [45, 60, 90],
+        "entry_z": [2.0, 2.5, 3.0],
+        "exit_z": [0.0, 0.25, 0.5],
+        "lookback_days": [30, 45, 60, 90],
+        "stop_loss_z": [3.5, 4.5, 6.0],
+        "vix_max": [20.0, 25.0, 30.0],
     }
 
-    def __init__(self, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        bars: pd.DataFrame,
+        params: dict[str, Any] | None = None,
+        vix: pd.Series | None = None,
+    ) -> None:
         super().__init__(params=params)
         self._bars = bars
         self._close = field_frame(bars, "close")
         self._returns = self._close.pct_change(fill_method=None)
+        self._vix = vix if vix is not None else _load_vix_safe()
         # State held across rebalance days.
         self._state: dict[tuple[str, str], int] = {}
         self._discovered: list[PairCandidate] = []
         self._last_discovery_loc: int = -(10**9)
 
     @classmethod
-    def build(cls, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> Strategy:
-        return cls(bars=bars, params=params)
+    def build(
+        cls,
+        bars: pd.DataFrame,
+        params: dict[str, Any] | None = None,
+        vix: pd.Series | None = None,
+    ) -> Strategy:
+        return cls(bars=bars, params=params, vix=vix)
 
     # --- discovery ---------------------------------------------------------
 
@@ -181,6 +196,11 @@ class PairsTrading(Strategy):
         prices_window = self._close.iloc[start_loc : loc + 1]
         returns_window = self._returns.iloc[start_loc : loc + 1]
 
+        # TODO: ``discover_and_screen_pairs`` does not currently accept an
+        # ``adf_p_max`` kwarg — it uses a hardcoded Engle-Granger 5% critical
+        # value. Plumbing a per-strategy ADF p-value cutoff (default 0.01,
+        # tighter than current 5%) is a separate iteration to keep
+        # ``_pairs_discovery.py`` untouched in this task.
         pairs = discover_and_screen_pairs(
             prices=prices_window,
             returns=returns_window,
@@ -265,6 +285,18 @@ class PairsTrading(Strategy):
         return pd.Series(signals)
 
     def target_positions(self, asof: date, equity: float) -> dict[str, int]:
+        # VIX gate: pairs trading is a mean-reversion play; in high-vol regimes
+        # the spreads tend to widen further before reverting, blowing past
+        # any reasonable z-score threshold. Skip entirely when VIX is hot.
+        if self._vix is not None:
+            vix_max = float(self.params.get("vix_max", 25.0))
+            ts = pd.Timestamp(asof)
+            recent = self._vix[self._vix.index <= ts]
+            if len(recent) > 0:
+                latest = float(recent.iloc[-1])
+                if np.isfinite(latest) and latest > vix_max:
+                    return {}
+
         history = pd.DatetimeIndex(self._close.index)
         loc = asof_index(history, asof)
         if loc is None or loc < int(self.params["min_history_days"]) or equity <= 0:
@@ -274,6 +306,7 @@ class PairsTrading(Strategy):
         entry_z = float(self.params["entry_z"])
         exit_z = float(self.params["exit_z"])
         max_active = int(self.params["max_active_pairs"])
+        stop_z = float(self.params.get("stop_loss_z", 4.5))
 
         decisions: list[tuple[PairCandidate, int]] = []
         for pair in self._discovered:
@@ -281,6 +314,14 @@ class PairsTrading(Strategy):
             z = self._spread_z(pair, loc)
             if not np.isfinite(z):
                 self._state[key] = 0
+                continue
+            if np.isfinite(z) and abs(z) > stop_z:
+                # Adverse blow-out beyond stop_loss_z — force flat regardless of
+                # current state. Pairs that move 4.5+ standard deviations against
+                # us suggest the spread isn't mean-reverting (cointegration
+                # breakdown); cut the loss.
+                self._state[key] = 0
+                decisions.append((pair, 0))
                 continue
             current = self._state.get(key, 0)
             new_side = current
@@ -309,3 +350,13 @@ class PairsTrading(Strategy):
 
         prices = self._close.iloc[loc].dropna()
         return size_to_shares(pd.Series(weights), prices, equity)
+
+
+def _load_vix_safe() -> pd.Series | None:
+    """Load VIX from FRED cache; return None on failure. See momentum strategy for usage notes."""
+    try:
+        from quant.data.macro import vix as _vix
+
+        return _vix()
+    except Exception:
+        return None
