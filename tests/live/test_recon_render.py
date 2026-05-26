@@ -41,7 +41,7 @@ def test_render_markdown_contains_required_sections() -> None:
 
     assert "# Live Reconciliation 2026-05-26" in md
     assert "## Summary" in md
-    assert "## Slippage (filled orders)" in md
+    assert "## Signal-to-fill drift (filled orders)" in md
     assert "## Timing" in md
     assert "## Fidelity" in md
     assert "## Per-symbol breakdown" in md

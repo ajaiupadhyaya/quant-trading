@@ -29,8 +29,15 @@ def _write_header(buf: StringIO, report: ReconciliationReport) -> None:
     buf.write(f"**Window:** {report.since.isoformat()} → {report.until.isoformat()}  \n")
     modeled = report.modeled_slippage_bps
     modeled_str = f"{modeled:.1f}" if modeled == int(modeled) else f"{modeled:g}"
-    buf.write(f"**Modeled slippage benchmark:** {modeled_str} bps  \n")
+    buf.write(f"**Modeled cost (engine, symmetric):** {modeled_str} bps  \n")
     buf.write(f"**Total orders in window:** {len(report.rows)}  \n")
+    buf.write(
+        "\n> _The signed mean below is `(fill − signal) / signal` (sign-adjusted "
+        "for side). It captures **signal-to-fill price drift**, not pure execution "
+        "cost: signal_price is the close that produced the signal, fill_price is "
+        "the next-open execution. Do not use as cost-model calibration without an "
+        "intraday-mid-based metric. See `docs/live-recon/cost-model-interpretation.md`._\n"
+    )
 
 
 def _write_summary(buf: StringIO, report: ReconciliationReport) -> None:
@@ -52,9 +59,12 @@ def _write_summary(buf: StringIO, report: ReconciliationReport) -> None:
 
 
 def _write_slippage_section(buf: StringIO, report: ReconciliationReport) -> None:
-    buf.write("\n## Slippage (filled orders)\n\n")
+    buf.write("\n## Signal-to-fill drift (filled orders)\n\n")
     by_strat = report.aggregate_by_strategy()
-    buf.write("| strategy | n | mean slippage (bps) | vs modeled |\n|---|---:|---:|---:|\n")
+    buf.write(
+        "| strategy | n | mean signed drift (bps) | diagnostic Δ vs modeled cost |\n"
+        "|---|---:|---:|---:|\n"
+    )
     for strat, stats in sorted(by_strat.items()):
         mean_slip = stats["mean_slippage_bps"]
         if mean_slip is None:
