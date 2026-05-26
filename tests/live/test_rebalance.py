@@ -216,3 +216,92 @@ def test_no_enabled_strategies_is_noop(fake_settings: Settings, patched_bars: No
     )
     assert report.outcomes == []
     assert client.submitted == []
+
+
+def _write_state_file(data_dir: Path, states: dict[str, str]) -> None:
+    import json
+
+    gov = data_dir / "governance"
+    gov.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": 1,
+        "strategies": {
+            slug: {
+                "slug": slug,
+                "state": state,
+                "evaluated_at": "2026-05-26T00:00:00",
+                "validation_age_days": 1,
+                "reason_codes": [] if state == "live" else ["failed_gate_regime"],
+                "reason": "ok" if state == "live" else "blocked",
+                "code_enabled_live": True,
+                "manual_block": False,
+            }
+            for slug, state in states.items()
+        },
+    }
+    (gov / "strategy_states.json").write_text(json.dumps(payload))
+
+
+def test_default_rebalance_uses_only_governance_live_strategies(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    _write_state_file(fake_settings.data_dir, {"momentum": "quarantined", "trend": "live"})
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        skip_safety_checks=True,
+    )
+    assert report.enabled_strategies == ["trend"]
+
+
+def test_missing_governance_artifacts_fail_closed_for_default_rebalance(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        skip_safety_checks=True,
+    )
+    assert report.enabled_strategies == []
+    assert report.skipped_reason is not None
+    assert "governance" in report.skipped_reason.lower()
+
+
+def test_include_quarantined_requires_dry_run(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    _write_state_file(fake_settings.data_dir, {"momentum": "quarantined"})
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=False,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        include_quarantined=True,
+        skip_safety_checks=True,
+    )
+    assert report.enabled_strategies == []
+    assert report.skipped_reason is not None
+    assert "dry-run" in report.skipped_reason.lower()
+
+
+def test_dry_run_can_include_quarantined_for_observation(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    _write_state_file(fake_settings.data_dir, {"momentum": "quarantined"})
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        include_quarantined=True,
+        skip_safety_checks=True,
+    )
+    assert report.enabled_strategies == ["momentum"]

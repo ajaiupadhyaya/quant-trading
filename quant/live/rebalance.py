@@ -73,6 +73,30 @@ def _enabled_strategies() -> list[str]:
     return sorted(slug for slug, cls in REGISTRY.items() if cls.spec.enabled_live)
 
 
+def _governance_selected_strategies(
+    data_dir: Path,
+    *,
+    include_quarantined: bool,
+) -> tuple[list[str], str | None]:
+    from quant.governance.models import GovernanceError, GovernanceState
+    from quant.governance.store import load_strategy_states, strategy_states_path
+
+    try:
+        states = load_strategy_states(strategy_states_path(data_dir))
+    except GovernanceError as exc:
+        return [], f"governance unavailable: {exc}. Run `quant governance refresh`."
+
+    selected: list[str] = []
+    for slug, state in sorted(states.items()):
+        if slug not in REGISTRY:
+            continue
+        if state.state is GovernanceState.LIVE:
+            selected.append(slug)
+        elif include_quarantined and state.state is GovernanceState.QUARANTINED:
+            selected.append(slug)
+    return selected, None
+
+
 def _bars_for(strategy_cls: type[Strategy], asof: date, history_days: int) -> pd.DataFrame:
     start = asof - timedelta(days=history_days)
     req = BarRequest(symbols=list(strategy_cls.spec.universe), start=start, end=asof)
@@ -111,6 +135,7 @@ def run_rebalance(
     strategies: list[str] | None = None,
     skip_safety_checks: bool = False,
     risk_budget: object | None = None,
+    include_quarantined: bool = False,
 ) -> RebalanceReport:
     """Execute one rebalance pass. Returns a structured report for the CLI to render."""
     from quant.live.safety import (
@@ -125,6 +150,16 @@ def run_rebalance(
     asof = asof or date.today()
 
     safety_results: list[Any] = []
+
+    if include_quarantined and not dry_run:
+        return RebalanceReport(
+            asof=asof,
+            equity=0.0,
+            enabled_strategies=[],
+            outcomes=[],
+            dry_run=dry_run,
+            skipped_reason="--include-quarantined is allowed only for dry-run observation.",
+        )
 
     # Guard 1: is today a trading day at all? Skip everything if not.
     if not skip_safety_checks:
@@ -153,7 +188,24 @@ def run_rebalance(
         portfolio_value=account.portfolio_value,
     )
 
-    enabled = strategies if strategies is not None else _enabled_strategies()
+    if strategies is not None:
+        enabled = strategies
+    else:
+        enabled, governance_error = _governance_selected_strategies(
+            settings.data_dir,
+            include_quarantined=include_quarantined,
+        )
+        if governance_error is not None:
+            logger.error("{}", governance_error)
+            return RebalanceReport(
+                asof=asof,
+                equity=account.equity,
+                enabled_strategies=[],
+                outcomes=[],
+                dry_run=dry_run,
+                safety_checks=safety_results,
+                skipped_reason=governance_error,
+            )
     if not enabled:
         logger.warning("No live-enabled strategies; rebalance is a no-op.")
         return RebalanceReport(

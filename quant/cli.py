@@ -454,12 +454,30 @@ def validate(
     default=None,
     help="Only rebalance the named strategy (instead of all live-enabled).",
 )
-def rebalance(dry_run: bool, asof: str | None, strategy_filter: str | None) -> None:
+@click.option(
+    "--include-quarantined",
+    is_flag=True,
+    help="Dry-run only: include quarantined strategies for observation.",
+)
+def rebalance(
+    dry_run: bool,
+    asof: str | None,
+    strategy_filter: str | None,
+    include_quarantined: bool,
+) -> None:
     from quant.live import run_rebalance
+
+    if include_quarantined and not dry_run:
+        raise click.ClickException("--include-quarantined is allowed only with --dry-run.")
 
     asof_date = date.fromisoformat(asof) if asof else date.today()
     strategies_arg = [strategy_filter] if strategy_filter else None
-    report = run_rebalance(asof=asof_date, dry_run=dry_run, strategies=strategies_arg)
+    report = run_rebalance(
+        asof=asof_date,
+        dry_run=dry_run,
+        strategies=strategies_arg,
+        include_quarantined=include_quarantined,
+    )
 
     header = Table(title=f"Rebalance {report.asof} — {'DRY RUN' if dry_run else 'LIVE'}")
     header.add_column("Field")
@@ -468,6 +486,8 @@ def rebalance(dry_run: bool, asof: str | None, strategy_filter: str | None) -> N
     header.add_row("Enabled strategies", str(len(report.enabled_strategies)))
     header.add_row("Total orders", str(report.total_orders))
     console.print(header)
+    if report.skipped_reason:
+        console.print(f"[yellow]Skipped: {report.skipped_reason}[/yellow]")
 
     if not report.outcomes:
         console.print("[dim]No outcomes.[/dim]")
