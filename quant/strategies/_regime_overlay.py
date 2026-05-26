@@ -15,12 +15,12 @@ The factor is composed by taking the MIN (most-conservative wins) of up to
 three component gates:
 
 1. **SPY 200-day SMA breach** — when SPY's close is below its trailing 200d SMA,
-   cap exposure at ``spy_halve_factor`` (default 0.5).
+   cap exposure at ``spy_breach_cap`` (default 0.5 — halve).
 2. **VIX threshold** — when VIX (as-of) is at or above ``vix_threshold``, cap
-   exposure at ``vix_quarter_factor`` (default 0.25).
+   exposure at ``vix_breach_cap`` (default 0.25 — quarter).
 3. **Strategy-equity 200-day SMA breach** — when the strategy's own equity
    curve is below its trailing 200d SMA, cap exposure at
-   ``strategy_equity_flatten_factor`` (default 0.0 — fully flat).
+   ``strategy_equity_breach_cap`` (default 0.0 — fully flat).
 
 All computations are point-in-time: each component uses ``asof_index`` to
 resolve ``asof`` against the relevant history and never peeks at future data.
@@ -41,22 +41,22 @@ class RegimeOverlayConfig:
     """Parameters governing the three component gates.
 
     Each ``use_*_filter`` flag enables or disables the corresponding component.
-    The ``*_factor`` parameters are the exposure caps applied when the
+    The ``*_breach_cap`` parameters are the exposure caps applied when the
     corresponding component triggers (the overall factor is the MIN across
     triggered components, then clamped to ``[0, 1]``).
     """
 
     use_spy_filter: bool = True
     spy_ma_days: int = 200
-    spy_halve_factor: float = 0.5
+    spy_breach_cap: float = 0.5
 
     use_vix_filter: bool = True
     vix_threshold: float = 30.0
-    vix_quarter_factor: float = 0.25
+    vix_breach_cap: float = 0.25
 
     use_strategy_equity_filter: bool = False
     strategy_equity_ma_days: int = 200
-    strategy_equity_flatten_factor: float = 0.0
+    strategy_equity_breach_cap: float = 0.0
 
 
 class RegimeOverlay:
@@ -75,10 +75,14 @@ class RegimeOverlay:
         config: RegimeOverlayConfig,
         strategy_equity: pd.Series | None = None,
     ) -> None:
-        self._bars = bars
         self._vix = vix
         self._config = config
         self._strategy_equity = strategy_equity
+        # Cache the close frame once — factor() is called once per bar in
+        # walk-forward backtests, so we don't want to redo field_frame()'s
+        # MultiIndex .xs() + copy on every call.
+        self._close = field_frame(bars, "close")
+        self._has_spy = "SPY" in self._close.columns
 
     def factor(self, asof: date) -> float:
         """Return the composite exposure multiplier for ``asof`` in ``[0, 1]``."""
@@ -106,26 +110,22 @@ class RegimeOverlay:
 
     def _spy_component(self, asof: date) -> float | None:
         """Return the SPY-200dma cap, or ``None`` if the gate doesn't fire."""
+        if not self._has_spy:
+            return None
         cfg = self._config
-        bars = self._bars
-        if not isinstance(bars.columns, pd.MultiIndex):
-            return None
-        if "SPY" not in bars.columns.get_level_values(0):
-            return None
-        close = field_frame(bars, "close")
-        if "SPY" not in close.columns:
-            return None
+        close = self._close
         history = close.index
         if not isinstance(history, pd.DatetimeIndex):
             return None
         loc = asof_index(history, asof)
         if loc is None or loc < cfg.spy_ma_days:
             return None
-        window = close["SPY"].iloc[loc - cfg.spy_ma_days + 1 : loc + 1]
+        spy_close = close["SPY"]
+        window = spy_close.iloc[loc - cfg.spy_ma_days + 1 : loc + 1]
         sma = float(window.mean())
-        current = float(close["SPY"].iloc[loc])
+        current = float(spy_close.iloc[loc])
         if current < sma:
-            return float(cfg.spy_halve_factor)
+            return float(cfg.spy_breach_cap)
         return None
 
     def _vix_component(self, asof: date) -> float | None:
@@ -144,7 +144,7 @@ class RegimeOverlay:
         if current != current:  # NaN guard
             return None
         if current >= cfg.vix_threshold:
-            return float(cfg.vix_quarter_factor)
+            return float(cfg.vix_breach_cap)
         return None
 
     def _strategy_equity_component(self, asof: date) -> float | None:
@@ -163,5 +163,5 @@ class RegimeOverlay:
         sma = float(window.mean())
         current = float(equity.iloc[loc])
         if current < sma:
-            return float(cfg.strategy_equity_flatten_factor)
+            return float(cfg.strategy_equity_breach_cap)
         return None

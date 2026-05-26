@@ -108,7 +108,7 @@ def test_overlay_clamps_to_unit_interval() -> None:
     """Even with absurd config values the factor stays in [0, 1]."""
     bars = _flat_spy_bars()
     vix = pd.Series(15.0, index=bars.index)
-    config = RegimeOverlayConfig(spy_halve_factor=5.0, vix_quarter_factor=-2.0)
+    config = RegimeOverlayConfig(spy_breach_cap=5.0, vix_breach_cap=-2.0)
     overlay = RegimeOverlay(bars=bars, vix=vix, config=config)
     asof = bars.index[-1].date()
     out = overlay.factor(asof)
