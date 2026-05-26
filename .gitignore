@@ -44,3 +44,6 @@ data/features/**
 
 # Local-only research scratch
 resources.md
+
+# Local isolated worktrees
+.worktrees/
