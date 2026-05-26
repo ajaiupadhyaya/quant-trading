@@ -105,7 +105,7 @@ def run_rebalance(
     *,
     asof: date | None = None,
     dry_run: bool = False,
-    history_days: int = 730,
+    history_days: int = 1100,
     client: AlpacaClient | None = None,
     settings: Settings | None = None,
     strategies: list[str] | None = None,
