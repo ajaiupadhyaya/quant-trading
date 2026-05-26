@@ -1,11 +1,13 @@
 {
   "slug": "pairs",
   "strategy_name": "Pairs Trading",
-  "n_windows": 9,
+  "n_windows": 11,
   "latest": {
-    "entry_z": 2.5,
+    "entry_z": 3.0,
     "exit_z": 0.0,
-    "lookback_days": 45
+    "lookback_days": 30,
+    "stop_loss_z": 3.5,
+    "vix_max": 30.0
   },
   "windows": [
     {
@@ -14,9 +16,11 @@
       "test_start": "2020-01-01",
       "test_end": "2020-12-31",
       "params": {
-        "entry_z": 2.5,
-        "exit_z": 0.5,
-        "lookback_days": 90
+        "entry_z": 3.0,
+        "exit_z": 0.0,
+        "lookback_days": 90,
+        "stop_loss_z": 3.5,
+        "vix_max": 20.0
       }
     },
     {
@@ -25,9 +29,11 @@
       "test_start": "2020-07-01",
       "test_end": "2021-06-30",
       "params": {
-        "entry_z": 2.0,
+        "entry_z": 3.0,
         "exit_z": 0.0,
-        "lookback_days": 60
+        "lookback_days": 90,
+        "stop_loss_z": 3.5,
+        "vix_max": 20.0
       }
     },
     {
@@ -36,9 +42,11 @@
       "test_start": "2021-01-01",
       "test_end": "2021-12-31",
       "params": {
-        "entry_z": 2.5,
+        "entry_z": 3.0,
         "exit_z": 0.0,
-        "lookback_days": 90
+        "lookback_days": 90,
+        "stop_loss_z": 3.5,
+        "vix_max": 20.0
       }
     },
     {
@@ -48,8 +56,10 @@
       "test_end": "2022-06-30",
       "params": {
         "entry_z": 2.0,
-        "exit_z": 0.0,
-        "lookback_days": 60
+        "exit_z": 0.5,
+        "lookback_days": 45,
+        "stop_loss_z": 4.5,
+        "vix_max": 20.0
       }
     },
     {
@@ -58,9 +68,11 @@
       "test_start": "2022-01-01",
       "test_end": "2022-12-31",
       "params": {
-        "entry_z": 2.0,
+        "entry_z": 3.0,
         "exit_z": 0.0,
-        "lookback_days": 60
+        "lookback_days": 30,
+        "stop_loss_z": 3.5,
+        "vix_max": 30.0
       }
     },
     {
@@ -69,9 +81,11 @@
       "test_start": "2022-07-01",
       "test_end": "2023-06-30",
       "params": {
-        "entry_z": 2.5,
+        "entry_z": 3.0,
         "exit_z": 0.0,
-        "lookback_days": 60
+        "lookback_days": 45,
+        "stop_loss_z": 4.5,
+        "vix_max": 30.0
       }
     },
     {
@@ -80,9 +94,11 @@
       "test_start": "2023-01-01",
       "test_end": "2023-12-31",
       "params": {
-        "entry_z": 2.0,
+        "entry_z": 3.0,
         "exit_z": 0.0,
-        "lookback_days": 60
+        "lookback_days": 45,
+        "stop_loss_z": 4.5,
+        "vix_max": 30.0
       }
     },
     {
@@ -91,9 +107,11 @@
       "test_start": "2023-07-01",
       "test_end": "2024-06-30",
       "params": {
-        "entry_z": 2.5,
+        "entry_z": 3.0,
         "exit_z": 0.0,
-        "lookback_days": 45
+        "lookback_days": 30,
+        "stop_loss_z": 3.5,
+        "vix_max": 30.0
       }
     },
     {
@@ -102,9 +120,37 @@
       "test_start": "2024-01-01",
       "test_end": "2024-12-31",
       "params": {
-        "entry_z": 2.5,
+        "entry_z": 3.0,
         "exit_z": 0.0,
-        "lookback_days": 45
+        "lookback_days": 30,
+        "stop_loss_z": 3.5,
+        "vix_max": 30.0
+      }
+    },
+    {
+      "train_start": "2019-07-01",
+      "train_end": "2024-06-30",
+      "test_start": "2024-07-01",
+      "test_end": "2025-06-30",
+      "params": {
+        "entry_z": 3.0,
+        "exit_z": 0.25,
+        "lookback_days": 45,
+        "stop_loss_z": 3.5,
+        "vix_max": 25.0
+      }
+    },
+    {
+      "train_start": "2020-01-01",
+      "train_end": "2024-12-31",
+      "test_start": "2025-01-01",
+      "test_end": "2025-12-31",
+      "params": {
+        "entry_z": 3.0,
+        "exit_z": 0.0,
+        "lookback_days": 30,
+        "stop_loss_z": 3.5,
+        "vix_max": 30.0
       }
     }
   ]

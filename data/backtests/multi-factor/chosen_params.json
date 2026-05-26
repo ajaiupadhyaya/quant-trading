@@ -1,11 +1,12 @@
 {
   "slug": "multi-factor",
   "strategy_name": "Multi-Factor Long/Short",
-  "n_windows": 9,
+  "n_windows": 11,
   "latest": {
     "quintile_pct": 0.25,
     "dollar_neutral": false,
-    "vol_lookback": 30
+    "vol_lookback": 60,
+    "regime_overlay_vix_threshold": 25.0
   },
   "windows": [
     {
@@ -16,7 +17,8 @@
       "params": {
         "quintile_pct": 0.25,
         "dollar_neutral": false,
-        "vol_lookback": 60
+        "vol_lookback": 60,
+        "regime_overlay_vix_threshold": 25.0
       }
     },
     {
@@ -27,7 +29,8 @@
       "params": {
         "quintile_pct": 0.25,
         "dollar_neutral": false,
-        "vol_lookback": 60
+        "vol_lookback": 60,
+        "regime_overlay_vix_threshold": 25.0
       }
     },
     {
@@ -36,9 +39,10 @@
       "test_start": "2021-01-01",
       "test_end": "2021-12-31",
       "params": {
-        "quintile_pct": 0.15,
+        "quintile_pct": 0.25,
         "dollar_neutral": false,
-        "vol_lookback": 60
+        "vol_lookback": 60,
+        "regime_overlay_vix_threshold": 25.0
       }
     },
     {
@@ -49,7 +53,8 @@
       "params": {
         "quintile_pct": 0.25,
         "dollar_neutral": false,
-        "vol_lookback": 30
+        "vol_lookback": 60,
+        "regime_overlay_vix_threshold": 25.0
       }
     },
     {
@@ -60,7 +65,8 @@
       "params": {
         "quintile_pct": 0.25,
         "dollar_neutral": false,
-        "vol_lookback": 30
+        "vol_lookback": 60,
+        "regime_overlay_vix_threshold": 25.0
       }
     },
     {
@@ -71,7 +77,8 @@
       "params": {
         "quintile_pct": 0.25,
         "dollar_neutral": false,
-        "vol_lookback": 60
+        "vol_lookback": 60,
+        "regime_overlay_vix_threshold": 25.0
       }
     },
     {
@@ -82,7 +89,8 @@
       "params": {
         "quintile_pct": 0.25,
         "dollar_neutral": false,
-        "vol_lookback": 60
+        "vol_lookback": 60,
+        "regime_overlay_vix_threshold": 25.0
       }
     },
     {
@@ -93,7 +101,8 @@
       "params": {
         "quintile_pct": 0.25,
         "dollar_neutral": false,
-        "vol_lookback": 30
+        "vol_lookback": 30,
+        "regime_overlay_vix_threshold": 25.0
       }
     },
     {
@@ -104,7 +113,32 @@
       "params": {
         "quintile_pct": 0.25,
         "dollar_neutral": false,
-        "vol_lookback": 30
+        "vol_lookback": 30,
+        "regime_overlay_vix_threshold": 25.0
+      }
+    },
+    {
+      "train_start": "2019-07-01",
+      "train_end": "2024-06-30",
+      "test_start": "2024-07-01",
+      "test_end": "2025-06-30",
+      "params": {
+        "quintile_pct": 0.25,
+        "dollar_neutral": false,
+        "vol_lookback": 60,
+        "regime_overlay_vix_threshold": 25.0
+      }
+    },
+    {
+      "train_start": "2020-01-01",
+      "train_end": "2024-12-31",
+      "test_start": "2025-01-01",
+      "test_end": "2025-12-31",
+      "params": {
+        "quintile_pct": 0.25,
+        "dollar_neutral": false,
+        "vol_lookback": 60,
+        "regime_overlay_vix_threshold": 25.0
       }
     }
   ]

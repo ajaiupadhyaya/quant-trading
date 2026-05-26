@@ -1,7 +1,7 @@
 {
   "slug": "momentum",
   "strategy_name": "Cross-Sectional Momentum",
-  "n_windows": 11,
+  "n_windows": 9,
   "latest": {
     "lookback_months": 9,
     "top_pct": 0.3,
@@ -110,30 +110,6 @@
       "train_end": "2023-12-31",
       "test_start": "2024-01-01",
       "test_end": "2024-12-31",
-      "params": {
-        "lookback_months": 9,
-        "top_pct": 0.3,
-        "trend_filter_days": 150,
-        "regime_overlay_vix_threshold": 35.0
-      }
-    },
-    {
-      "train_start": "2019-07-01",
-      "train_end": "2024-06-30",
-      "test_start": "2024-07-01",
-      "test_end": "2025-06-30",
-      "params": {
-        "lookback_months": 9,
-        "top_pct": 0.3,
-        "trend_filter_days": 150,
-        "regime_overlay_vix_threshold": 35.0
-      }
-    },
-    {
-      "train_start": "2020-01-01",
-      "train_end": "2024-12-31",
-      "test_start": "2025-01-01",
-      "test_end": "2025-12-31",
       "params": {
         "lookback_months": 9,
         "top_pct": 0.3,
