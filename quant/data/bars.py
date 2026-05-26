@@ -33,6 +33,12 @@ def _cache_path(symbol: str, data_dir: Path | None = None) -> Path:
     return base / "raw" / f"{symbol}.parquet"
 
 
+def _drop_all_nan_rows(df: pd.DataFrame) -> pd.DataFrame:
+    # All-NaN rows poison gap detection: max(index) advances past the last real
+    # bar, so get_bars() thinks the cache is fresh and never refetches.
+    return df.dropna(how="all")
+
+
 def _read_cache(path: Path) -> pd.DataFrame:
     df = pd.read_parquet(path)
     if not isinstance(df.index, pd.DatetimeIndex):
@@ -40,15 +46,21 @@ def _read_cache(path: Path) -> pd.DataFrame:
     # Normalize to seconds resolution to match what the bar-builder produces
     # (parquet may promote datetime64[s] → datetime64[ms] on round-trip).
     df.index = df.index.as_unit("s")
-    return df
+    return _drop_all_nan_rows(df)
 
 
 def _write_cache(df: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(path)
+    _drop_all_nan_rows(df).to_parquet(path)
 
 
 def _merge_cache(existing: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
+    # A `new` frame missing the cache's OHLCV columns (e.g. a malformed fetch
+    # that returned only an index) would widen the union to NaN. Drop such
+    # frames so they can't poison the cache.
+    if not set(existing.columns).issubset(set(new.columns)) and len(existing.columns):
+        new = new.reindex(columns=existing.columns)
+        new = new.dropna(how="all")
     combined = pd.concat([existing, new])
     combined = combined[~combined.index.duplicated(keep="last")]
     return combined.sort_index()
@@ -104,21 +116,26 @@ def _fetch_yfinance(symbols: list[str], start: date, end: date) -> dict[str, pd.
     if raw is None or raw.empty:
         return out
 
-    if len(symbols) == 1:
-        df = raw.copy()
-        df.columns = [c.lower() if isinstance(c, str) else c for c in df.columns]
-        df = df.rename(columns={"adj close": "adj_close"})
-        df.index = pd.DatetimeIndex(df.index.date, name="timestamp")
-        out[symbols[0]] = df[[c for c in _BAR_COLUMNS if c in df.columns]]
+    # yfinance with group_by='ticker' always returns a 2-level MultiIndex column
+    # frame (outer=ticker, inner=field), even for a single symbol. Treat both
+    # cases uniformly by selecting per-ticker subframes from the MultiIndex.
+    if isinstance(raw.columns, pd.MultiIndex):
+        tickers_in_response = set(raw.columns.get_level_values(0))
+        for sym in symbols:
+            if sym not in tickers_in_response:
+                continue
+            df = raw[sym].copy()
+            df.columns = [c.lower() for c in df.columns]
+            df.index = pd.DatetimeIndex(df.index.date, name="timestamp")
+            out[sym] = df[[c for c in _BAR_COLUMNS if c in df.columns]]
         return out
 
-    for sym in symbols:
-        if sym not in raw.columns.get_level_values(0):
-            continue
-        df = raw[sym].copy()
-        df.columns = [c.lower() for c in df.columns]
-        df.index = pd.DatetimeIndex(df.index.date, name="timestamp")
-        out[sym] = df[[c for c in _BAR_COLUMNS if c in df.columns]]
+    # Flat-column fallback (older yfinance, or auto_adjust=True single-ticker).
+    df = raw.copy()
+    df.columns = [c.lower() if isinstance(c, str) else c for c in df.columns]
+    df = df.rename(columns={"adj close": "adj_close"})
+    df.index = pd.DatetimeIndex(df.index.date, name="timestamp")
+    out[symbols[0]] = df[[c for c in _BAR_COLUMNS if c in df.columns]]
     return out
 
 

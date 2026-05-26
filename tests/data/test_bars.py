@@ -124,6 +124,102 @@ def test_get_bars_partial_cache_fetches_gap_and_merges(tmp_data_dir: Path, fake_
     assert len(on_disk) == 4
 
 
+def test_write_cache_drops_all_nan_rows(tmp_data_dir: Path) -> None:
+    """All-NaN rows must never persist to disk — they corrupt gap detection."""
+    good = _fake_alpaca_frame("AAPL", [date(2024, 1, 2), date(2024, 1, 3)])
+    nan_row = pd.DataFrame(
+        {col: [float("nan")] for col in good.columns},
+        index=pd.DatetimeIndex([pd.Timestamp(date(2024, 1, 4))], name="timestamp"),
+    )
+    polluted = pd.concat([good, nan_row])
+    path = _cache_path("AAPL", tmp_data_dir)
+    _write_cache(polluted, path)
+    on_disk = _read_cache(path)
+    assert len(on_disk) == 2
+    assert pd.Timestamp(date(2024, 1, 4)) not in on_disk.index
+
+
+def test_read_cache_drops_all_nan_rows(tmp_data_dir: Path) -> None:
+    """Defensive: pre-existing parquet with NaN-only rows is cleaned on read."""
+    good = _fake_alpaca_frame("AAPL", [date(2024, 1, 2), date(2024, 1, 3)])
+    nan_row = pd.DataFrame(
+        {col: [float("nan")] for col in good.columns},
+        index=pd.DatetimeIndex([pd.Timestamp(date(2024, 1, 4))], name="timestamp"),
+    )
+    polluted = pd.concat([good, nan_row])
+    path = _cache_path("AAPL", tmp_data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    polluted.to_parquet(path)  # write WITHOUT the sanitization helper
+    loaded = _read_cache(path)
+    assert len(loaded) == 2
+    assert pd.Timestamp(date(2024, 1, 4)) not in loaded.index
+
+
+def test_get_bars_refetches_when_cache_tail_is_nan(tmp_data_dir: Path, fake_env: None) -> None:
+    """A cache whose tail is NaN-only must trigger a re-fetch, not look fresh."""
+    good = _fake_alpaca_frame("AAPL", [date(2024, 1, 2), date(2024, 1, 3)])
+    nan_row = pd.DataFrame(
+        {col: [float("nan")] for col in good.columns},
+        index=pd.DatetimeIndex([pd.Timestamp(date(2024, 1, 5))], name="timestamp"),
+    )
+    polluted = pd.concat([good, nan_row])
+    path = _cache_path("AAPL", tmp_data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    polluted.to_parquet(path)
+
+    incremental = _fake_alpaca_frame("AAPL", [date(2024, 1, 4), date(2024, 1, 5)])
+    req = BarRequest(symbols=["AAPL"], start=date(2024, 1, 2), end=date(2024, 1, 5))
+    with patch("quant.data.bars._fetch_alpaca", return_value={"AAPL": incremental}) as mock_alpaca:
+        result = get_bars(req)
+
+    mock_alpaca.assert_called_once()
+    assert len(result) == 4
+    on_disk = _read_cache(path)
+    assert on_disk.notna().all().all()
+    assert len(on_disk) == 4
+
+
+def test_fetch_yfinance_single_symbol_handles_multiindex_columns(
+    tmp_data_dir: Path,
+) -> None:
+    """yfinance with group_by='ticker' returns MultiIndex cols even for one symbol."""
+    from quant.data.bars import _fetch_yfinance
+
+    fake_yf_response = pd.DataFrame(
+        {
+            ("SPY", "Open"): [100.0, 101.0],
+            ("SPY", "High"): [102.0, 103.0],
+            ("SPY", "Low"): [99.0, 100.0],
+            ("SPY", "Close"): [101.0, 102.0],
+            ("SPY", "Adj Close"): [101.0, 102.0],
+            ("SPY", "Volume"): [1_000_000, 1_100_000],
+        },
+        index=pd.DatetimeIndex(
+            [pd.Timestamp(date(2024, 1, 2)), pd.Timestamp(date(2024, 1, 3))]
+        ),
+    )
+    with patch("yfinance.download", return_value=fake_yf_response):
+        out = _fetch_yfinance(["SPY"], date(2024, 1, 2), date(2024, 1, 3))
+
+    assert "SPY" in out
+    df = out["SPY"]
+    assert list(df.columns) == ["open", "high", "low", "close", "volume"]
+    assert len(df) == 2
+    assert not df.isna().any().any()
+
+
+def test_merge_cache_does_not_widen_when_new_columns_missing() -> None:
+    """If `new` is missing OHLCV columns, merge must not introduce NaNs."""
+    existing = _fake_alpaca_frame("AAPL", [date(2024, 1, 2), date(2024, 1, 3)])
+    new = pd.DataFrame(
+        {},
+        index=pd.DatetimeIndex([pd.Timestamp(date(2024, 1, 4))], name="timestamp"),
+    )
+    merged = _merge_cache(existing, new)
+    assert list(merged.columns) == list(existing.columns)
+    assert not merged.isna().any().any()
+
+
 def test_get_bars_multi_symbol_result_shape(tmp_data_dir: Path, fake_env: None) -> None:
     req = BarRequest(symbols=["AAPL", "MSFT"], start=date(2024, 1, 2), end=date(2024, 1, 3))
     fake_aapl = _fake_alpaca_frame("AAPL", [date(2024, 1, 2), date(2024, 1, 3)])
