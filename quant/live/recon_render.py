@@ -32,7 +32,7 @@ def _write_header(buf: StringIO, report: ReconciliationReport) -> None:
     buf.write(f"**Modeled cost (engine, symmetric):** {modeled_str} bps  \n")
     buf.write(f"**Total orders in window:** {len(report.rows)}  \n")
     buf.write(
-        "\n> _The signed mean below is `(fill − signal) / signal` (sign-adjusted "
+        "\n> _The signed mean below is `(fill - signal) / signal` (sign-adjusted "
         "for side). It captures **signal-to-fill price drift**, not pure execution "
         "cost: signal_price is the close that produced the signal, fill_price is "
         "the next-open execution. Do not use as cost-model calibration without an "

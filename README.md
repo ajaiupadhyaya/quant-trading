@@ -107,6 +107,28 @@ The report includes:
 
 Exit code `0` = passes the live gate (DSR ≥ 0.30, PSR ≥ 0.70, bootstrap lower-5% > 0, ≥3 positive regimes). Exit code `2` = fails one or more gates.
 
+## Strategy governance
+
+Normal paper rebalances are evidence-gated. `StrategySpec.enabled_live=True`
+means a strategy is live-capable in code; governance decides whether it is
+currently eligible for paper capital based on fresh validation evidence.
+
+```bash
+uv run quant validate trend            # produces validation_report.json
+uv run quant governance refresh        # rebuilds the manifest + state files
+uv run quant governance status         # render the eligibility table
+uv run quant rebalance --dry-run
+```
+
+`quant rebalance` fails closed when governance artifacts are missing or
+malformed. Quarantined strategies can still be observed with:
+
+```bash
+uv run quant rebalance --dry-run --include-quarantined
+```
+
+`--include-quarantined` is rejected for non-dry-run rebalances.
+
 ## Live paper trading
 
 Daily flow once `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` are set:

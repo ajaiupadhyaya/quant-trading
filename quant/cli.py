@@ -813,7 +813,7 @@ def data_inventory() -> None:
 @cli.command(help="List all registered strategies.")
 def strategies() -> None:
     settings = (
-        Settings.model_construct(data_dir=Path("./data"))  # type: ignore[call-arg]
+        Settings.model_construct(data_dir=Path("./data"))
         if not _can_load_settings()
         else Settings()  # type: ignore[call-arg]
     )
