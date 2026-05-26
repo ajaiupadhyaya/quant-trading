@@ -33,16 +33,13 @@ from quant.strategies.base import Strategy, StrategySpec
 class CrossSectionalMomentum(Strategy):
     """Top-decile cross-sectional momentum with 200d trend filter."""
 
-    # ``enabled_live=False`` per validation gate (2026-05-25 final):
-    # Passes 4/5 gates strongly — DSR 0.836, PSR 0.991, bootstrap lower-5% +8.79%,
-    # holdout 2025→2026 +18.19%, cost-robust at 30bps. Adding Daniel-Moskowitz
-    # drawdown control reduced max DD from -13.24% to -12.41% but still 1/3
-    # tested regimes positive (only the 2024 bull). Long-biased cross-sectional
-    # momentum is regime-fragile by construction — drawdown control reduces
-    # magnitude but can't flip crash regimes positive.
-    # To enable live, the strategy needs a regime overlay that goes neutral
-    # or short during cross-sectional dispersion collapses (a TSMOM-style
-    # signal on the strategy's own equity, or a VIX-based de-risk).
+    # 2026-05-25 re-tune: ships with a portfolio-level RegimeOverlay
+    # (SPY 200dma + VIX-spike gate, on top of the existing Daniel-Moskowitz
+    # drawdown control). The combination is designed to recover the §4
+    # regime gate, which long-biased 12-1 cross-sectional momentum fails
+    # by construction in sharp equity crashes (covid-2020, bear-2022).
+    # ``enabled_live`` is flipped by Phase 3 of the plan once validation
+    # passes; leave False here until the validation battery confirms it.
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="momentum",
         name="Cross-Sectional Momentum",
@@ -72,6 +69,9 @@ class CrossSectionalMomentum(Strategy):
         "dd_control_enabled": True,
         "dd_lookback_days": 252,
         "dd_floor": 0.20,
+        "regime_overlay_enabled": True,
+        "regime_overlay_spy_ma_days": 200,
+        "regime_overlay_vix_threshold": 30.0,
     }
 
     # Spec §2.1: lookback (6/9/12), top_pct (0.25/0.30/0.40), trend (150/200/250).
@@ -79,17 +79,29 @@ class CrossSectionalMomentum(Strategy):
         "lookback_months": [6, 9, 12],
         "top_pct": [0.25, 0.30, 0.40],
         "trend_filter_days": [150, 200, 250],
+        "regime_overlay_vix_threshold": [25.0, 30.0, 35.0],
     }
 
-    def __init__(self, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        bars: pd.DataFrame,
+        params: dict[str, Any] | None = None,
+        vix: pd.Series | None = None,
+    ) -> None:
         super().__init__(params=params)
         self._bars = bars
         self._close = field_frame(bars, "close")
         self._returns = self._close.pct_change(fill_method=None)
+        self._vix = vix if vix is not None else _load_vix_safe()
 
     @classmethod
-    def build(cls, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> Strategy:
-        return cls(bars=bars, params=params)
+    def build(
+        cls,
+        bars: pd.DataFrame,
+        params: dict[str, Any] | None = None,
+        vix: pd.Series | None = None,
+    ) -> Strategy:
+        return cls(bars=bars, params=params, vix=vix)
 
     def generate_signals(self, asof: date) -> pd.Series:
         history = pd.DatetimeIndex(self._close.index)
@@ -146,6 +158,19 @@ class CrossSectionalMomentum(Strategy):
                 dd_floor=float(self.params["dd_floor"]),
             )
 
+        if bool(self.params.get("regime_overlay_enabled", True)):
+            from quant.strategies._regime_overlay import RegimeOverlay, RegimeOverlayConfig
+
+            overlay = RegimeOverlay(
+                bars=self._bars,
+                vix=self._vix,
+                config=RegimeOverlayConfig(
+                    spy_ma_days=int(self.params["regime_overlay_spy_ma_days"]),
+                    vix_threshold=float(self.params["regime_overlay_vix_threshold"]),
+                ),
+            )
+            weights = weights * overlay.factor(asof)
+
         prices = self._close.iloc[loc].dropna()
         return size_to_shares(weights, prices, equity)
 
@@ -171,3 +196,21 @@ class CrossSectionalMomentum(Strategy):
         if gross > 1.0 and gross > 0:
             weights = weights / gross
         return weights
+
+
+def _load_vix_safe() -> pd.Series | None:
+    """Load VIX from the FRED cache; return None if unavailable.
+
+    Used by the RegimeOverlay component. Walk-forward backtests run via the
+    StrategyFactory signature ``(params, bars) -> Strategy`` which doesn't
+    plumb VIX explicitly, so the strategy loads it itself. If the FRED cache
+    hasn't been populated (e.g., in unit tests with a tmp data_dir), we
+    silently degrade to no-VIX — RegimeOverlay handles ``vix=None`` by
+    disabling its VIX component.
+    """
+    try:
+        from quant.data.macro import vix as _vix
+
+        return _vix()
+    except Exception:
+        return None
