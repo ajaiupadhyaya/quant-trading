@@ -116,3 +116,74 @@ def test_reconcile_clean_one_to_one_sell_signed_correctly() -> None:
     # Sell: (499.87 - 499.62) / 499.87 * 1e4 ≈ 5.001 bps (positive = received less)
     assert row.slippage_bps is not None
     assert abs(row.slippage_bps - 5.001) < 0.01
+
+
+def test_reconcile_missing_order() -> None:
+    trades = pd.DataFrame([_trade()])
+    orders: list[OrderRow] = []  # nothing came back from Alpaca
+    bars = _bar_fetcher_for({})
+
+    report = reconcile(
+        trades=trades, orders=orders, bar_fetcher=bars,
+        modeled_slippage_bps=5.0,
+        since=date(2026, 5, 26), until=date(2026, 5, 26),
+    )
+
+    row = report.rows[0]
+    assert row.status == "missing"
+    assert row.filled_qty == 0
+    assert row.signal_price is None
+    assert row.slippage_bps is None
+
+
+def test_reconcile_rejected_order() -> None:
+    trades = pd.DataFrame([_trade()])
+    orders = [_order(filled_qty=0, filled_avg_price=None, filled_at=None, status="rejected")]
+    bars = _bar_fetcher_for({("SPY", date(2026, 5, 22)): 499.87})
+
+    report = reconcile(
+        trades=trades, orders=orders, bar_fetcher=bars,
+        modeled_slippage_bps=5.0,
+        since=date(2026, 5, 26), until=date(2026, 5, 26),
+    )
+
+    row = report.rows[0]
+    assert row.status == "rejected"
+    assert row.slippage_bps is None
+
+
+def test_reconcile_partial_fill_computes_slippage_on_filled_portion() -> None:
+    trades = pd.DataFrame([_trade(qty=100)])
+    orders = [_order(submitted_qty=100, filled_qty=60, filled_avg_price=500.12, status="partially_filled")]
+    bars = _bar_fetcher_for({("SPY", date(2026, 5, 22)): 499.87})
+
+    report = reconcile(
+        trades=trades, orders=orders, bar_fetcher=bars,
+        modeled_slippage_bps=5.0,
+        since=date(2026, 5, 26), until=date(2026, 5, 26),
+    )
+
+    row = report.rows[0]
+    assert row.status == "partial"
+    assert row.filled_qty == 60
+    assert row.slippage_bps is not None
+    # Buy: (500.12 - 499.87) / 499.87 * 1e4 ≈ 5.001 bps
+    assert abs(row.slippage_bps - 5.001) < 0.01
+
+
+def test_reconcile_no_signal_price_marks_row() -> None:
+    trades = pd.DataFrame([_trade()])
+    orders = [_order()]
+    bars = _bar_fetcher_for({})  # bar fetch returns None
+
+    report = reconcile(
+        trades=trades, orders=orders, bar_fetcher=bars,
+        modeled_slippage_bps=5.0,
+        since=date(2026, 5, 26), until=date(2026, 5, 26),
+    )
+
+    row = report.rows[0]
+    assert row.status == "no_signal_price"
+    assert row.signal_price is None
+    assert row.fill_price == 500.12  # still recorded
+    assert row.slippage_bps is None
