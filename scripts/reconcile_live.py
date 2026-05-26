@@ -88,7 +88,7 @@ def main() -> int:
     trades_all = pd.read_parquet(TRADES_PATH)
     trades_all["date"] = pd.to_datetime(trades_all["date"]).dt.date
     mask = (trades_all["date"] >= since) & (trades_all["date"] <= until)
-    trades = trades_all.loc[mask].copy()
+    trades = trades_all.loc[mask & ~trades_all["dry_run"]].copy()
 
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORT_DIR / f"{until.isoformat()}.md"
