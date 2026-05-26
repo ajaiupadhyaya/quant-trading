@@ -18,7 +18,16 @@ from quant.strategies.base import Strategy, StrategySpec
 def tmp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Provide an isolated data directory and point QUANT_DATA_DIR at it."""
     data = tmp_path / "data"
-    for sub in ("universe", "raw", "backtests", "live", "features", "fundamentals", "macro"):
+    for sub in (
+        "universe",
+        "raw",
+        "backtests",
+        "live",
+        "features",
+        "fundamentals",
+        "macro",
+        "governance",
+    ):
         (data / sub).mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("QUANT_DATA_DIR", str(data))
     yield data
