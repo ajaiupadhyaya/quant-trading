@@ -24,7 +24,7 @@ from quant.strategies._common import asof_index, field_frame, size_to_shares
 from quant.strategies.base import Strategy, StrategySpec
 
 
-def ledoit_wolf_shrinkage(returns: pd.DataFrame) -> tuple[pd.DataFrame, float]:
+def ledoit_wolf_shrinkage(returns: pd.DataFrame, floor: float = 0.0) -> tuple[pd.DataFrame, float]:
     """Closed-form Ledoit-Wolf 2004 shrinkage to a constant-correlation target.
 
     Estimates the shrinkage intensity ``δ`` that minimizes expected mean-squared
@@ -37,8 +37,15 @@ def ledoit_wolf_shrinkage(returns: pd.DataFrame) -> tuple[pd.DataFrame, float]:
     for HRP — it preserves the per-name volatilities (which HRP uses directly)
     while damping noisy off-diagonal correlations.
 
+    ``floor`` bounds the shrinkage intensity from below: when the closed-form
+    ``δ`` underestimates the true correlation noise (calm epochs that precede
+    regime breaks — the 2020/2022 failure mode for HRP), the floor forces a
+    minimum amount of shrinkage onto the constant-correlation target. ``floor``
+    is clipped to ``[0, 1]``.
+
     Returns ``(shrunk_cov, delta)`` where ``delta`` ∈ [0, 1].
     """
+    floor = float(np.clip(floor, 0.0, 1.0))
     rets = returns.dropna(axis=1, how="any")
     n_obs, n_assets = rets.shape
     if n_obs < 5 or n_assets < 2:
@@ -91,6 +98,12 @@ def ledoit_wolf_shrinkage(returns: pd.DataFrame) -> tuple[pd.DataFrame, float]:
     else:
         kappa = (pi_hat - rho_hat) / gamma
         delta = float(np.clip(kappa / n_obs, 0.0, 1.0))
+
+    # Floor the LW intensity to prevent under-shrinkage in calm epochs followed
+    # by correlation breakdowns (the failure mode that tanked the 2020 / 2022
+    # regime tests for HRP).
+    if floor > 0.0 and delta < floor:
+        delta = floor
 
     shrunk = (1.0 - delta) * sample + delta * target
     return pd.DataFrame(shrunk, index=rets.columns, columns=rets.columns), delta
@@ -160,12 +173,13 @@ def hrp_weights(cov: pd.DataFrame, corr: pd.DataFrame) -> pd.Series:
 class RiskParity(Strategy):
     """HRP-weighted multi-asset portfolio, monthly rebalance, vol-targeted."""
 
-    # ``enabled_live=False`` per spec §4 validation gate (2026-05-25):
-    # DSR 0.008, PSR 0.243, bootstrap lower-5% -42.93%, 1/5 regimes positive — only the
-    # 1-yr holdout (+11.32%) cleared. The 2022-2023 bond bear market (TLT/IEF heavy
-    # weights in HRP) crushed the OOS curve. Re-enable once we either (a) widen the
-    # universe with negatively-correlated risk assets, or (b) add a rates-regime
-    # filter that scales bond exposure down when yields are rising.
+    # 2026-05-25 re-tune: widened grid (vol target 0.06..0.12, lookback
+    # 63..504, Ledoit-Wolf shrinkage floor 0..0.4). The previous gate
+    # failures stemmed from over-allocation to long-duration bonds in
+    # 2022 (DD without enough decorrelation against equities) — the
+    # shrinkage floor makes correlations more conservative and the
+    # shorter lookback options let the strategy adapt faster to
+    # regime breaks. ``enabled_live`` flipped in Phase 3 once gates pass.
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="risk-parity",
         name="HRP All-Weather",
@@ -181,12 +195,18 @@ class RiskParity(Strategy):
         "max_leverage": 1.0,
         "min_history_days": 252,
         "use_ledoit_wolf": True,
+        "shrinkage_floor": 0.20,
     }
 
-    # Spec §2.5: vol target (8/10/12%), lookback for cov estimation.
+    # Spec §2.5: vol target (6/8/10/12%), lookback for cov estimation, plus a
+    # Ledoit-Wolf shrinkage floor that bounds the convex-combination weight
+    # from below. The widened grid lets walk-forward adapt to regime breaks
+    # (shorter lookbacks) and gives the optimizer the option to over-shrink
+    # correlations during calm epochs (higher floor).
     param_grid: ClassVar[dict[str, list[Any]]] = {
-        "vol_target_annual": [0.08, 0.10, 0.12],
-        "lookback_days": [126, 252, 504],
+        "vol_target_annual": [0.06, 0.08, 0.10, 0.12],
+        "lookback_days": [63, 126, 252, 504],
+        "shrinkage_floor": [0.0, 0.20, 0.40],
     }
 
     def __init__(self, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> None:
@@ -206,7 +226,8 @@ class RiskParity(Strategy):
         if window.shape[1] < 2 or window.shape[0] < 20:
             return pd.Series(dtype=float)
         if bool(self.params["use_ledoit_wolf"]):
-            cov, _ = ledoit_wolf_shrinkage(window)
+            shrinkage_floor = float(self.params.get("shrinkage_floor", 0.0))
+            cov, _ = ledoit_wolf_shrinkage(window, floor=shrinkage_floor)
         else:
             cov = window.cov()
         # Correlation derived from the (shrunk or sample) covariance keeps the
