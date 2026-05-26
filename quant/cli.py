@@ -230,6 +230,46 @@ def combined_book(start: str, end: str | None) -> None:
     console.print(f"[green]Wrote {html_path}[/green]")
 
 
+def _write_validation_report_json(
+    *,
+    out_dir: Path,
+    slug: str,
+    run_date: date,
+    data_start: date,
+    data_end: date,
+    report: Any,
+    provenance: str,
+) -> Path:
+    import json
+
+    n_tested = sum(1 for r in report.regime_breakdown if r.n_days >= 30)
+    payload = {
+        "slug": slug,
+        "run_date": run_date.isoformat(),
+        "data_start": data_start.isoformat(),
+        "data_end": data_end.isoformat(),
+        "gate_deflated_sharpe": bool(report.gate_deflated_sharpe),
+        "gate_probabilistic_sharpe": bool(report.gate_probabilistic_sharpe),
+        "gate_bootstrap_lower": bool(report.gate_bootstrap_lower),
+        "gate_regime": bool(report.gate_regime),
+        "gate_holdout": bool(report.gate_holdout),
+        "deflated_sharpe": float(report.deflated_sharpe),
+        "probabilistic_sharpe": float(report.probabilistic_sharpe),
+        "bootstrap_total_return_p05": (
+            None if report.bootstrap_ci is None else float(report.bootstrap_ci.total_return_p05)
+        ),
+        "n_positive_regimes": int(report.n_positive_regimes),
+        "n_tested_regimes": int(n_tested),
+        "holdout_total_return": (
+            None if report.holdout is None else float(report.holdout.total_return)
+        ),
+        "provenance": provenance,
+    }
+    path = out_dir / "validation_report.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
 @cli.command(help="Run the full validation battery (walk-forward + CPCV + DSR + ...).")
 @click.argument("strategy")
 @click.option(
@@ -333,6 +373,15 @@ def validate(
         out_dir=out_dir,
         validation=report,
     )
+    validation_json = _write_validation_report_json(
+        out_dir=out_dir,
+        slug=strategy,
+        run_date=date.today(),
+        data_start=start_date,
+        data_end=end_date,
+        report=report,
+        provenance=f"quant validate {strategy} --start {start_date} --end {end_date}",
+    )
 
     table = Table(title=f"Validation report — {strategy}")
     table.add_column("Gate")
@@ -390,6 +439,7 @@ def validate(
 
     console.print(f"\n[bold]Overall: {'PASS' if report.passed else 'FAIL'}[/]")
     console.print(f"Tear-sheet: {html_path}")
+    console.print(f"Validation JSON: {validation_json}")
 
     if not report.passed:
         raise SystemExit(2)

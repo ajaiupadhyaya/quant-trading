@@ -8,6 +8,11 @@ from quant.governance.models import (
     ValidationEvidence,
 )
 from quant.governance.policy import classify_strategy
+from quant.governance.refresh import (
+    build_governance_artifacts,
+    validation_report_path,
+    validation_report_to_evidence,
+)
 from quant.governance.store import (
     governance_dir,
     load_strategy_states,
@@ -24,8 +29,11 @@ __all__ = [
     "GovernanceState",
     "StrategyState",
     "ValidationEvidence",
+    "build_governance_artifacts",
     "classify_strategy",
     "governance_dir",
+    "validation_report_path",
+    "validation_report_to_evidence",
     "load_strategy_states",
     "load_validation_manifest",
     "strategy_states_path",
