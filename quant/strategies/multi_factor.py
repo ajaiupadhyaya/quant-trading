@@ -70,16 +70,13 @@ def _zscore(row: pd.Series) -> pd.Series:
 class MultiFactor(Strategy):
     """Composite momentum / low-vol / reversal / trend factor portfolio."""
 
-    # ``enabled_live=False`` per validation gate (2026-05-25 final):
-    # Passes 4/5 gates with VERY strong margins — DSR 0.909, PSR 0.998, bootstrap
-    # lower-5% +78.94%, holdout 2025→2026 +11.08%, cost-robust at 30bps. But
-    # only 1/3 tested regimes positive (-37.65% max DD without dd control;
-    # drawdown control helps but doesn't flip crash regimes). Same fundamental
-    # issue as momentum: long-biased cross-sectional equity strategies lose in
-    # sharp drawdowns regardless of factor selection. Enable live once the
-    # composite signal incorporates a market-regime overlay (e.g. neutralize
-    # the long leg + size up the short leg when cross-sectional dispersion
-    # collapses, or kill the strategy when SPY drawdown > 15%).
+    # 2026-05-25 re-tune: ships with a portfolio-level RegimeOverlay
+    # (SPY 200dma + VIX-spike gate). The composite signal is long-biased
+    # cross-sectional equity, so it shares the regime-fragility pattern
+    # of momentum — long top quintile, short bottom quintile both crash
+    # together in sharp universe-wide drawdowns. The overlay is meant
+    # to recover the §4 regime gate. ``enabled_live`` is flipped by
+    # Phase 3 once validation passes.
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="multi-factor",
         name="Multi-Factor Long/Short",
@@ -112,6 +109,9 @@ class MultiFactor(Strategy):
         "dd_control_enabled": True,
         "dd_lookback_days": 252,
         "dd_floor": 0.20,
+        "regime_overlay_enabled": True,
+        "regime_overlay_spy_ma_days": 200,
+        "regime_overlay_vix_threshold": 30.0,
     }
 
     # Spec §2.2: quintile size, dollar-neutral on/off, lookback per factor.
@@ -119,17 +119,32 @@ class MultiFactor(Strategy):
         "quintile_pct": [0.15, 0.20, 0.25],
         "dollar_neutral": [True, False],
         "vol_lookback": [30, 60, 90],
+        "regime_overlay_vix_threshold": [25.0, 30.0, 35.0],
     }
 
-    def __init__(self, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        bars: pd.DataFrame,
+        params: dict[str, Any] | None = None,
+        vix: pd.Series | None = None,
+        spy_bars: pd.DataFrame | None = None,
+    ) -> None:
         super().__init__(params=params)
         self._bars = bars
         self._close = field_frame(bars, "close")
         self._returns = self._close.pct_change(fill_method=None)
+        self._vix = vix if vix is not None else _load_vix_safe()
+        self._spy_bars = spy_bars if spy_bars is not None else _load_spy_bars_safe(bars)
 
     @classmethod
-    def build(cls, bars: pd.DataFrame, params: dict[str, Any] | None = None) -> Strategy:
-        return cls(bars=bars, params=params)
+    def build(
+        cls,
+        bars: pd.DataFrame,
+        params: dict[str, Any] | None = None,
+        vix: pd.Series | None = None,
+        spy_bars: pd.DataFrame | None = None,
+    ) -> Strategy:
+        return cls(bars=bars, params=params, vix=vix, spy_bars=spy_bars)
 
     def _factor_panel(self, loc: int) -> pd.DataFrame:
         close = self._close
@@ -265,5 +280,53 @@ class MultiFactor(Strategy):
                 dd_floor=float(self.params["dd_floor"]),
             )
 
+        if bool(self.params.get("regime_overlay_enabled", True)):
+            from quant.strategies._regime_overlay import RegimeOverlay, RegimeOverlayConfig
+
+            # RegimeOverlay expects SPY in its bars frame. Multi-factor's universe
+            # is megacap names (no SPY), so we pass the separately-loaded SPY
+            # frame when available; otherwise SPY component silently disables
+            # and only the VIX gate applies.
+            overlay_bars = self._spy_bars if self._spy_bars is not None else self._bars
+            overlay = RegimeOverlay(
+                bars=overlay_bars,
+                vix=self._vix,
+                config=RegimeOverlayConfig(
+                    spy_ma_days=int(self.params["regime_overlay_spy_ma_days"]),
+                    vix_threshold=float(self.params["regime_overlay_vix_threshold"]),
+                ),
+            )
+            weights = weights * overlay.factor(asof)
+
         prices = self._close.iloc[loc].dropna()
         return size_to_shares(weights, prices, equity)
+
+
+def _load_vix_safe() -> pd.Series | None:
+    """Load VIX from FRED cache; return None on failure."""
+    try:
+        from quant.data.macro import vix as _vix
+
+        return _vix()
+    except Exception:
+        return None
+
+
+def _load_spy_bars_safe(bars: pd.DataFrame) -> pd.DataFrame | None:
+    """Load SPY bars covering the same date range as ``bars``.
+
+    Returns a MultiIndex (symbol, field) frame containing just SPY,
+    suitable for passing to RegimeOverlay. Returns None if SPY can't
+    be loaded (no cache, no network) — the SPY component of the
+    overlay silently disables in that case.
+    """
+    try:
+        from quant.data.bars import BarRequest, get_bars
+
+        if len(bars.index) == 0:
+            return None
+        start = bars.index.min().date()
+        end = bars.index.max().date()
+        return get_bars(BarRequest(symbols=["SPY"], start=start, end=end))
+    except Exception:
+        return None
