@@ -187,3 +187,58 @@ def test_reconcile_no_signal_price_marks_row() -> None:
     assert row.signal_price is None
     assert row.fill_price == 500.12  # still recorded
     assert row.slippage_bps is None
+
+
+def test_report_aggregate_by_strategy() -> None:
+    trades = pd.DataFrame([
+        _trade(coid="trend-20260526-SPY-a", strategy="trend", symbol="SPY", qty=100),
+        _trade(coid="trend-20260526-DBC-b", strategy="trend", symbol="DBC", qty=50),
+        _trade(coid="momentum-20260526-EFA-c", strategy="momentum", symbol="EFA", qty=80),
+    ])
+    orders = [
+        _order(coid="trend-20260526-SPY-a", symbol="SPY", submitted_qty=100, filled_qty=100, filled_avg_price=500.12),
+        _order(coid="trend-20260526-DBC-b", symbol="DBC", submitted_qty=50, filled_qty=50, filled_avg_price=25.05),
+        _order(coid="momentum-20260526-EFA-c", symbol="EFA", submitted_qty=80, filled_qty=80, filled_avg_price=80.20),
+    ]
+    bars = _bar_fetcher_for({
+        ("SPY", date(2026, 5, 22)): 499.87,
+        ("DBC", date(2026, 5, 22)): 25.00,
+        ("EFA", date(2026, 5, 22)): 80.00,
+    })
+
+    report = reconcile(
+        trades=trades, orders=orders, bar_fetcher=bars,
+        modeled_slippage_bps=5.0,
+        since=date(2026, 5, 26), until=date(2026, 5, 26),
+    )
+
+    by_strategy = report.aggregate_by_strategy()
+    assert set(by_strategy.keys()) == {"trend", "momentum"}
+    assert by_strategy["trend"]["n_filled"] == 2
+    assert by_strategy["momentum"]["n_filled"] == 1
+    # trend mean slippage = mean of ~5 bps and 20 bps = ~12.5
+    assert by_strategy["trend"]["mean_slippage_bps"] is not None
+    assert 10 < by_strategy["trend"]["mean_slippage_bps"] < 15
+
+
+def test_report_aggregate_by_symbol() -> None:
+    trades = pd.DataFrame([
+        _trade(coid="trend-20260526-SPY-a", symbol="SPY", qty=100),
+        _trade(coid="trend-20260526-SPY-b", symbol="SPY", qty=50),
+    ])
+    orders = [
+        _order(coid="trend-20260526-SPY-a", symbol="SPY", submitted_qty=100, filled_qty=100, filled_avg_price=500.12),
+        _order(coid="trend-20260526-SPY-b", symbol="SPY", submitted_qty=50, filled_qty=50, filled_avg_price=500.50),
+    ]
+    bars = _bar_fetcher_for({("SPY", date(2026, 5, 22)): 499.87})
+
+    report = reconcile(
+        trades=trades, orders=orders, bar_fetcher=bars,
+        modeled_slippage_bps=5.0,
+        since=date(2026, 5, 26), until=date(2026, 5, 26),
+    )
+
+    by_symbol = report.aggregate_by_symbol()
+    assert set(by_symbol.keys()) == {"SPY"}
+    assert by_symbol["SPY"]["n_filled"] == 2
+    assert by_symbol["SPY"]["mean_slippage_bps"] is not None

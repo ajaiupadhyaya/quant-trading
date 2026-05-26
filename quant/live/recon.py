@@ -46,6 +46,39 @@ class ReconciliationReport:
     modeled_slippage_bps: float
     rows: list[ReconRow] = field(default_factory=list)
 
+    def aggregate_by_strategy(self) -> dict[str, dict[str, float | int | None]]:
+        return self._aggregate(key=lambda r: r.strategy)
+
+    def aggregate_by_symbol(self) -> dict[str, dict[str, float | int | None]]:
+        return self._aggregate(key=lambda r: r.symbol)
+
+    def _aggregate(
+        self, key: Callable[[ReconRow], str]
+    ) -> dict[str, dict[str, float | int | None]]:
+        from statistics import mean
+
+        out: dict[str, dict[str, float | int | None]] = {}
+        groups: dict[str, list[ReconRow]] = {}
+        for row in self.rows:
+            groups.setdefault(key(row), []).append(row)
+
+        for grp_key, rows in groups.items():
+            filled = [r for r in rows if r.slippage_bps is not None]
+            lags = [r.fill_lag_seconds for r in rows if r.fill_lag_seconds is not None]
+            slippages: list[float] = [r.slippage_bps for r in filled if r.slippage_bps is not None]
+            out[grp_key] = {
+                "n_total": len(rows),
+                "n_filled": len(filled),
+                "n_partial": sum(1 for r in rows if r.status == "partial"),
+                "n_rejected": sum(1 for r in rows if r.status == "rejected"),
+                "n_missing": sum(1 for r in rows if r.status == "missing"),
+                "mean_slippage_bps": mean(slippages) if slippages else None,
+                "median_fill_lag_s": (
+                    sorted(lags)[len(lags) // 2] if lags else None
+                ),
+            }
+        return out
+
 
 def _slippage_bps(side: str, signal_price: float, fill_price: float) -> float:
     if side == "buy":
