@@ -15,7 +15,7 @@ from datetime import date
 import pandas as pd
 
 from quant.execution.alpaca import OrderRow
-from quant.util.calendar import prior_trading_day
+from quant.util.trading_calendar import previous_trading_day as prior_trading_day
 
 BarFetcher = Callable[[str, date], float | None]
 """(symbol, prior_trading_day) -> close price, or None if unavailable."""
@@ -36,7 +36,7 @@ class ReconRow:
     fill_price: float | None
     slippage_bps: float | None  # signed; positive = worse than signal
     fill_lag_seconds: float | None
-    status: str  # filled | partial | rejected | missing | no_signal_price
+    status: str  # filled | partial | rejected | missing | no_signal_price | no_fill_price
 
 
 @dataclass
@@ -101,7 +101,7 @@ def reconcile(
             status = "rejected"
             slippage = None
         elif signal_price is None or order.filled_avg_price is None:
-            status = "no_signal_price" if signal_price is None else "rejected"
+            status = "no_signal_price" if signal_price is None else "no_fill_price"
             slippage = None
         else:
             slippage = _slippage_bps(order.side, signal_price, order.filled_avg_price)

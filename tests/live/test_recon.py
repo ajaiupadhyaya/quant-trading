@@ -65,6 +65,11 @@ def _bar_fetcher_for(prices: dict[tuple[str, date], float]) -> Callable[[str, da
     return fetch
 
 
+def test_prior_trading_day_alias_skips_memorial_day_2026() -> None:
+    from quant.live.recon import prior_trading_day
+    assert prior_trading_day(date(2026, 5, 26)) == date(2026, 5, 22)
+
+
 def test_reconcile_clean_one_to_one_buy() -> None:
     trades = pd.DataFrame([_trade()])
     orders = [_order()]
