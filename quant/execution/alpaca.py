@@ -9,7 +9,7 @@ Thin layer over alpaca-py's TradingClient that:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide as AlpacaSide
@@ -118,8 +118,8 @@ class AlpacaClient:
         """Fetch orders submitted on [since, until] inclusive, newest first."""
         req = GetOrdersRequest(
             status=QueryOrderStatus.ALL,
-            after=datetime.combine(since, datetime.min.time()),
-            until=datetime.combine(until, datetime.max.time()),
+            after=datetime.combine(since, datetime.min.time(), tzinfo=UTC),
+            until=datetime.combine(until, datetime.max.time(), tzinfo=UTC),
             limit=limit,
         )
         orders = self._trading.get_orders(filter=req)

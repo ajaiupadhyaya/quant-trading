@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import MagicMock
 
 from quant.execution.alpaca import AlpacaClient, OrderRow
@@ -16,8 +16,8 @@ def _fake_order(
     qty: str = "69",
     filled_qty: str = "69",
     filled_avg_price: str | None = "500.12",
-    submitted_at: datetime = datetime(2026, 5, 26, 19, 55, tzinfo=timezone.utc),  # noqa: UP017
-    filled_at: datetime | None = datetime(2026, 5, 26, 19, 55, 4, tzinfo=timezone.utc),  # noqa: UP017
+    submitted_at: datetime = datetime(2026, 5, 26, 19, 55, tzinfo=UTC),
+    filled_at: datetime | None = datetime(2026, 5, 26, 19, 55, 4, tzinfo=UTC),
     status: str = "filled",
 ) -> MagicMock:
     o = MagicMock()
