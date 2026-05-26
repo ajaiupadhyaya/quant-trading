@@ -1,0 +1,65 @@
+{
+  "strategies": {
+    "momentum": {
+      "code_enabled_live": true,
+      "evaluated_at": "2026-05-26T00:00:00",
+      "manual_block": false,
+      "reason": "Required gate failed: bootstrap_lower.",
+      "reason_codes": [
+        "failed_gate_bootstrap_lower"
+      ],
+      "slug": "momentum",
+      "state": "quarantined",
+      "validation_age_days": 0
+    },
+    "multi-factor": {
+      "code_enabled_live": true,
+      "evaluated_at": "2026-05-26T00:00:00",
+      "manual_block": false,
+      "reason": "No validation evidence exists for this live-capable strategy.",
+      "reason_codes": [
+        "missing_validation"
+      ],
+      "slug": "multi-factor",
+      "state": "quarantined",
+      "validation_age_days": null
+    },
+    "pairs": {
+      "code_enabled_live": true,
+      "evaluated_at": "2026-05-26T00:00:00",
+      "manual_block": false,
+      "reason": "No validation evidence exists for this live-capable strategy.",
+      "reason_codes": [
+        "missing_validation"
+      ],
+      "slug": "pairs",
+      "state": "quarantined",
+      "validation_age_days": null
+    },
+    "risk-parity": {
+      "code_enabled_live": true,
+      "evaluated_at": "2026-05-26T00:00:00",
+      "manual_block": false,
+      "reason": "No validation evidence exists for this live-capable strategy.",
+      "reason_codes": [
+        "missing_validation"
+      ],
+      "slug": "risk-parity",
+      "state": "quarantined",
+      "validation_age_days": null
+    },
+    "trend": {
+      "code_enabled_live": true,
+      "evaluated_at": "2026-05-26T00:00:00",
+      "manual_block": false,
+      "reason": "Required gate failed: bootstrap_lower.",
+      "reason_codes": [
+        "failed_gate_bootstrap_lower"
+      ],
+      "slug": "trend",
+      "state": "quarantined",
+      "validation_age_days": 0
+    }
+  },
+  "version": 1
+}

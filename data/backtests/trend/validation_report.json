@@ -1,0 +1,18 @@
+{
+  "bootstrap_total_return_p05": -0.04242392994976146,
+  "data_end": "2026-05-26",
+  "data_start": "2010-01-01",
+  "deflated_sharpe": 0.5099712333864855,
+  "gate_bootstrap_lower": false,
+  "gate_deflated_sharpe": true,
+  "gate_holdout": true,
+  "gate_probabilistic_sharpe": true,
+  "gate_regime": true,
+  "holdout_total_return": 0.21046038961606217,
+  "n_positive_regimes": 4,
+  "n_tested_regimes": 4,
+  "probabilistic_sharpe": 0.9514265451026369,
+  "provenance": "quant validate trend --start 2010-01-01 --end 2026-05-26",
+  "run_date": "2026-05-26",
+  "slug": "trend"
+}

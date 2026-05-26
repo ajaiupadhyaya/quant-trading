@@ -1,0 +1,18 @@
+{
+  "bootstrap_total_return_p05": -0.17460442017035244,
+  "data_end": "2026-05-26",
+  "data_start": "2010-01-01",
+  "deflated_sharpe": 0.6151086154630654,
+  "gate_bootstrap_lower": false,
+  "gate_deflated_sharpe": true,
+  "gate_holdout": true,
+  "gate_probabilistic_sharpe": true,
+  "gate_regime": true,
+  "holdout_total_return": 0.15667086068721892,
+  "n_positive_regimes": 2,
+  "n_tested_regimes": 4,
+  "probabilistic_sharpe": 0.9209877002842299,
+  "provenance": "quant validate momentum --start 2010-01-01 --end 2026-05-26",
+  "run_date": "2026-05-26",
+  "slug": "momentum"
+}
