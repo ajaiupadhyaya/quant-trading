@@ -64,7 +64,7 @@ trades.parquet (intent)              Alpaca orders API (outcome)
         Markdown render → docs/live-recon/YYYY-MM-DD.md
 ```
 
-**Signal-price rule:** the close of the most recent trading day *strictly before* submission. Cron fires Tue 15:55 ET; strategy target was built from Mon's close.
+**Signal-price rule:** the close at the **rebalance-target date itself** (the `date` column in `trades.parquet`). This matches what the strategies actually use: `asof_index(history, asof)` in `quant/strategies/_common.py` resolves to the bar at `asof` when present, falling back to T-1 only when the asof bar is unavailable. (An earlier draft of this spec assumed the strategy used T-1; the assumption was empirically wrong and produced inflated slippage values on the first smoke run. Corrected in commit landing this design.)
 
 **Slippage definition:**
 - Buy: `(actual_fill_price - signal_close) / signal_close × 1e4` bps (positive = paid more than expected)

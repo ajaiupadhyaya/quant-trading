@@ -15,10 +15,15 @@ from datetime import date
 import pandas as pd
 
 from quant.execution.alpaca import OrderRow
-from quant.util.trading_calendar import previous_trading_day as prior_trading_day
 
 BarFetcher = Callable[[str, date], float | None]
-"""(symbol, prior_trading_day) -> close price, or None if unavailable."""
+"""(symbol, signal_date) -> close price, or None if unavailable.
+
+signal_date is the rebalance-target date — the bar the strategy actually used
+to size positions. See generate_signals() in each strategy: they call
+asof_index(history, asof) which returns the bar at asof itself when present,
+falling back to T-1 only when the asof bar is unavailable in the cache.
+"""
 
 
 @dataclass(frozen=True)
@@ -125,7 +130,7 @@ def reconcile(
             )
             continue
 
-        signal_price = bar_fetcher(str(t["symbol"]), prior_trading_day(submission_date))
+        signal_price = bar_fetcher(str(t["symbol"]), submission_date)
         fill_lag = None
         if order.filled_at is not None:
             fill_lag = (order.filled_at - order.submitted_at).total_seconds()
