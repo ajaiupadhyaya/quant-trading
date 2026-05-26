@@ -70,20 +70,19 @@ def _zscore(row: pd.Series) -> pd.Series:
 class MultiFactor(Strategy):
     """Composite momentum / low-vol / reversal / trend factor portfolio."""
 
-    # 2026-05-25 re-tune: ships with a portfolio-level RegimeOverlay
-    # (SPY 200dma + VIX-spike gate). The composite signal is long-biased
-    # cross-sectional equity, so it shares the regime-fragility pattern
-    # of momentum — long top quintile, short bottom quintile both crash
-    # together in sharp universe-wide drawdowns. The overlay is meant
-    # to recover the §4 regime gate. ``enabled_live`` is flipped by
-    # Phase 3 once validation passes.
+    # 2026-05-25 go-live: enabled live with portfolio-level RegimeOverlay
+    # (SPY 200dma + VIX-spike gate). Composite long-biased cross-sectional
+    # equity is regime-fragile by construction; the overlay attenuates
+    # exposure in crashes but cannot flip regime-gate scores positive
+    # without an active inverse sleeve. Enabled for paper-trading per the
+    # 2026-05-26 go-live decision; see docs/notes/2026-05-25-go-live-decisions.md.
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="multi-factor",
         name="Multi-Factor Long/Short",
         description="Composite of momentum + low-vol + reversal + trend, top/bottom quintile L/S.",
         universe=MEGACAP_UNIVERSE,
         rebalance_frequency="monthly",
-        enabled_live=False,
+        enabled_live=True,
     )
 
     default_params: ClassVar[dict[str, Any]] = {

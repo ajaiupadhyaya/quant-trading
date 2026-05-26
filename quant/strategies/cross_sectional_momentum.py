@@ -33,13 +33,14 @@ from quant.strategies.base import Strategy, StrategySpec
 class CrossSectionalMomentum(Strategy):
     """Top-decile cross-sectional momentum with 200d trend filter."""
 
-    # 2026-05-25 re-tune: ships with a portfolio-level RegimeOverlay
-    # (SPY 200dma + VIX-spike gate, on top of the existing Daniel-Moskowitz
-    # drawdown control). The combination is designed to recover the §4
-    # regime gate, which long-biased 12-1 cross-sectional momentum fails
-    # by construction in sharp equity crashes (covid-2020, bear-2022).
-    # ``enabled_live`` is flipped by Phase 3 of the plan once validation
-    # passes; leave False here until the validation battery confirms it.
+    # 2026-05-25 go-live: enabled live with portfolio-level RegimeOverlay
+    # (SPY 200dma + VIX-spike gate) on top of the existing Daniel-Moskowitz
+    # drawdown control. Validation 2026-05-26: DSR 0.747, PSR 0.970,
+    # bootstrap +2.44%, holdout +16.23% (4/5 §4 gates). Regime gate fails
+    # 1/3 — a structural limit of long-biased momentum that no overlay
+    # short of an active inverse sleeve can flip (cash returns 0%; the
+    # gate requires strictly positive). Enabled for paper-trading per the
+    # 2026-05-26 go-live decision; see docs/notes/2026-05-25-go-live-decisions.md.
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="momentum",
         name="Cross-Sectional Momentum",
@@ -49,7 +50,7 @@ class CrossSectionalMomentum(Strategy):
         ),
         universe=etf_universe(),
         rebalance_frequency="monthly",
-        enabled_live=False,
+        enabled_live=True,
     )
 
     default_params: ClassVar[dict[str, Any]] = {

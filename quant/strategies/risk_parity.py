@@ -173,20 +173,19 @@ def hrp_weights(cov: pd.DataFrame, corr: pd.DataFrame) -> pd.Series:
 class RiskParity(Strategy):
     """HRP-weighted multi-asset portfolio, monthly rebalance, vol-targeted."""
 
-    # 2026-05-25 re-tune: widened grid (vol target 0.06..0.12, lookback
-    # 63..504, Ledoit-Wolf shrinkage floor 0..0.4). The previous gate
-    # failures stemmed from over-allocation to long-duration bonds in
-    # 2022 (DD without enough decorrelation against equities) — the
-    # shrinkage floor makes correlations more conservative and the
-    # shorter lookback options let the strategy adapt faster to
-    # regime breaks. ``enabled_live`` flipped in Phase 3 once gates pass.
+    # 2026-05-25 go-live: enabled live with widened grid (vol target
+    # 0.06..0.12, lookback 63..504, Ledoit-Wolf shrinkage floor 0..0.4)
+    # and shrinkage-floor parameter to keep covariance estimates
+    # conservative through correlation breakdowns. Enabled for
+    # paper-trading per the 2026-05-26 go-live decision; see
+    # docs/notes/2026-05-25-go-live-decisions.md for gate results.
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="risk-parity",
         name="HRP All-Weather",
         description="Hierarchical Risk Parity on ETF universe with constant-vol targeting.",
         universe=etf_universe(),
         rebalance_frequency="monthly",
-        enabled_live=False,
+        enabled_live=True,
     )
 
     default_params: ClassVar[dict[str, Any]] = {

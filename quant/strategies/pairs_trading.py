@@ -108,13 +108,14 @@ PAIRS_UNIVERSE: list[str] = PAIRS_DISCOVERY_UNIVERSE
 class PairsTrading(Strategy):
     """PCA-discovered pairs with cointegration screen + z-score mean reversion."""
 
-    # 2026-05-25 re-tune (iteration 1): tighter pair selection (ADF p
-    # ≤ 0.01, half-life ∈ [2, 20]), max 3 active pairs (was 5), VIX gate
-    # (no trades when VIX > vix_max), and a stop-loss that forces flat at
-    # |z| > stop_loss_z. Pairs alpha is structurally weak post-2010
-    # (Gatev-Goetzmann-Rouwenhorst 2006 returns don't reproduce on modern
-    # data), so we run only the highest-confidence pairs in low-vol
-    # regimes. ``enabled_live`` flipped in Phase 3 once validation passes.
+    # 2026-05-25 go-live: enabled live with tighter pair selection
+    # (ADF p ≤ 0.01, half-life ∈ [2, 20], max 3 active pairs), VIX gate
+    # (no trades when VIX > vix_max), and stop-loss forcing flat at
+    # |z| > stop_loss_z. Pairs alpha is structurally weak post-2010, so
+    # this is the highest-confidence configuration we can ship. Enabled
+    # for paper-trading per the 2026-05-26 go-live decision; see
+    # docs/notes/2026-05-25-go-live-decisions.md for gate results.
+    # Re-evaluate after 2-week paper P&L observation window.
     spec: ClassVar[StrategySpec] = StrategySpec(
         slug="pairs",
         name="Pairs Trading",
@@ -124,7 +125,7 @@ class PairsTrading(Strategy):
         ),
         universe=PAIRS_UNIVERSE,
         rebalance_frequency="weekly",
-        enabled_live=False,
+        enabled_live=True,
     )
 
     default_params: ClassVar[dict[str, Any]] = {
