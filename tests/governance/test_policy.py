@@ -76,6 +76,26 @@ def test_missing_evidence_quarantines_live_capable_strategy() -> None:
     assert "missing_validation" in state.reason_codes
 
 
+def test_mismatched_evidence_slug_quarantines_live_capable_strategy(tmp_path: Path) -> None:
+    chosen = tmp_path / "chosen_params.json"
+    walkforward = tmp_path / "walkforward.parquet"
+    chosen.write_text("{}")
+    walkforward.write_text("fake parquet")
+    evidence = _evidence(
+        slug="risk-parity",
+        chosen_params_path=str(chosen),
+        walkforward_path=str(walkforward),
+    )
+    state = classify_strategy(
+        spec=_spec(),
+        evidence=evidence,
+        policy=GovernancePolicy(max_validation_age_days=30),
+        asof=date(2026, 5, 26),
+    )
+    assert state.state is GovernanceState.QUARANTINED
+    assert "evidence_slug_mismatch" in state.reason_codes
+
+
 def test_disabled_strategy_is_research_even_without_evidence() -> None:
     state = classify_strategy(
         spec=_spec(enabled_live=False),

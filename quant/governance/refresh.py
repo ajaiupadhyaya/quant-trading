@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-from quant.governance.models import GovernancePolicy, StrategyState, ValidationEvidence
+from quant.governance.models import (
+    GovernanceError,
+    GovernancePolicy,
+    StrategyState,
+    ValidationEvidence,
+)
 from quant.governance.policy import classify_strategy
 from quant.governance.store import (
     strategy_states_path,
@@ -25,10 +31,76 @@ def _read_validation_report(data_dir: Path, slug: str) -> dict[str, Any] | None:
     path = validation_report_path(data_dir, slug)
     if not path.exists():
         return None
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(
+            path.read_text(encoding="utf-8"),
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                ValueError(f"non-finite JSON value {value}")
+            ),
+        )
+    except Exception as exc:
+        raise GovernanceError(f"Malformed validation report: {path}") from exc
     if not isinstance(payload, dict):
-        return None
+        raise GovernanceError(f"Malformed validation report: {path}")
     return payload
+
+
+def _malformed_report(data_dir: Path, slug: str) -> GovernanceError:
+    return GovernanceError(f"Malformed validation report: {validation_report_path(data_dir, slug)}")
+
+
+def _expect_str(raw: dict[str, Any], key: str, data_dir: Path, slug: str) -> str:
+    value = raw.get(key)
+    if not isinstance(value, str):
+        raise _malformed_report(data_dir, slug)
+    return value
+
+
+def _expect_bool(raw: dict[str, Any], key: str, data_dir: Path, slug: str) -> bool:
+    value = raw.get(key)
+    if not isinstance(value, bool):
+        raise _malformed_report(data_dir, slug)
+    return value
+
+
+def _expect_int(raw: dict[str, Any], key: str, data_dir: Path, slug: str) -> int:
+    value = raw.get(key)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise _malformed_report(data_dir, slug)
+    return value
+
+
+def _expect_number(raw: dict[str, Any], key: str, data_dir: Path, slug: str) -> float:
+    value = raw.get(key)
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise _malformed_report(data_dir, slug)
+    out = float(value)
+    if not math.isfinite(out):
+        raise _malformed_report(data_dir, slug)
+    return out
+
+
+def _expect_optional_number(
+    raw: dict[str, Any], key: str, data_dir: Path, slug: str
+) -> float | None:
+    value = raw.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise _malformed_report(data_dir, slug)
+    out = float(value)
+    if not math.isfinite(out):
+        raise _malformed_report(data_dir, slug)
+    return out
+
+
+def _expect_optional_str(raw: dict[str, Any], key: str, data_dir: Path, slug: str) -> str | None:
+    value = raw.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise _malformed_report(data_dir, slug)
+    return value
 
 
 def validation_report_to_evidence(data_dir: Path, slug: str) -> ValidationEvidence | None:
@@ -36,45 +108,49 @@ def validation_report_to_evidence(data_dir: Path, slug: str) -> ValidationEviden
     if raw is None:
         return None
     backtest_dir = data_dir / "backtests" / slug
-    return ValidationEvidence(
-        slug=str(raw["slug"]),
-        run_date=date.fromisoformat(str(raw["run_date"])),
-        data_start=date.fromisoformat(str(raw["data_start"])),
-        data_end=date.fromisoformat(str(raw["data_end"])),
-        gate_deflated_sharpe=bool(raw["gate_deflated_sharpe"]),
-        gate_probabilistic_sharpe=bool(raw["gate_probabilistic_sharpe"]),
-        gate_bootstrap_lower=bool(raw["gate_bootstrap_lower"]),
-        gate_regime=bool(raw["gate_regime"]),
-        gate_holdout=bool(raw["gate_holdout"]),
-        deflated_sharpe=float(raw["deflated_sharpe"]),
-        probabilistic_sharpe=float(raw["probabilistic_sharpe"]),
-        bootstrap_total_return_p05=(
-            None
-            if raw.get("bootstrap_total_return_p05") is None
-            else float(raw["bootstrap_total_return_p05"])
-        ),
-        n_positive_regimes=int(raw["n_positive_regimes"]),
-        n_tested_regimes=int(raw["n_tested_regimes"]),
-        holdout_total_return=(
-            None
-            if raw.get("holdout_total_return") is None
-            else float(raw["holdout_total_return"])
-        ),
-        chosen_params_path=str(backtest_dir / "chosen_params.json"),
-        walkforward_path=str(backtest_dir / "walkforward.parquet"),
-        provenance=str(
-            raw.get(
-                "provenance",
-                f"validation_report:{validation_report_path(data_dir, slug)}",
-            )
-        ),
-        manual_block=bool(raw.get("manual_block", False)),
-        manual_block_reason=(
-            None
-            if raw.get("manual_block_reason") is None
-            else str(raw["manual_block_reason"])
-        ),
-    )
+    try:
+        provenance = raw.get("provenance")
+        if provenance is None:
+            provenance = f"validation_report:{validation_report_path(data_dir, slug)}"
+        elif not isinstance(provenance, str):
+            raise _malformed_report(data_dir, slug)
+
+        return ValidationEvidence(
+            slug=_expect_str(raw, "slug", data_dir, slug),
+            run_date=date.fromisoformat(_expect_str(raw, "run_date", data_dir, slug)),
+            data_start=date.fromisoformat(_expect_str(raw, "data_start", data_dir, slug)),
+            data_end=date.fromisoformat(_expect_str(raw, "data_end", data_dir, slug)),
+            gate_deflated_sharpe=_expect_bool(raw, "gate_deflated_sharpe", data_dir, slug),
+            gate_probabilistic_sharpe=_expect_bool(
+                raw, "gate_probabilistic_sharpe", data_dir, slug
+            ),
+            gate_bootstrap_lower=_expect_bool(raw, "gate_bootstrap_lower", data_dir, slug),
+            gate_regime=_expect_bool(raw, "gate_regime", data_dir, slug),
+            gate_holdout=_expect_bool(raw, "gate_holdout", data_dir, slug),
+            deflated_sharpe=_expect_number(raw, "deflated_sharpe", data_dir, slug),
+            probabilistic_sharpe=_expect_number(
+                raw, "probabilistic_sharpe", data_dir, slug
+            ),
+            bootstrap_total_return_p05=_expect_optional_number(
+                raw, "bootstrap_total_return_p05", data_dir, slug
+            ),
+            n_positive_regimes=_expect_int(raw, "n_positive_regimes", data_dir, slug),
+            n_tested_regimes=_expect_int(raw, "n_tested_regimes", data_dir, slug),
+            holdout_total_return=_expect_optional_number(
+                raw, "holdout_total_return", data_dir, slug
+            ),
+            chosen_params_path=str(backtest_dir / "chosen_params.json"),
+            walkforward_path=str(backtest_dir / "walkforward.parquet"),
+            provenance=provenance,
+            manual_block=(
+                False
+                if raw.get("manual_block") is None
+                else _expect_bool(raw, "manual_block", data_dir, slug)
+            ),
+            manual_block_reason=_expect_optional_str(raw, "manual_block_reason", data_dir, slug),
+        )
+    except (KeyError, ValueError) as exc:
+        raise _malformed_report(data_dir, slug) from exc
 
 
 def build_governance_artifacts(

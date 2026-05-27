@@ -6,7 +6,9 @@ import json
 from datetime import date
 from pathlib import Path
 
-from quant.governance.models import GovernancePolicy, GovernanceState
+import pytest
+
+from quant.governance.models import GovernanceError, GovernancePolicy, GovernanceState
 from quant.governance.refresh import build_governance_artifacts, validation_report_to_evidence
 from quant.strategies import REGISTRY
 from quant.strategies.base import StrategySpec
@@ -88,3 +90,30 @@ def test_failed_validation_report_quarantines(tmp_data_dir: Path) -> None:
     )
     assert states["trend"].state is GovernanceState.QUARANTINED
     assert "failed_gate_regime" in states["trend"].reason_codes
+
+
+def test_validation_report_rejects_non_finite_required_numeric_field(
+    tmp_data_dir: Path,
+) -> None:
+    _write_validation_artifacts(tmp_data_dir, "trend")
+    path = tmp_data_dir / "backtests" / "trend" / "validation_report.json"
+    payload = path.read_text().replace('"deflated_sharpe": 0.54', '"deflated_sharpe": NaN')
+    path.write_text(payload)
+
+    with pytest.raises(GovernanceError, match="Malformed validation report"):
+        validation_report_to_evidence(tmp_data_dir, "trend")
+
+
+def test_validation_report_rejects_non_finite_nullable_numeric_field(
+    tmp_data_dir: Path,
+) -> None:
+    _write_validation_artifacts(tmp_data_dir, "trend")
+    path = tmp_data_dir / "backtests" / "trend" / "validation_report.json"
+    payload = path.read_text().replace(
+        '"bootstrap_total_return_p05": 0.12',
+        '"bootstrap_total_return_p05": Infinity',
+    )
+    path.write_text(payload)
+
+    with pytest.raises(GovernanceError, match="Malformed validation report"):
+        validation_report_to_evidence(tmp_data_dir, "trend")

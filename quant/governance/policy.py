@@ -46,6 +46,12 @@ def classify_strategy(
             code_enabled_live=True,
         )
 
+    if evidence.slug != spec.slug:
+        reason_codes.append("evidence_slug_mismatch")
+        reason_parts.append(
+            f"Validation evidence slug {evidence.slug!r} does not match strategy {spec.slug!r}."
+        )
+
     validation_age_days = (asof - evidence.run_date).days
     if validation_age_days < 0:
         reason_codes.append("future_validation_date")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -42,12 +43,97 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise GovernanceError(f"Missing governance artifact: {path}")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(
+            path.read_text(encoding="utf-8"),
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                ValueError(f"non-finite JSON value {value}")
+            ),
+        )
     except Exception as exc:
         raise GovernanceError(f"Malformed governance artifact: {path}") from exc
     if not isinstance(payload, dict):
         raise GovernanceError(f"Malformed governance artifact: {path}")
     return payload
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    try:
+        text = json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    except ValueError as exc:
+        raise GovernanceError(f"Cannot write governance artifact with non-finite values: {path}") from exc
+    path.write_text(text, encoding="utf-8")
+
+
+def _malformed(path: Path) -> GovernanceError:
+    return GovernanceError(f"Malformed governance artifact: {path}")
+
+
+def _expect_str(raw: dict[str, Any], key: str, path: Path) -> str:
+    value = raw.get(key)
+    if not isinstance(value, str):
+        raise _malformed(path)
+    return value
+
+
+def _expect_bool(raw: dict[str, Any], key: str, path: Path) -> bool:
+    value = raw.get(key)
+    if not isinstance(value, bool):
+        raise _malformed(path)
+    return value
+
+
+def _expect_int(raw: dict[str, Any], key: str, path: Path) -> int:
+    value = raw.get(key)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise _malformed(path)
+    return value
+
+
+def _expect_optional_int(raw: dict[str, Any], key: str, path: Path) -> int | None:
+    value = raw.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise _malformed(path)
+    return value
+
+
+def _expect_number(raw: dict[str, Any], key: str, path: Path) -> float:
+    value = raw.get(key)
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise _malformed(path)
+    out = float(value)
+    if not math.isfinite(out):
+        raise _malformed(path)
+    return out
+
+
+def _expect_optional_number(raw: dict[str, Any], key: str, path: Path) -> float | None:
+    value = raw.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise _malformed(path)
+    out = float(value)
+    if not math.isfinite(out):
+        raise _malformed(path)
+    return out
+
+
+def _expect_optional_str(raw: dict[str, Any], key: str, path: Path) -> str | None:
+    value = raw.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise _malformed(path)
+    return value
+
+
+def _expect_str_list(raw: dict[str, Any], key: str, path: Path) -> list[str]:
+    value = raw.get(key)
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise _malformed(path)
+    return value
 
 
 def write_validation_manifest(
@@ -82,7 +168,7 @@ def write_validation_manifest(
             for slug, evidence in sorted(evidence_by_slug.items())
         },
     }
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_json(path, payload)
 
 
 def load_validation_manifest(path: Path) -> dict[str, ValidationEvidence]:
@@ -94,40 +180,33 @@ def load_validation_manifest(path: Path) -> dict[str, ValidationEvidence]:
     for slug, raw in strategies.items():
         if not isinstance(raw, dict):
             raise GovernanceError(f"Malformed governance artifact: {path}")
-        out[str(slug)] = ValidationEvidence(
-            slug=str(raw["slug"]),
-            run_date=_date(str(raw["run_date"])),
-            data_start=_date(str(raw["data_start"])),
-            data_end=_date(str(raw["data_end"])),
-            gate_deflated_sharpe=bool(raw["gate_deflated_sharpe"]),
-            gate_probabilistic_sharpe=bool(raw["gate_probabilistic_sharpe"]),
-            gate_bootstrap_lower=bool(raw["gate_bootstrap_lower"]),
-            gate_regime=bool(raw["gate_regime"]),
-            gate_holdout=bool(raw["gate_holdout"]),
-            deflated_sharpe=float(raw["deflated_sharpe"]),
-            probabilistic_sharpe=float(raw["probabilistic_sharpe"]),
-            bootstrap_total_return_p05=(
-                None
-                if raw.get("bootstrap_total_return_p05") is None
-                else float(raw["bootstrap_total_return_p05"])
-            ),
-            n_positive_regimes=int(raw["n_positive_regimes"]),
-            n_tested_regimes=int(raw["n_tested_regimes"]),
-            holdout_total_return=(
-                None
-                if raw.get("holdout_total_return") is None
-                else float(raw["holdout_total_return"])
-            ),
-            chosen_params_path=str(raw["chosen_params_path"]),
-            walkforward_path=str(raw["walkforward_path"]),
-            provenance=str(raw["provenance"]),
-            manual_block=bool(raw.get("manual_block", False)),
-            manual_block_reason=(
-                None
-                if raw.get("manual_block_reason") is None
-                else str(raw["manual_block_reason"])
-            ),
-        )
+        try:
+            out[str(slug)] = ValidationEvidence(
+                slug=_expect_str(raw, "slug", path),
+                run_date=_date(_expect_str(raw, "run_date", path)),
+                data_start=_date(_expect_str(raw, "data_start", path)),
+                data_end=_date(_expect_str(raw, "data_end", path)),
+                gate_deflated_sharpe=_expect_bool(raw, "gate_deflated_sharpe", path),
+                gate_probabilistic_sharpe=_expect_bool(raw, "gate_probabilistic_sharpe", path),
+                gate_bootstrap_lower=_expect_bool(raw, "gate_bootstrap_lower", path),
+                gate_regime=_expect_bool(raw, "gate_regime", path),
+                gate_holdout=_expect_bool(raw, "gate_holdout", path),
+                deflated_sharpe=_expect_number(raw, "deflated_sharpe", path),
+                probabilistic_sharpe=_expect_number(raw, "probabilistic_sharpe", path),
+                bootstrap_total_return_p05=_expect_optional_number(
+                    raw, "bootstrap_total_return_p05", path
+                ),
+                n_positive_regimes=_expect_int(raw, "n_positive_regimes", path),
+                n_tested_regimes=_expect_int(raw, "n_tested_regimes", path),
+                holdout_total_return=_expect_optional_number(raw, "holdout_total_return", path),
+                chosen_params_path=_expect_str(raw, "chosen_params_path", path),
+                walkforward_path=_expect_str(raw, "walkforward_path", path),
+                provenance=_expect_str(raw, "provenance", path),
+                manual_block=_expect_bool(raw, "manual_block", path),
+                manual_block_reason=_expect_optional_str(raw, "manual_block_reason", path),
+            )
+        except (KeyError, ValueError) as exc:
+            raise _malformed(path) from exc
     return out
 
 
@@ -139,7 +218,7 @@ def write_strategy_states(path: Path, states_by_slug: dict[str, StrategyState]) 
             slug: state.to_json_dict() for slug, state in sorted(states_by_slug.items())
         },
     }
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_json(path, payload)
 
 
 def load_strategy_states(path: Path) -> dict[str, StrategyState]:
@@ -151,18 +230,17 @@ def load_strategy_states(path: Path) -> dict[str, StrategyState]:
     for slug, raw in strategies.items():
         if not isinstance(raw, dict):
             raise GovernanceError(f"Malformed governance artifact: {path}")
-        out[str(slug)] = StrategyState(
-            slug=str(raw["slug"]),
-            state=GovernanceState(str(raw["state"])),
-            evaluated_at=_datetime(str(raw["evaluated_at"])),
-            validation_age_days=(
-                None
-                if raw.get("validation_age_days") is None
-                else int(raw["validation_age_days"])
-            ),
-            reason_codes=[str(x) for x in raw.get("reason_codes", [])],
-            reason=str(raw.get("reason", "")),
-            code_enabled_live=bool(raw.get("code_enabled_live", False)),
-            manual_block=bool(raw.get("manual_block", False)),
-        )
+        try:
+            out[str(slug)] = StrategyState(
+                slug=_expect_str(raw, "slug", path),
+                state=GovernanceState(_expect_str(raw, "state", path)),
+                evaluated_at=_datetime(_expect_str(raw, "evaluated_at", path)),
+                validation_age_days=_expect_optional_int(raw, "validation_age_days", path),
+                reason_codes=_expect_str_list(raw, "reason_codes", path),
+                reason=_expect_str(raw, "reason", path),
+                code_enabled_live=_expect_bool(raw, "code_enabled_live", path),
+                manual_block=_expect_bool(raw, "manual_block", path),
+            )
+        except (KeyError, ValueError) as exc:
+            raise _malformed(path) from exc
     return out
