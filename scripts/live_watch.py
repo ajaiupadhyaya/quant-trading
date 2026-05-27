@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from quant.execution.alpaca import AlpacaClient
 from quant.util.config import Settings
@@ -79,7 +79,7 @@ def main() -> int:
         try:
             cur = _snapshot(client)
         except Exception as exc:  # broad: don't crash the watch on transient API blips
-            sys.stdout.write(f"[{datetime.now(timezone.utc):%H:%M:%SZ}] poll-error: {exc}\n")
+            sys.stdout.write(f"[{datetime.now(UTC):%H:%M:%SZ}] poll-error: {exc}\n")
             sys.stdout.flush()
             time.sleep(poll_s)
             continue
@@ -105,7 +105,7 @@ def main() -> int:
                 reasons.append("pos:" + ",".join(pos_diff[:8]))
 
         if emit:
-            ts = datetime.now(timezone.utc).strftime("%H:%M:%SZ")
+            ts = datetime.now(UTC).strftime("%H:%M:%SZ")
             line = (
                 f"[{ts}] eq=${cur['equity']:,.0f} uPL=${cur['unrealized_pl']:+,.0f} "
                 f"cash=${cur['cash']:,.0f} pos={cur['n_positions']} | "
