@@ -111,6 +111,40 @@ def test_fetch_company_facts_caches(monkeypatch, tmp_path: Path) -> None:
     assert len(df2) == len(df)
 
 
+def test_fetch_company_facts_in_process_cache_skips_parquet_read(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The hot loop in multi-factor calls fetch_company_facts thousands of times
+    per backtest. After the parquet is on disk, subsequent calls for the same
+    (ticker, data_dir) must NOT touch the disk — that I/O dominated multi-factor
+    validate runs at >2 hours."""
+    import pandas as pd
+
+    import quant.data.edgar as edgar_mod
+
+    edgar_mod.fetch_company_facts.cache_clear()
+    _patch_http(monkeypatch)
+    df1 = fetch_company_facts("AAPL", data_dir=tmp_path)
+    assert not df1.empty
+
+    real_read_parquet = pd.read_parquet
+    calls = {"n": 0}
+
+    def counting_read_parquet(*args, **kwargs):  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        return real_read_parquet(*args, **kwargs)
+
+    monkeypatch.setattr(pd, "read_parquet", counting_read_parquet)
+    for _ in range(10):
+        df_n = fetch_company_facts("AAPL", data_dir=tmp_path)
+        assert len(df_n) == len(df1)
+
+    assert calls["n"] == 0, (
+        f"fetch_company_facts re-read parquet {calls['n']}x after first call; "
+        "expected in-process cache to suppress disk I/O"
+    )
+
+
 def test_get_facts_asof_is_pit_correct(monkeypatch, tmp_path: Path) -> None:
     """A fact filed AFTER asof must not appear in the PIT cut."""
     _patch_http(monkeypatch)

@@ -26,6 +26,7 @@ research label, which is acceptable for low-volume use).
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
@@ -181,11 +182,14 @@ def _extract_concept(facts: dict[str, Any], concept: str) -> list[FactRow]:
     return []
 
 
+@functools.lru_cache(maxsize=512)
 def fetch_company_facts(ticker: str, data_dir: Path | None = None) -> pd.DataFrame:
     """Fetch + parse /companyfacts for ``ticker`` into a long-format DataFrame.
 
     Columns: ``concept`` ``value`` ``period_end`` ``filed`` ``unit``. Cached as
-    parquet per ticker. Subsequent calls hit cache.
+    parquet per ticker and also memoized in-process — multi-factor's hot loop
+    calls this ~10M times per validate run, where the parquet round-trip
+    dominates wall time even though the file is tiny.
     """
     data_dir = data_dir or _settings().data_dir
     path = _facts_path(ticker, data_dir)
