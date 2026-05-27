@@ -65,6 +65,13 @@ def _bar_fetcher_for(prices: dict[tuple[str, date], float]) -> Callable[[str, da
     return fetch
 
 
+def _mid_fetcher_for(prices: dict[str, float]) -> Callable[[OrderRow], float | None]:
+    def fetch(order: OrderRow) -> float | None:
+        return prices.get(order.symbol)
+
+    return fetch
+
+
 def test_reconcile_clean_one_to_one_buy() -> None:
     trades = pd.DataFrame([_trade()])
     orders = [_order()]
@@ -91,6 +98,45 @@ def test_reconcile_clean_one_to_one_buy() -> None:
     assert row.slippage_bps is not None
     assert abs(row.slippage_bps - 5.001) < 0.01
     assert row.fill_lag_seconds == 4.0
+
+
+def test_reconcile_computes_execution_cost_against_fill_time_mid() -> None:
+    trades = pd.DataFrame([_trade()])
+    orders = [_order(filled_avg_price=500.12)]
+
+    report = reconcile(
+        trades=trades,
+        orders=orders,
+        bar_fetcher=_bar_fetcher_for({("SPY", date(2026, 5, 26)): 499.87}),
+        mid_fetcher=_mid_fetcher_for({"SPY": 500.00}),
+        modeled_slippage_bps=5.0,
+        since=date(2026, 5, 26),
+        until=date(2026, 5, 26),
+    )
+
+    row = report.rows[0]
+    assert row.mid_price == 500.00
+    assert row.execution_cost_bps is not None
+    assert abs(row.execution_cost_bps - 2.4) < 0.01
+
+
+def test_reconcile_marks_no_mid_price_when_execution_cost_unavailable() -> None:
+    trades = pd.DataFrame([_trade()])
+    orders = [_order()]
+
+    report = reconcile(
+        trades=trades,
+        orders=orders,
+        bar_fetcher=_bar_fetcher_for({("SPY", date(2026, 5, 26)): 499.87}),
+        mid_fetcher=_mid_fetcher_for({}),
+        modeled_slippage_bps=5.0,
+        since=date(2026, 5, 26),
+        until=date(2026, 5, 26),
+    )
+
+    row = report.rows[0]
+    assert row.status == "no_mid_price"
+    assert row.execution_cost_bps is None
 
 
 def test_reconcile_clean_one_to_one_sell_signed_correctly() -> None:

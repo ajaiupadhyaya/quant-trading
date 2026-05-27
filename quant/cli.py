@@ -7,6 +7,7 @@ fully functional; the rest are scaffolded so the command surface is stable.
 
 from __future__ import annotations
 
+import json
 import webbrowser
 from collections.abc import Sequence
 from datetime import date
@@ -737,8 +738,15 @@ def governance_refresh(asof: str | None, max_age_days: int) -> None:
 
 @governance.command("status", help="Show current governance state for each strategy.")
 def governance_status() -> None:
+    from quant.governance.allocation import allocate_capital
     from quant.governance.models import GovernanceError, GovernanceState
-    from quant.governance.store import load_strategy_states, strategy_states_path
+    from quant.governance.store import (
+        drift_report_path,
+        load_strategy_states,
+        load_validation_manifest,
+        strategy_states_path,
+        validation_manifest_path,
+    )
 
     settings = Settings()  # type: ignore[call-arg]
     try:
@@ -746,9 +754,42 @@ def governance_status() -> None:
     except GovernanceError as exc:
         states = {}
         console.print(f"[yellow]{exc}; run `quant governance refresh`.[/yellow]")
+    try:
+        evidence = load_validation_manifest(validation_manifest_path(settings.data_dir))
+    except GovernanceError:
+        evidence = {}
+    allocation = allocate_capital(states, evidence_by_slug=evidence)
+    drift_flags: dict[str, str] = {}
+    drift_path = drift_report_path(settings.data_dir)
+    if drift_path.exists():
+        try:
+            payload = json.loads(drift_path.read_text(encoding="utf-8"))
+            rows = payload.get("rows", [])
+            if isinstance(rows, list):
+                priority = {"halt_candidate": 3, "watch": 2, "normal": 1}
+                for raw in rows:
+                    if not isinstance(raw, dict):
+                        continue
+                    slug = raw.get("strategy")
+                    flag = raw.get("flag")
+                    if not isinstance(slug, str) or not isinstance(flag, str):
+                        continue
+                    current = drift_flags.get(slug, "normal")
+                    if priority.get(flag, 0) >= priority.get(current, 0):
+                        drift_flags[slug] = flag
+        except Exception:
+            drift_flags = {}
 
     table = Table(title="Strategy governance", show_header=True)
-    for col in ("Strategy", "Code Live", "Governance", "Age", "Reasons"):
+    for col in (
+        "Strategy",
+        "Code Live",
+        "Governance",
+        "Age",
+        "Allocation",
+        "Drift",
+        "Why no trade",
+    ):
         table.add_column(col)
     for spec in list_strategies():
         state = states.get(spec.slug)
@@ -758,16 +799,21 @@ def governance_status() -> None:
                 "yes" if spec.enabled_live else "no",
                 GovernanceState.UNKNOWN.value,
                 "",
+                "0.0%",
+                drift_flags.get(spec.slug, "unknown"),
                 "no governance artifact",
             )
             continue
         age = "" if state.validation_age_days is None else f"{state.validation_age_days}d"
+        why_no_trade = "eligible" if state.state is GovernanceState.LIVE else state.reason
         table.add_row(
             spec.slug,
             "yes" if spec.enabled_live else "no",
             state.state.value,
             age,
-            ", ".join(state.reason_codes) or "ok",
+            f"{allocation.get(spec.slug, 0.0) * 100:.1f}%",
+            drift_flags.get(spec.slug, "unknown"),
+            why_no_trade,
         )
     console.print(table)
 
@@ -803,6 +849,65 @@ def governance_audit(strategy: str) -> None:
     table.add_row("Missing artifacts", ", ".join(audit.missing_artifacts) or "none")
     console.print(table)
     console.print(audit.explanation)
+
+
+@governance.command("drift", help="Show advisory paper-P&L drift flags.")
+def governance_drift() -> None:
+    from quant.governance.drift import summarize_drift
+    from quant.governance.store import drift_report_path
+    from quant.live.bookkeeping import read_equity
+
+    settings = Settings()  # type: ignore[call-arg]
+    equity = read_equity(settings.data_dir)
+    if equity.empty or "equity" not in equity.columns:
+        console.print("[yellow]No paper equity history available yet.[/yellow]")
+        return
+    returns = equity["equity"].astype(float).pct_change(fill_method=None).dropna()
+    if returns.empty:
+        console.print("[yellow]Not enough paper equity history for drift analysis.[/yellow]")
+        return
+    realized = {"account": returns}
+    expected = {"account": pd.Series(0.0, index=returns.index)}
+    rows = summarize_drift(realized, expected)
+    path = drift_report_path(settings.data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "run_date": date.today().isoformat(),
+                "rows": [
+                    {
+                        "strategy": row.strategy,
+                        "window": row.window,
+                        "realized_return": row.realized_return,
+                        "expected_return": row.expected_return,
+                        "z_score": row.z_score,
+                        "flag": row.flag,
+                    }
+                    for row in rows
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    table = Table(title="Paper P&L drift", show_header=True)
+    for col in ("Strategy", "Window", "Realized", "Expected", "Z", "Flag"):
+        table.add_column(col)
+    for row in rows:
+        table.add_row(
+            row.strategy,
+            str(row.window),
+            f"{row.realized_return:+.2%}",
+            f"{row.expected_return:+.2%}",
+            f"{row.z_score:+.2f}",
+            row.flag,
+        )
+    console.print(table if rows else "[yellow]Not enough paper equity history for drift windows.[/yellow]")
+    console.print(f"[dim]wrote {path}[/dim]")
 
 
 @cli.group(help="Data subcommands.")

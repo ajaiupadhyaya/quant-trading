@@ -20,6 +20,7 @@ def _fixture_report() -> ReconciliationReport:
                 submission_date=date(2026, 5, 26),
                 submitted_qty=100, filled_qty=100,
                 signal_price=499.87, fill_price=500.12,
+                mid_price=500.00, execution_cost_bps=2.4,
                 slippage_bps=5.001, fill_lag_seconds=4.0,
                 status="filled",
             ),
@@ -43,12 +44,14 @@ def test_render_markdown_contains_required_sections() -> None:
     assert "## Summary" in md
     assert "## Signal-to-fill drift (filled orders)" in md
     assert "## Timing" in md
+    assert "## Execution cost (fill-time mid)" in md
     assert "## Fidelity" in md
     assert "## Per-symbol breakdown" in md
     # modeled benchmark surfaces
     assert "5.0 bps" in md or "5.00 bps" in md
     # both rows present
     assert "SPY" in md and "DBC" in md
+    assert "2.40" in md
     # rejected row appears in fidelity section
     assert "rejected" in md
 

@@ -1,10 +1,15 @@
 # quant-trading
 
-Systematic trading project — 5 strategies modeled on what AQR / Bridgewater / Citadel / JPM Quant publish about, paper-traded live on Alpaca via GitHub Actions, terminal-first CLI + TUI for navigation.
+Systematic trading project — an evidence-gated defensive ETF production
+baseline plus 5 research strategies modeled on what AQR / Bridgewater / Citadel
+/ JPM Quant publish about, paper-traded on Alpaca via GitHub Actions,
+terminal-first CLI + TUI for navigation.
 
-**Status:** Production-ready for Alpaca paper trading.
+**Status:** Production baseline is ready for Alpaca paper trading when
+governance is fresh and live; research strategies remain quarantined until they
+pass the same gates.
 
-- Strategies: PCA pair discovery + Engle-Granger ADF + OU half-life + opt-in Kalman hedge; HRP all-weather with Ledoit-Wolf shrinkage; TSMOM with Daniel-Moskowitz drawdown control; inverse-vol momentum; Hou-Xue-Zhang multi-factor on SEC EDGAR PIT fundamentals.
+- Strategies: defensive ETF allocation baseline; PCA pair discovery + Engle-Granger ADF + OU half-life + opt-in Kalman hedge; HRP all-weather with Ledoit-Wolf shrinkage; TSMOM with Daniel-Moskowitz drawdown control; inverse-vol momentum; Hou-Xue-Zhang multi-factor on SEC EDGAR PIT fundamentals.
 - Validation: walk-forward + CPCV + DSR + PSR + stationary-block bootstrap + regime stress + OOS holdout + 0/5/15/30bps cost-sensitivity sweep.
 - Live ops: pre-trade safety guards (market-open, reconciliation, risk circuit breaker, bar freshness), `quant doctor` pre-flight, daily / nightly / weekly-grid / smoke CI workflows.
 - Observability: Textual TUI, combined-book tear-sheet with rolling Sharpe/vol + underwater + round-trip P&L distribution, structured trade journal.
@@ -15,13 +20,15 @@ See [§ Status & roadmap](#status--roadmap) for explicitly-deferred items.
 
 ## What this is
 
-Five strategies running daily paper trades on Alpaca:
+One production baseline and five research strategies running through the same
+governance and paper-trading stack:
 
-1. **Cross-sectional equity momentum** — Jegadeesh-Titman 12-1 + residual momentum + trend filter + vol scaling
-2. **Multi-factor equity portfolio** — Hou-Xue-Zhang 6 factors + HRP weights + factor timing + industry-neutral L/S
-3. **Statistical arbitrage / pairs trading** — PCA clustering for pair discovery + Kalman hedge ratios + Ornstein-Uhlenbeck half-life filter
-4. **Trend-following multi-asset ETFs** — Moskowitz-Ooi-Pedersen TSMOM ensemble + vol targeting + drawdown control
-5. **Hierarchical Risk Parity all-weather** — López de Prado HRP + Ledoit-Wolf shrinkage + constant-vol targeting
+1. **Defensive ETF allocation** — monthly risk-on top-3 6/12 month momentum across SPY, TLT, IEF, GLD, DBC, VNQ, EFA, EEM; risk-off defensive allocation to IEF/TLT/GLD when SPY is below its 200-day average
+2. **Cross-sectional equity momentum** — Jegadeesh-Titman 12-1 + residual momentum + trend filter + vol scaling
+3. **Multi-factor equity portfolio** — Hou-Xue-Zhang 6 factors + HRP weights + factor timing + industry-neutral L/S
+4. **Statistical arbitrage / pairs trading** — PCA clustering for pair discovery + Kalman hedge ratios + Ornstein-Uhlenbeck half-life filter
+5. **Trend-following multi-asset ETFs** — Moskowitz-Ooi-Pedersen TSMOM ensemble + vol targeting + drawdown control
+6. **Hierarchical Risk Parity all-weather** — López de Prado HRP + Ledoit-Wolf shrinkage + constant-vol targeting
 
 All five trade against a single Alpaca paper account; per-strategy attribution via `client_order_id`. Daily equity snapshots + trade logs committed back to this repo by the daily Actions runner — git history IS the audit trail.
 
@@ -53,6 +60,7 @@ uv run quant backtest <strategy>     # walk-forward backtest + tear-sheet
 uv run quant tearsheet <strategy>    # open the rendered tear-sheet
 uv run quant validate <strategy>     # full validation battery (DSR/PSR/CPCV/bootstrap/regimes)
 uv run quant governance audit <strategy>  # reproducibility hashes + quarantine explanation
+uv run quant governance drift             # advisory paper-P&L drift flags
 uv run quant rebalance --dry-run     # daily rebalance pass against Alpaca paper (dry-run prints orders)
 uv run quant rebalance               # daily rebalance — submits orders, snapshots equity + per-strategy positions
 uv run quant journal --since 2026-05-01     # structured trade log
@@ -112,13 +120,15 @@ Exit code `0` = passes the live gate (DSR ≥ 0.30, PSR ≥ 0.70, bootstrap lowe
 
 Normal paper rebalances are evidence-gated. `StrategySpec.enabled_live=True`
 means a strategy is live-capable in code; governance decides whether it is
-currently eligible for paper capital based on fresh validation evidence.
+currently eligible for paper capital based on fresh validation evidence. Capital
+allocation is deterministic and written to `data/governance/allocation.json`.
 
 ```bash
 uv run quant validate trend            # produces validation_report.json
 uv run quant governance refresh        # rebuilds the manifest + state files
 uv run quant governance status         # render the eligibility table
 uv run quant governance audit trend    # explain hashes, bootstrap metadata, and gates
+uv run quant governance drift          # writes data/governance/drift_report.json
 uv run quant rebalance --dry-run
 ```
 
@@ -130,6 +140,9 @@ uv run quant rebalance --dry-run --include-quarantined
 ```
 
 `--include-quarantined` is rejected for non-dry-run rebalances.
+
+The full operator checklist lives in
+[`docs/operator-runbook.md`](docs/operator-runbook.md).
 
 ### Bootstrap regression audit
 
@@ -176,17 +189,20 @@ Two production workflows ship in `.github/workflows/`:
 
 Both need repository secrets `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `FRED_API_KEY`.
 
-## Validation gate results (2026-05-25)
+## Validation gate results (2026-05-27)
 
 | Strategy | DSR | PSR | Bootstrap 5% | Regimes | Holdout | Cost-robust | Verdict |
 |---|---|---|---|---|---|---|---|
-| **trend** | 0.54 | 0.99 | +12.3% | 3/3 ✓ | +20.2% | ✓ | **LIVE** |
-| momentum | 0.84 | 0.99 | +8.8% | 1/3 ✗ | +18.2% | ✓ | research (regime gate) |
-| multi-factor | 0.91 | 1.00 | +78.9% | 1/3 ✗ | +11.1% | ✓ | research (regime gate) |
-| risk-parity | 0.01 | 0.24 | -42.9% | 1/3 ✗ | +11.3% | weak | disabled (4/5 fail) |
-| pairs | 0.00 | 0.07 | -49.4% | 1/3 ✗ | -2.9% | ✗ | disabled (5/5 fail) |
+| **defensive-etf-allocation** | 0.60 | 0.98 | +5.9% | 2/4 ✓ | +22.0% | ✓ | **LIVE** |
+| trend | 0.54 | 0.99 | -2.6% | 3/3 ✓ | +20.2% | ✓ | quarantined (bootstrap gate) |
+| momentum | 0.84 | 0.99 | -12.8% | 1/3 ✗ | +18.2% | mixed | quarantined (bootstrap/regime) |
+| multi-factor | current artifact fails | current artifact fails | current artifact fails | current artifact fails | current artifact passes | unknown | quarantined |
+| risk-parity | current artifact fails | current artifact fails | current artifact fails | current artifact passes | current artifact passes | weak | quarantined |
+| pairs | current artifact fails | current artifact fails | current artifact fails | current artifact fails | current artifact fails | ✗ | quarantined |
 
-Momentum and multi-factor each pass 4/5 gates with strong margins but lose the regime gate — both long-biased cross-sectional equity strategies are regime-fragile in sharp drawdowns. Drawdown control (Daniel-Moskowitz "managed momentum") reduces magnitude but doesn't flip a crash regime positive. They stay disabled live until a regime overlay (VIX kill switch / cross-sectional dispersion detector / short-leg amplifier) lands. Code is fully wired; flip `enabled_live=True` once the overlay validates.
+The research strategies are not forced live. They stay remediation candidates
+until fresh validation evidence passes DSR, PSR, bootstrap lower-5%, regime, and
+holdout gates. `defensive-etf-allocation` is the current paper-trading baseline.
 
 The regime gate itself was generalized from the spec's strict "≥3 of 5" to "≥50% of TESTED regimes" — our 2010-start cache leaves GFC 2008 + most of China 2015 unreachable.
 

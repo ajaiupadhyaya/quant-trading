@@ -1,0 +1,21 @@
+{
+  "bootstrap_resamples": 5000,
+  "bootstrap_seed": 0,
+  "bootstrap_total_return_p05": 0.05870241344092729,
+  "data_end": "2026-05-26",
+  "data_start": "2010-01-01",
+  "deflated_sharpe": 0.6019804001788256,
+  "gate_bootstrap_lower": true,
+  "gate_deflated_sharpe": true,
+  "gate_holdout": true,
+  "gate_probabilistic_sharpe": true,
+  "gate_regime": true,
+  "holdout_total_return": 0.22021743975000074,
+  "n_positive_regimes": 2,
+  "n_tested_regimes": 4,
+  "probabilistic_sharpe": 0.9815215729428285,
+  "provenance": "quant validate defensive-etf-allocation --start 2010-01-01 --end 2026-05-26",
+  "run_date": "2026-05-27",
+  "slug": "defensive-etf-allocation",
+  "validation_command": "quant validate defensive-etf-allocation --start 2010-01-01 --end 2026-05-26 --bootstrap-resamples 5000 --bootstrap-seed 0"
+}

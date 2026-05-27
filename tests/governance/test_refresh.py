@@ -78,6 +78,8 @@ def test_build_governance_artifacts_classifies_registry(tmp_data_dir: Path) -> N
     assert states["trend"].state is GovernanceState.LIVE
     assert (tmp_data_dir / "governance" / "validation_manifest.json").exists()
     assert (tmp_data_dir / "governance" / "strategy_states.json").exists()
+    allocation = json.loads((tmp_data_dir / "governance" / "allocation.json").read_text())
+    assert allocation["allocations"] == {"trend": 1.0}
 
 
 def test_failed_validation_report_quarantines(tmp_data_dir: Path) -> None:

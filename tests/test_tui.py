@@ -81,7 +81,15 @@ def test_render_strategies_table_marks_selected() -> None:
     from quant.tui import StrategySnapshot
 
     snaps = [
-        StrategySnapshot(slug="momentum", name="Momentum", enabled_live=True, n_positions=3),
+        StrategySnapshot(
+            slug="momentum",
+            name="Momentum",
+            enabled_live=True,
+            n_positions=3,
+            governance_state="live",
+            allocation=0.35,
+            drift_flag="normal",
+        ),
         StrategySnapshot(slug="trend", name="Trend", enabled_live=True, n_positions=2),
     ]
     table = render_strategies_table(snaps, selected="momentum")
@@ -90,6 +98,7 @@ def test_render_strategies_table_marks_selected() -> None:
     # produces 2 data rows.
     assert isinstance(table, Table)
     assert table.row_count == 2
+    assert len(table.columns) == 8
 
 
 def test_render_strategies_table_includes_all_specs() -> None:

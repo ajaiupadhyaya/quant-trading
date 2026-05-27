@@ -1,5 +1,15 @@
 {
   "strategies": {
+    "defensive-etf-allocation": {
+      "code_enabled_live": true,
+      "evaluated_at": "2026-05-27T00:00:00",
+      "manual_block": false,
+      "reason": "Fresh validation evidence passes all required gates.",
+      "reason_codes": [],
+      "slug": "defensive-etf-allocation",
+      "state": "live",
+      "validation_age_days": 0
+    },
     "momentum": {
       "code_enabled_live": true,
       "evaluated_at": "2026-05-27T00:00:00",

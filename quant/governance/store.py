@@ -17,6 +17,8 @@ from quant.governance.models import (
 
 VALIDATION_MANIFEST_NAME = "validation_manifest.json"
 STRATEGY_STATES_NAME = "strategy_states.json"
+ALLOCATION_NAME = "allocation.json"
+DRIFT_REPORT_NAME = "drift_report.json"
 
 
 def governance_dir(data_dir: Path) -> Path:
@@ -29,6 +31,14 @@ def validation_manifest_path(data_dir: Path) -> Path:
 
 def strategy_states_path(data_dir: Path) -> Path:
     return governance_dir(data_dir) / STRATEGY_STATES_NAME
+
+
+def allocation_path(data_dir: Path) -> Path:
+    return governance_dir(data_dir) / ALLOCATION_NAME
+
+
+def drift_report_path(data_dir: Path) -> Path:
+    return governance_dir(data_dir) / DRIFT_REPORT_NAME
 
 
 def _date(value: str) -> date:
@@ -219,6 +229,35 @@ def write_strategy_states(path: Path, states_by_slug: dict[str, StrategyState]) 
         },
     }
     _write_json(path, payload)
+
+
+def write_allocation(path: Path, allocations_by_slug: dict[str, float]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": 1,
+        "allocations": {
+            slug: float(weight) for slug, weight in sorted(allocations_by_slug.items())
+        },
+    }
+    _write_json(path, payload)
+
+
+def load_allocation(path: Path) -> dict[str, float]:
+    payload = _load_json(path)
+    allocations = payload.get("allocations")
+    if not isinstance(allocations, dict):
+        raise GovernanceError(f"Malformed governance artifact: {path}")
+    out: dict[str, float] = {}
+    for slug, weight in allocations.items():
+        if not isinstance(slug, str):
+            raise _malformed(path)
+        if not isinstance(weight, int | float) or isinstance(weight, bool):
+            raise _malformed(path)
+        weight_float = float(weight)
+        if not math.isfinite(weight_float) or weight_float < 0:
+            raise _malformed(path)
+        out[slug] = weight_float
+    return out
 
 
 def load_strategy_states(path: Path) -> dict[str, StrategyState]:

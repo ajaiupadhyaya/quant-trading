@@ -16,8 +16,10 @@ from quant.governance.models import (
     ValidationEvidence,
 )
 from quant.governance.store import (
+    load_allocation,
     load_strategy_states,
     load_validation_manifest,
+    write_allocation,
     write_strategy_states,
     write_validation_manifest,
 )
@@ -94,6 +96,13 @@ def test_strategy_states_round_trip(tmp_path: Path) -> None:
     loaded = load_strategy_states(path)
     assert loaded["trend"].state is GovernanceState.LIVE
     assert loaded["trend"].validation_age_days == 6
+
+
+def test_allocation_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "allocation.json"
+    write_allocation(path, {"trend": 0.6, "defensive-etf-allocation": 0.4})
+    loaded = load_allocation(path)
+    assert loaded == {"defensive-etf-allocation": 0.4, "trend": 0.6}
 
 
 def test_missing_manifest_raises_governance_error(tmp_path: Path) -> None:

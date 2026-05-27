@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from quant.governance.allocation import allocate_capital
 from quant.governance.models import (
     GovernanceError,
     GovernancePolicy,
@@ -16,8 +17,10 @@ from quant.governance.models import (
 )
 from quant.governance.policy import classify_strategy
 from quant.governance.store import (
+    allocation_path,
     strategy_states_path,
     validation_manifest_path,
+    write_allocation,
     write_strategy_states,
     write_validation_manifest,
 )
@@ -174,4 +177,8 @@ def build_governance_artifacts(
         )
     write_validation_manifest(validation_manifest_path(data_dir), evidence_by_slug)
     write_strategy_states(strategy_states_path(data_dir), states)
+    write_allocation(
+        allocation_path(data_dir),
+        allocate_capital(states, evidence_by_slug=evidence_by_slug),
+    )
     return states

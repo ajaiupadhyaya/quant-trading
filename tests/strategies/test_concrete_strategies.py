@@ -21,6 +21,7 @@ import pytest
 from quant.backtest.engine import BacktestConfig, run_backtest
 from quant.strategies import REGISTRY
 from quant.strategies.cross_sectional_momentum import CrossSectionalMomentum
+from quant.strategies.defensive_etf_allocation import DefensiveETFAllocation
 from quant.strategies.multi_factor import MEGACAP_UNIVERSE, MultiFactor
 from quant.strategies.pairs_trading import PAIRS_UNIVERSE, PairsTrading
 from quant.strategies.risk_parity import RiskParity, hrp_weights
@@ -55,9 +56,43 @@ def pair_bars() -> pd.DataFrame:
 # ---- registration ----------------------------------------------------------
 
 
-def test_all_five_strategies_registered() -> None:
-    for slug in ("momentum", "multi-factor", "pairs", "trend", "risk-parity"):
+def test_all_production_strategies_registered() -> None:
+    for slug in (
+        "defensive-etf-allocation",
+        "momentum",
+        "multi-factor",
+        "pairs",
+        "trend",
+        "risk-parity",
+    ):
         _slug_registered(slug)
+
+
+def test_defensive_etf_risk_on_picks_top_three_positive_momentum(
+    etf_bars: pd.DataFrame,
+) -> None:
+    strat = DefensiveETFAllocation.build(bars=etf_bars)
+    signals = strat.generate_signals(date(2023, 6, 30))
+    targets = strat.target_positions(date(2023, 6, 30), equity=100_000)
+
+    assert len(targets) <= 3
+    assert set(targets).issubset(set(signals[signals > 0].nlargest(3).index))
+    assert all(q >= 0 for q in targets.values())
+
+
+def test_defensive_etf_risk_off_uses_defensive_assets_only(
+    etf_bars: pd.DataFrame,
+) -> None:
+    stressed = etf_bars.copy()
+    stressed.loc[stressed.index[-260]:, ("SPY", "close")] = pd.Series(
+        range(260, 0, -1), index=stressed.index[-260:]
+    ).astype(float)
+    strat = DefensiveETFAllocation.build(bars=stressed)
+
+    targets = strat.target_positions(date(2024, 12, 31), equity=100_000)
+
+    assert set(targets).issubset({"IEF", "TLT", "GLD"})
+    assert all(q >= 0 for q in targets.values())
 
 
 # ---- cross-sectional momentum ---------------------------------------------

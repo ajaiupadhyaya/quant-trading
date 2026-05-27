@@ -17,6 +17,7 @@ import pandas as pd
 from quant.execution.alpaca import OrderRow
 
 BarFetcher = Callable[[str, date], float | None]
+MidFetcher = Callable[[OrderRow], float | None]
 """(symbol, signal_date) -> close price, or None if unavailable.
 
 signal_date is the rebalance-target date — the bar the strategy actually used
@@ -41,7 +42,9 @@ class ReconRow:
     fill_price: float | None
     slippage_bps: float | None  # signed; positive = worse than signal
     fill_lag_seconds: float | None
-    status: str  # filled | partial | rejected | missing | no_signal_price | no_fill_price
+    status: str  # filled | partial | rejected | missing | no_signal_price | no_fill_price | no_mid_price
+    mid_price: float | None = None
+    execution_cost_bps: float | None = None
 
 
 @dataclass
@@ -91,11 +94,18 @@ def _slippage_bps(side: str, signal_price: float, fill_price: float) -> float:
     return (signal_price - fill_price) / signal_price * 1e4
 
 
+def _execution_cost_bps(side: str, mid_price: float, fill_price: float) -> float:
+    if side == "buy":
+        return (fill_price - mid_price) / mid_price * 1e4
+    return (mid_price - fill_price) / mid_price * 1e4
+
+
 def reconcile(
     *,
     trades: pd.DataFrame,
     orders: Iterable[OrderRow],
     bar_fetcher: BarFetcher,
+    mid_fetcher: MidFetcher | None = None,
     modeled_slippage_bps: float,
     since: date,
     until: date,
@@ -123,7 +133,9 @@ def reconcile(
                     filled_qty=0,
                     signal_price=None,
                     fill_price=None,
+                    mid_price=None,
                     slippage_bps=None,
+                    execution_cost_bps=None,
                     fill_lag_seconds=None,
                     status="missing",
                 )
@@ -131,10 +143,12 @@ def reconcile(
             continue
 
         signal_price = bar_fetcher(str(t["symbol"]), submission_date)
+        mid_price = mid_fetcher(order) if mid_fetcher is not None else None
         fill_lag = None
         if order.filled_at is not None:
             fill_lag = (order.filled_at - order.submitted_at).total_seconds()
 
+        execution_cost = None
         if order.status in {"canceled", "rejected", "expired"} or order.filled_qty == 0:
             status = "rejected"
             slippage = None
@@ -144,6 +158,13 @@ def reconcile(
         else:
             slippage = _slippage_bps(order.side, signal_price, order.filled_avg_price)
             status = "filled" if order.filled_qty >= order.submitted_qty else "partial"
+            if mid_fetcher is not None:
+                if mid_price is None:
+                    status = "no_mid_price"
+                else:
+                    execution_cost = _execution_cost_bps(
+                        order.side, mid_price, order.filled_avg_price
+                    )
 
         rows.append(
             ReconRow(
@@ -156,7 +177,9 @@ def reconcile(
                 filled_qty=int(order.filled_qty),
                 signal_price=signal_price,
                 fill_price=order.filled_avg_price,
+                mid_price=mid_price,
                 slippage_bps=slippage,
+                execution_cost_bps=execution_cost,
                 fill_lag_seconds=fill_lag,
                 status=status,
             )

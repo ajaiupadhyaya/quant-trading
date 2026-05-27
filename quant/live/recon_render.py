@@ -18,6 +18,7 @@ def render_markdown(report: ReconciliationReport) -> str:
     _write_summary(buf, report)
     _write_slippage_section(buf, report)
     _write_timing_section(buf, report)
+    _write_execution_cost_section(buf, report)
     _write_fidelity_section(buf, report)
     _write_per_symbol_section(buf, report)
     return buf.getvalue()
@@ -47,6 +48,7 @@ def _write_summary(buf: StringIO, report: ReconciliationReport) -> None:
     n_missing = sum(1 for r in report.rows if r.status == "missing")
     n_no_signal = sum(1 for r in report.rows if r.status == "no_signal_price")
     n_no_fill_price = sum(1 for r in report.rows if r.status == "no_fill_price")
+    n_no_mid_price = sum(1 for r in report.rows if r.status == "no_mid_price")
 
     buf.write("\n## Summary\n\n")
     buf.write("| status | count |\n|---|---:|\n")
@@ -56,6 +58,7 @@ def _write_summary(buf: StringIO, report: ReconciliationReport) -> None:
     buf.write(f"| missing | {n_missing} |\n")
     buf.write(f"| no_signal_price | {n_no_signal} |\n")
     buf.write(f"| no_fill_price | {n_no_fill_price} |\n")
+    buf.write(f"| no_mid_price | {n_no_mid_price} |\n")
 
 
 def _write_slippage_section(buf: StringIO, report: ReconciliationReport) -> None:
@@ -83,11 +86,29 @@ def _write_timing_section(buf: StringIO, report: ReconciliationReport) -> None:
         buf.write(f"| {strat} | {'—' if lag is None else f'{float(lag):.1f}'} |\n")
 
 
+def _write_execution_cost_section(buf: StringIO, report: ReconciliationReport) -> None:
+    buf.write("\n## Execution cost (fill-time mid)\n\n")
+    rows = [r for r in report.rows if r.execution_cost_bps is not None]
+    if not rows:
+        buf.write("_no fill-time mid prices available; rows are marked `no_mid_price` when requested._\n")
+        return
+    buf.write("| coid | symbol | side | mid | fill | cost (bps) |\n|---|---|---|---:|---:|---:|\n")
+    for r in rows:
+        if r.mid_price is None or r.fill_price is None or r.execution_cost_bps is None:
+            continue
+        buf.write(
+            f"| `{r.client_order_id}` | {r.symbol} | {r.side} | "
+            f"{float(r.mid_price):.4f} | {float(r.fill_price):.4f} | "
+            f"{float(r.execution_cost_bps):+.2f} |\n"
+        )
+
+
 def _write_fidelity_section(buf: StringIO, report: ReconciliationReport) -> None:
     buf.write("\n## Fidelity\n\n")
     flagged = [
         r for r in report.rows
-        if r.status in {"partial", "rejected", "missing", "no_signal_price", "no_fill_price"}
+        if r.status
+        in {"partial", "rejected", "missing", "no_signal_price", "no_fill_price", "no_mid_price"}
     ]
     if not flagged:
         buf.write("_all orders filled cleanly._\n")

@@ -266,6 +266,7 @@ def test_governance_refresh_writes_artifacts(tmp_data_dir: Path, fake_env: None)
     assert result.exit_code == 0, result.output
     assert (tmp_data_dir / "governance" / "validation_manifest.json").exists()
     assert (tmp_data_dir / "governance" / "strategy_states.json").exists()
+    assert (tmp_data_dir / "governance" / "allocation.json").exists()
 
 
 def test_governance_status_renders_unknown_when_artifacts_missing(
@@ -274,6 +275,25 @@ def test_governance_status_renders_unknown_when_artifacts_missing(
     result = CliRunner().invoke(cli, ["governance", "status"])
     assert result.exit_code == 0, result.output
     assert "unknown" in result.output.lower()
+
+
+def test_governance_drift_writes_report(tmp_data_dir: Path, fake_env: None) -> None:
+    from quant.live.bookkeeping import append_equity_row
+
+    for i, asof in enumerate(pd.bdate_range("2026-01-01", periods=25).date):
+        append_equity_row(
+            tmp_data_dir,
+            asof=asof,
+            equity=100_000.0 + i * 100.0,
+            last_equity=99_900.0 + i * 100.0,
+            cash=10_000.0,
+            buying_power=200_000.0,
+            portfolio_value=100_000.0 + i * 100.0,
+        )
+
+    result = CliRunner().invoke(cli, ["governance", "drift"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_data_dir / "governance" / "drift_report.json").exists()
 
 
 def test_governance_audit_reports_missing_validation_report(

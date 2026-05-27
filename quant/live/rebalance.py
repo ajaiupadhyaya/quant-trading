@@ -205,7 +205,8 @@ def run_rebalance(
                 skipped_reason=governance_error,
             )
     if not enabled:
-        logger.warning("No live-enabled strategies; rebalance is a no-op.")
+        reason = "No governance-live strategies; rebalance is fail-closed with no orders."
+        logger.warning(reason)
         return RebalanceReport(
             asof=asof,
             equity=account.equity,
@@ -213,6 +214,7 @@ def run_rebalance(
             outcomes=[],
             dry_run=dry_run,
             safety_checks=safety_results,
+            skipped_reason=reason,
         )
 
     # Guard 2: reconciliation against Alpaca's aggregate position book.
@@ -252,7 +254,22 @@ def run_rebalance(
             )
             halted = risk.halted_strategies
 
-    per_strategy_equity = account.equity / len(enabled)
+    from quant.governance.allocation import allocate_capital
+    from quant.governance.store import (
+        load_strategy_states,
+        load_validation_manifest,
+        strategy_states_path,
+        validation_manifest_path,
+    )
+
+    try:
+        allocation = allocate_capital(
+            load_strategy_states(strategy_states_path(settings.data_dir)),
+            evidence_by_slug=load_validation_manifest(validation_manifest_path(settings.data_dir)),
+        )
+    except Exception:
+        allocation = {slug: 1.0 / len(enabled) for slug in enabled}
+
     report = RebalanceReport(
         asof=asof,
         equity=account.equity,
@@ -321,7 +338,8 @@ def run_rebalance(
             logger.info("Using chosen_params.json[latest] for {}: {}", slug, chosen)
         strategy = strategy_cls.build(bars=bars, params=chosen or None)
         try:
-            target = strategy.target_positions(asof, per_strategy_equity)
+            strategy_equity = account.equity * allocation.get(slug, 0.0)
+            target = strategy.target_positions(asof, strategy_equity)
         except Exception as exc:
             logger.exception("strategy {} target_positions raised", slug)
             target = {}

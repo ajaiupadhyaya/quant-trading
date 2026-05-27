@@ -10,6 +10,7 @@ tests can construct a snapshot without ever running the Textual event loop.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -25,6 +26,14 @@ from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Static
 
 from quant.execution.alpaca import AccountInfo, AlpacaClient, PositionRow
+from quant.governance.models import GovernanceError
+from quant.governance.store import (
+    allocation_path,
+    drift_report_path,
+    load_allocation,
+    load_strategy_states,
+    strategy_states_path,
+)
 from quant.live.bookkeeping import read_equity, read_trades
 from quant.strategies import list_strategies
 from quant.util.config import Settings
@@ -38,6 +47,9 @@ class StrategySnapshot:
     name: str
     enabled_live: bool
     n_positions: int
+    governance_state: str = "unknown"
+    allocation: float = 0.0
+    drift_flag: str = "unknown"
 
 
 @dataclass
@@ -76,12 +88,26 @@ class MonitorSnapshot:
         if not trades.empty:
             raw = trades.groupby("strategy")["symbol"].nunique().to_dict()
             per_strategy_counts = {str(k): int(v) for k, v in raw.items()}
+        try:
+            states = load_strategy_states(strategy_states_path(data_dir))
+        except GovernanceError:
+            states = {}
+        try:
+            allocation = load_allocation(allocation_path(data_dir))
+        except GovernanceError:
+            allocation = {}
+        drift_flags = _load_drift_flags(data_dir)
         strategies = [
             StrategySnapshot(
                 slug=spec.slug,
                 name=spec.name,
                 enabled_live=spec.enabled_live,
                 n_positions=int(per_strategy_counts.get(spec.slug, 0)),
+                governance_state=states[spec.slug].state.value
+                if spec.slug in states
+                else "unknown",
+                allocation=float(allocation.get(spec.slug, 0.0)),
+                drift_flag=drift_flags.get(spec.slug, "unknown"),
             )
             for spec in list_strategies()
         ]
@@ -121,12 +147,51 @@ def render_strategies_table(
     table.add_column("Slug")
     table.add_column("Name")
     table.add_column("Live", justify="center")
+    table.add_column("Gov", justify="center")
+    table.add_column("Alloc", justify="right")
+    table.add_column("Drift", justify="center")
     table.add_column("# Pos", justify="right")
     for i, s in enumerate(strategies, start=1):
         live = "[green]on[/]" if s.enabled_live else "[dim]off[/]"
+        gov_style = "green" if s.governance_state == "live" else "yellow"
         slug_display = f"[reverse]{s.slug}[/]" if s.slug == selected else s.slug
-        table.add_row(str(i), slug_display, s.name, live, str(s.n_positions))
+        table.add_row(
+            str(i),
+            slug_display,
+            s.name,
+            live,
+            f"[{gov_style}]{s.governance_state}[/]",
+            f"{s.allocation * 100:.1f}%",
+            s.drift_flag,
+            str(s.n_positions),
+        )
     return table
+
+
+def _load_drift_flags(data_dir: Path) -> dict[str, str]:
+    path = drift_report_path(data_dir)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return {}
+    priority = {"halt_candidate": 3, "watch": 2, "normal": 1}
+    out: dict[str, str] = {}
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        slug = raw.get("strategy")
+        flag = raw.get("flag")
+        if not isinstance(slug, str) or not isinstance(flag, str):
+            continue
+        current = out.get(slug, "normal")
+        if priority.get(flag, 0) >= priority.get(current, 0):
+            out[slug] = flag
+    return out
 
 
 def render_positions_table(positions: list[PositionRow]) -> Table:
