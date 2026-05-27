@@ -52,6 +52,7 @@ uv run quant data refresh --start 2010-01-01  # refresh bar cache for all regist
 uv run quant backtest <strategy>     # walk-forward backtest + tear-sheet
 uv run quant tearsheet <strategy>    # open the rendered tear-sheet
 uv run quant validate <strategy>     # full validation battery (DSR/PSR/CPCV/bootstrap/regimes)
+uv run quant governance audit <strategy>  # reproducibility hashes + quarantine explanation
 uv run quant rebalance --dry-run     # daily rebalance pass against Alpaca paper (dry-run prints orders)
 uv run quant rebalance               # daily rebalance — submits orders, snapshots equity + per-strategy positions
 uv run quant journal --since 2026-05-01     # structured trade log
@@ -117,6 +118,7 @@ currently eligible for paper capital based on fresh validation evidence.
 uv run quant validate trend            # produces validation_report.json
 uv run quant governance refresh        # rebuilds the manifest + state files
 uv run quant governance status         # render the eligibility table
+uv run quant governance audit trend    # explain hashes, bootstrap metadata, and gates
 uv run quant rebalance --dry-run
 ```
 
@@ -128,6 +130,23 @@ uv run quant rebalance --dry-run --include-quarantined
 ```
 
 `--include-quarantined` is rejected for non-dry-run rebalances.
+
+### Bootstrap regression audit
+
+On May 27, 2026, `trend` and `momentum` were revalidated against data ending
+May 26, 2026 with `--bootstrap-resamples 5000 --bootstrap-seed 0`. Both
+remained quarantined by the bootstrap lower-5% gate:
+
+- `trend`: bootstrap lower-5% total return `-2.62%` (older 1000-resample
+  report: `-4.24%`).
+- `momentum`: bootstrap lower-5% total return `-12.81%`.
+
+This looks like a stable regression, not a bootstrap sampling artifact. Keep
+both strategies fail-closed until their risk model or signal construction
+improves and the audit command shows fresh passing evidence. Runtime note:
+`trend` is reasonable for ad hoc reruns; full-grid `momentum` validation is
+slow enough that weekly automation should run it with explicit timeout limits
+or a conservative first pass.
 
 ## Live paper trading
 

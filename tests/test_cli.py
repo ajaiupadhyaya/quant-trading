@@ -260,6 +260,15 @@ def test_governance_status_renders_unknown_when_artifacts_missing(
     assert "unknown" in result.output.lower()
 
 
+def test_governance_audit_reports_missing_validation_report(
+    tmp_data_dir: Path, fake_env: None
+) -> None:
+    result = CliRunner().invoke(cli, ["governance", "audit", "trend"])
+    assert result.exit_code == 0, result.output
+    assert "validation_report.json" in result.output
+    assert "missing" in result.output.lower()
+
+
 def test_strategies_shows_governance_column(tmp_data_dir: Path, fake_env: None) -> None:
     result = CliRunner().invoke(cli, ["strategies"])
     assert result.exit_code == 0, result.output

@@ -237,6 +237,9 @@ def _write_validation_report_json(
     run_date: date,
     data_start: date,
     data_end: date,
+    bootstrap_resamples: int,
+    bootstrap_seed: int,
+    validation_command: str,
     report: Any,
     provenance: str,
 ) -> Path:
@@ -248,6 +251,8 @@ def _write_validation_report_json(
         "run_date": run_date.isoformat(),
         "data_start": data_start.isoformat(),
         "data_end": data_end.isoformat(),
+        "bootstrap_resamples": int(bootstrap_resamples),
+        "bootstrap_seed": int(bootstrap_seed),
         "gate_deflated_sharpe": bool(report.gate_deflated_sharpe),
         "gate_probabilistic_sharpe": bool(report.gate_probabilistic_sharpe),
         "gate_bootstrap_lower": bool(report.gate_bootstrap_lower),
@@ -263,6 +268,7 @@ def _write_validation_report_json(
         "holdout_total_return": (
             None if report.holdout is None else float(report.holdout.total_return)
         ),
+        "validation_command": validation_command,
         "provenance": provenance,
     }
     path = out_dir / "validation_report.json"
@@ -277,6 +283,7 @@ def _write_validation_report_json(
 )
 @click.option("--end", default=None, help="History end date (YYYY-MM-DD). Default: today.")
 @click.option("--bootstrap-resamples", default=1000, show_default=True, type=int)
+@click.option("--bootstrap-seed", default=0, show_default=True, type=int)
 @click.option("--cpcv-groups", default=6, show_default=True, type=int)
 @click.option("--cpcv-k-test", default=2, show_default=True, type=int)
 @click.option("--quick", is_flag=True, help="Skip grid search; use strategy defaults only.")
@@ -292,6 +299,7 @@ def validate(
     start: str,
     end: str | None,
     bootstrap_resamples: int,
+    bootstrap_seed: int,
     cpcv_groups: int,
     cpcv_k_test: int,
     quick: bool,
@@ -361,6 +369,7 @@ def validate(
         backtest_config=BacktestConfig(),
         cpcv_config=CPCVConfig(n_groups=cpcv_groups, k_test=cpcv_k_test),
         bootstrap_resamples=bootstrap_resamples,
+        seed=bootstrap_seed,
         holdout_start=holdout_start,
         holdout_end=holdout_end,
     )
@@ -379,6 +388,12 @@ def validate(
         run_date=date.today(),
         data_start=start_date,
         data_end=end_date,
+        bootstrap_resamples=bootstrap_resamples,
+        bootstrap_seed=bootstrap_seed,
+        validation_command=(
+            f"quant validate {strategy} --start {start_date} --end {end_date} "
+            f"--bootstrap-resamples {bootstrap_resamples} --bootstrap-seed {bootstrap_seed}"
+        ),
         report=report,
         provenance=f"quant validate {strategy} --start {start_date} --end {end_date}",
     )
@@ -733,6 +748,39 @@ def governance_status() -> None:
             ", ".join(state.reason_codes) or "ok",
         )
     console.print(table)
+
+
+@governance.command("audit", help="Show reproducibility metadata for a strategy.")
+@click.argument("strategy")
+def governance_audit(strategy: str) -> None:
+    from quant.governance.audit import build_validation_audit
+
+    _require_strategy(strategy)
+    settings = Settings()  # type: ignore[call-arg]
+    audit = build_validation_audit(settings.data_dir, strategy, repo_dir=Path.cwd())
+
+    table = Table(title=f"Validation audit — {strategy}", show_header=True)
+    table.add_column("Field")
+    table.add_column("Value")
+
+    def value(raw: object) -> str:
+        if raw is None or raw == "":
+            return "[yellow]missing[/yellow]"
+        return str(raw)
+
+    table.add_row("Git SHA", value(audit.git_sha))
+    table.add_row("Validation command", value(audit.validation_command))
+    table.add_row("Data range", f"{value(audit.data_range[0])} .. {value(audit.data_range[1])}")
+    table.add_row("Bootstrap resamples", value(audit.bootstrap_resamples))
+    table.add_row("Bootstrap seed", value(audit.bootstrap_seed))
+    table.add_row("Validation report SHA-256", value(audit.validation_report_hash))
+    table.add_row("Chosen params SHA-256", value(audit.chosen_params_hash))
+    table.add_row("Walk-forward parquet SHA-256", value(audit.walkforward_parquet_hash))
+    table.add_row("Governance state", value(audit.governance_state))
+    table.add_row("Reason codes", ", ".join(audit.reason_codes) or "ok")
+    table.add_row("Missing artifacts", ", ".join(audit.missing_artifacts) or "none")
+    console.print(table)
+    console.print(audit.explanation)
 
 
 @cli.group(help="Data subcommands.")

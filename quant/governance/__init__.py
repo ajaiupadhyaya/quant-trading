@@ -1,5 +1,6 @@
 """Strategy governance: evidence-gated paper-trading eligibility."""
 
+from quant.governance.audit import ValidationAudit, build_validation_audit, hash_file
 from quant.governance.models import (
     GovernanceError,
     GovernancePolicy,
@@ -28,10 +29,13 @@ __all__ = [
     "GovernancePolicy",
     "GovernanceState",
     "StrategyState",
+    "ValidationAudit",
     "ValidationEvidence",
     "build_governance_artifacts",
+    "build_validation_audit",
     "classify_strategy",
     "governance_dir",
+    "hash_file",
     "load_strategy_states",
     "load_validation_manifest",
     "strategy_states_path",
