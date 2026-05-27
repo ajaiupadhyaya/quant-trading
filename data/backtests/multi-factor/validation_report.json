@@ -1,0 +1,21 @@
+{
+  "bootstrap_resamples": 1000,
+  "bootstrap_seed": 0,
+  "bootstrap_total_return_p05": -0.6375069988658911,
+  "data_end": "2026-05-26",
+  "data_start": "2010-01-01",
+  "deflated_sharpe": 0.007432616778170842,
+  "gate_bootstrap_lower": false,
+  "gate_deflated_sharpe": false,
+  "gate_holdout": true,
+  "gate_probabilistic_sharpe": false,
+  "gate_regime": false,
+  "holdout_total_return": 0.01579312001127331,
+  "n_positive_regimes": 1,
+  "n_tested_regimes": 4,
+  "probabilistic_sharpe": 0.3204186716240337,
+  "provenance": "quant validate multi-factor --start 2010-01-01 --end 2026-05-26",
+  "run_date": "2026-05-27",
+  "slug": "multi-factor",
+  "validation_command": "quant validate multi-factor --start 2010-01-01 --end 2026-05-26 --bootstrap-resamples 1000 --bootstrap-seed 0 --quick"
+}

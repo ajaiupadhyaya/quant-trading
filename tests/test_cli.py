@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 from click.testing import CliRunner
 
-from quant.cli import cli
+from quant.cli import _validation_command, cli
 from quant.strategies import REGISTRY
 from quant.strategies.base import Strategy, StrategySpec
 
@@ -181,6 +181,22 @@ def test_validate_command_exit_code_when_strategy_unknown():
     runner = CliRunner()
     result = runner.invoke(cli, ["validate", "no-such-strategy"])
     assert result.exit_code != 0
+
+
+def test_validation_command_records_quick_flag() -> None:
+    command = _validation_command(
+        strategy="pairs",
+        start_date=date(2010, 1, 1),
+        end_date=date(2026, 5, 26),
+        bootstrap_resamples=1000,
+        bootstrap_seed=0,
+        quick=True,
+    )
+
+    assert command == (
+        "quant validate pairs --start 2010-01-01 --end 2026-05-26 "
+        "--bootstrap-resamples 1000 --bootstrap-seed 0 --quick"
+    )
 
 
 def test_validate_command_runs_to_completion_on_known_strategy(

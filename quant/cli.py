@@ -230,6 +230,24 @@ def combined_book(start: str, end: str | None) -> None:
     console.print(f"[green]Wrote {html_path}[/green]")
 
 
+def _validation_command(
+    *,
+    strategy: str,
+    start_date: date,
+    end_date: date,
+    bootstrap_resamples: int,
+    bootstrap_seed: int,
+    quick: bool,
+) -> str:
+    command = (
+        f"quant validate {strategy} --start {start_date} --end {end_date} "
+        f"--bootstrap-resamples {bootstrap_resamples} --bootstrap-seed {bootstrap_seed}"
+    )
+    if quick:
+        command += " --quick"
+    return command
+
+
 def _write_validation_report_json(
     *,
     out_dir: Path,
@@ -390,9 +408,13 @@ def validate(
         data_end=end_date,
         bootstrap_resamples=bootstrap_resamples,
         bootstrap_seed=bootstrap_seed,
-        validation_command=(
-            f"quant validate {strategy} --start {start_date} --end {end_date} "
-            f"--bootstrap-resamples {bootstrap_resamples} --bootstrap-seed {bootstrap_seed}"
+        validation_command=_validation_command(
+            strategy=strategy,
+            start_date=start_date,
+            end_date=end_date,
+            bootstrap_resamples=bootstrap_resamples,
+            bootstrap_seed=bootstrap_seed,
+            quick=quick,
         ),
         report=report,
         provenance=f"quant validate {strategy} --start {start_date} --end {end_date}",

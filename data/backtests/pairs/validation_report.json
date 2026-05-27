@@ -1,0 +1,21 @@
+{
+  "bootstrap_resamples": 1000,
+  "bootstrap_seed": 0,
+  "bootstrap_total_return_p05": -0.42261508997290353,
+  "data_end": "2026-05-26",
+  "data_start": "2010-01-01",
+  "deflated_sharpe": 0.02132757384291742,
+  "gate_bootstrap_lower": false,
+  "gate_deflated_sharpe": false,
+  "gate_holdout": true,
+  "gate_probabilistic_sharpe": false,
+  "gate_regime": false,
+  "holdout_total_return": 0.05763399454572715,
+  "n_positive_regimes": 0,
+  "n_tested_regimes": 4,
+  "probabilistic_sharpe": 0.2601813909661074,
+  "provenance": "quant validate pairs --start 2010-01-01 --end 2026-05-26",
+  "run_date": "2026-05-27",
+  "slug": "pairs",
+  "validation_command": "quant validate pairs --start 2010-01-01 --end 2026-05-26 --bootstrap-resamples 1000 --bootstrap-seed 0 --quick"
+}

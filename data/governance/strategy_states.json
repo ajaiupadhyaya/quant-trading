@@ -2,7 +2,7 @@
   "strategies": {
     "momentum": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-05-26T00:00:00",
+      "evaluated_at": "2026-05-27T00:00:00",
       "manual_block": false,
       "reason": "Required gate failed: bootstrap_lower.",
       "reason_codes": [
@@ -10,47 +10,55 @@
       ],
       "slug": "momentum",
       "state": "quarantined",
-      "validation_age_days": 0
+      "validation_age_days": 1
     },
     "multi-factor": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-05-26T00:00:00",
+      "evaluated_at": "2026-05-27T00:00:00",
       "manual_block": false,
-      "reason": "No validation evidence exists for this live-capable strategy.",
+      "reason": "Required gate failed: deflated_sharpe. Required gate failed: probabilistic_sharpe. Required gate failed: bootstrap_lower. Required gate failed: regime.",
       "reason_codes": [
-        "missing_validation"
+        "failed_gate_deflated_sharpe",
+        "failed_gate_probabilistic_sharpe",
+        "failed_gate_bootstrap_lower",
+        "failed_gate_regime"
       ],
       "slug": "multi-factor",
       "state": "quarantined",
-      "validation_age_days": null
+      "validation_age_days": 0
     },
     "pairs": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-05-26T00:00:00",
+      "evaluated_at": "2026-05-27T00:00:00",
       "manual_block": false,
-      "reason": "No validation evidence exists for this live-capable strategy.",
+      "reason": "Required gate failed: deflated_sharpe. Required gate failed: probabilistic_sharpe. Required gate failed: bootstrap_lower. Required gate failed: regime.",
       "reason_codes": [
-        "missing_validation"
+        "failed_gate_deflated_sharpe",
+        "failed_gate_probabilistic_sharpe",
+        "failed_gate_bootstrap_lower",
+        "failed_gate_regime"
       ],
       "slug": "pairs",
       "state": "quarantined",
-      "validation_age_days": null
+      "validation_age_days": 0
     },
     "risk-parity": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-05-26T00:00:00",
+      "evaluated_at": "2026-05-27T00:00:00",
       "manual_block": false,
-      "reason": "No validation evidence exists for this live-capable strategy.",
+      "reason": "Required gate failed: deflated_sharpe. Required gate failed: probabilistic_sharpe. Required gate failed: bootstrap_lower.",
       "reason_codes": [
-        "missing_validation"
+        "failed_gate_deflated_sharpe",
+        "failed_gate_probabilistic_sharpe",
+        "failed_gate_bootstrap_lower"
       ],
       "slug": "risk-parity",
       "state": "quarantined",
-      "validation_age_days": null
+      "validation_age_days": 0
     },
     "trend": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-05-26T00:00:00",
+      "evaluated_at": "2026-05-27T00:00:00",
       "manual_block": false,
       "reason": "Required gate failed: bootstrap_lower.",
       "reason_codes": [
@@ -58,7 +66,7 @@
       ],
       "slug": "trend",
       "state": "quarantined",
-      "validation_age_days": 0
+      "validation_age_days": 1
     }
   },
   "version": 1

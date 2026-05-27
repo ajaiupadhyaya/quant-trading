@@ -115,8 +115,38 @@ Per-strategy outcomes:
 - **Paper account:** $1,000,069.92 equity, Alpaca paper, $1M starter.
 - **CI:** `ci` + `smoke-test` workflows passing on `40bc8e7`.
 
+## Evidence-gated refresh — 2026-05-27
+
+Evidence-gated paper trading supersedes the earlier "enable per user
+direction" notes above. `StrategySpec.enabled_live=True` still means a
+strategy can be considered for paper trading, but governance now blocks
+capital unless fresh validation evidence passes every required gate.
+
+| Strategy     | Command class | DSR   | PSR   | Bootstrap-5% | Regimes pos | Holdout | Governance |
+| ------------ | ------------- | ----- | ----- | ------------ | ----------- | ------- | ---------- |
+| trend        | full, 5000 bootstrap resamples | 0.520 ✓ | 0.954 ✓ | -2.62% ✗ | 4/4 ✓ | +21.05% ✓ | quarantined: bootstrap_lower |
+| momentum     | full, 5000 bootstrap resamples | 0.640 ✓ | 0.928 ✓ | -12.81% ✗ | 2/4 ✓ | +15.67% ✓ | quarantined: bootstrap_lower |
+| risk-parity  | full, 1000 bootstrap resamples | 0.082 ✗ | 0.595 ✗ | -37.15% ✗ | 2/4 ✓ | +9.48% ✓ | quarantined: DSR, PSR, bootstrap_lower |
+| multi-factor | quick/default params, 1000 bootstrap resamples | 0.007 ✗ | 0.320 ✗ | -63.75% ✗ | 1/4 ✗ | +1.58% ✓ | quarantined: DSR, PSR, bootstrap_lower, regime |
+| pairs        | quick/default params, 1000 bootstrap resamples | 0.021 ✗ | 0.260 ✗ | -42.26% ✗ | 0/4 ✗ | +5.76% ✓ | quarantined: DSR, PSR, bootstrap_lower, regime |
+
+Notes:
+
+- `multi-factor` full-grid validation was attempted on 2026-05-27 but was
+  stopped after it became clear it would take multiple hours interactively.
+  The quick/default-params report is conservative evidence that removes the
+  missing-validation state; full-grid evidence belongs in the weekly
+  timeout-bounded workflow.
+- `pairs` was run in the conservative quick/default-params mode first, per the
+  completion plan. Full-grid pairs discovery should also run only under the
+  scheduled workflow or a dedicated long-running session.
+- The quick `multi-factor` and `pairs` runs were executed in the local sandbox
+  after `uv` approval timed out, so Alpaca/yfinance network fetches failed and
+  the runs relied on local cached data. Treat these as fail-closed governance
+  artifacts, not as a final research-grade optimization result.
+
 ## Follow-ups
 
-- After multi-factor / pairs validates complete, append final gate numbers to this log (next commit).
-- 2026-06-09 (2 weeks post-launch): review paper P&L per strategy. Risk-parity especially.
+- Build weekly matrix validation with explicit per-strategy timeouts and network-capable execution.
+- 2026-06-09 (2 weeks post-launch): review paper P&L per strategy if any strategy becomes live.
 - Iteration-2 design (crisis-positive sleeve via TLT/GLD rotation) deferred to a future plan.
