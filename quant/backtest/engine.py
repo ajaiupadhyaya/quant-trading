@@ -34,6 +34,11 @@ class BacktestConfig:
     # approximation of the broker call rate and only bites under >1x gross.
     annual_borrow_bps: float = 50.0
     annual_financing_bps: float = 200.0
+    # Market impact (gap #2, slice 2b): size-dependent square-root cost added on
+    # top of the flat slippage_bps half-spread. impact_coef_bps is the impact at
+    # 100%-of-ADV participation (provisional calibration). On by default.
+    impact_coef_bps: float = 100.0
+    adv_window: int = 21
     execution: Literal["next_open", "close"] = "next_open"
 
 

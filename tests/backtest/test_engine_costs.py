@@ -61,3 +61,5 @@ def test_default_config_values() -> None:
     assert cfg.execution == "next_open"
     assert cfg.annual_borrow_bps == 50.0
     assert cfg.annual_financing_bps == 200.0
+    assert cfg.impact_coef_bps == 100.0
+    assert cfg.adv_window == 21
