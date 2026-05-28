@@ -58,20 +58,35 @@ jobs:
         run: |
           uv run quant data refresh --start 2018-01-01 || echo "non-fatal: refresh partial"
 
+      - name: Data quality report
+        run: uv run quant data quality --start 2018-01-01
+
+      - name: Pre-trade risk report
+        run: uv run quant risk pretrade
+
       - name: Run rebalance
         id: rebalance
         run: |
           if [ "$DRY_RUN_INPUT" = "true" ]; then
             uv run quant rebalance --dry-run
           else
-            uv run quant rebalance
+              uv run quant rebalance
           fi
+
+      - name: Upload ops health artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-ops-health-${{ github.run_id }}
+          path: |
+            data/ops/health/
+            data/risk/pretrade_report.json
 
       - name: Commit live data updates
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/live/ data/raw/ 2>/dev/null || true
+          git add data/live/ data/raw/ data/ops/health/ data/risk/ 2>/dev/null || true
           if git diff --staged --quiet; then
             echo "No data changes to commit."
             exit 0

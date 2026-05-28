@@ -149,6 +149,22 @@ def run_rebalance(
 
     safety_results: list[Any] = []
 
+    from quant.governance.halt import load_halt
+
+    halt = load_halt(settings.data_dir)
+    if halt.active and not dry_run:
+        reason = f"Emergency halt active: {halt.reason}"
+        logger.error(reason)
+        return RebalanceReport(
+            asof=asof,
+            equity=0.0,
+            enabled_strategies=[],
+            outcomes=[],
+            dry_run=dry_run,
+            safety_checks=safety_results,
+            skipped_reason=reason,
+        )
+
     if include_quarantined and not dry_run:
         return RebalanceReport(
             asof=asof,

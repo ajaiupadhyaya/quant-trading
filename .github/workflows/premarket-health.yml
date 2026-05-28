@@ -1,0 +1,52 @@
+name: premarket-health
+
+on:
+  schedule:
+    - cron: "0 13 * * 1-5"
+  workflow_dispatch: {}
+
+concurrency:
+  group: premarket-health
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+      ALPACA_PAPER: "true"
+      ALPACA_BASE_URL: "https://paper-api.alpaca.markets"
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      LOG_LEVEL: INFO
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install deps
+        run: uv sync --all-extras
+      - name: Doctor
+        run: uv run quant doctor
+      - name: Governance status
+        run: uv run quant governance status
+      - name: Data quality
+        run: uv run quant data quality --start 2018-01-01
+      - name: Dry-run rebalance
+        run: uv run quant rebalance --dry-run
+      - name: Upload health artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: premarket-health-${{ github.run_id }}
+          path: |
+            data/ops/health/
+            data/risk/

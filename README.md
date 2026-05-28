@@ -55,12 +55,18 @@ uv run quant --help                  # top-level help
 uv run quant strategies              # list the 5 registered strategies
 uv run quant status                  # Alpaca account + open positions (needs .env)
 uv run quant data inventory          # show what's on disk under data/
+uv run quant data quality            # data-quality gates for cached OHLCV bars
+uv run quant data snapshot --symbols SPY,TLT --start 2010-01-01 --end 2026-05-28
 uv run quant data refresh --start 2010-01-01  # refresh bar cache for all registered universes
 uv run quant backtest <strategy>     # walk-forward backtest + tear-sheet
 uv run quant tearsheet <strategy>    # open the rendered tear-sheet
 uv run quant validate <strategy>     # full validation battery (DSR/PSR/CPCV/bootstrap/regimes)
 uv run quant governance audit <strategy>  # reproducibility hashes + quarantine explanation
 uv run quant governance drift             # advisory paper-P&L drift flags
+uv run quant governance halt --reason "operator stop"
+uv run quant governance resume --reason "verified healthy"
+uv run quant research leaderboard --metric dsr
+uv run quant risk pretrade
 uv run quant rebalance --dry-run     # daily rebalance pass against Alpaca paper (dry-run prints orders)
 uv run quant rebalance               # daily rebalance — submits orders, snapshots equity + per-strategy positions
 uv run quant journal --since 2026-05-01     # structured trade log
@@ -143,6 +149,8 @@ uv run quant rebalance --dry-run --include-quarantined
 
 The full operator checklist lives in
 [`docs/operator-runbook.md`](docs/operator-runbook.md).
+The institutional research/ops roadmap lives in
+[`docs/institutional-research-ops.md`](docs/institutional-research-ops.md).
 
 ### Bootstrap regression audit
 

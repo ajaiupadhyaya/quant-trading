@@ -8,9 +8,12 @@ fully functional; the rest are scaffolded so the command surface is stable.
 from __future__ import annotations
 
 import json
+import subprocess
+import time
+import uuid
 import webbrowser
 from collections.abc import Sequence
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -328,8 +331,11 @@ def validate(
 
     from quant.backtest.cpcv import CPCVConfig
     from quant.backtest.validation import run_validation
+    from quant.data.snapshot import create_data_snapshot
+    from quant.research.registry import ExperimentRecord, append_experiment
 
     _require_strategy(strategy)
+    started = time.monotonic()
 
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end) if end else date.today()
@@ -361,6 +367,12 @@ def validate(
         raise click.ClickException(
             f"No bars returned for {strategy!r} over {start_date}..{end_date}."
         )
+    snapshot = create_data_snapshot(
+        settings.data_dir,
+        symbols=universe,
+        start=start_date,
+        end=end_date,
+    )
 
     def factory(params: dict[str, object], bars_for_strategy):  # type: ignore[no-untyped-def]
         return strategy_cls.build(bars=bars_for_strategy, params=params)
@@ -419,6 +431,59 @@ def validate(
         ),
         report=report,
         provenance=f"quant validate {strategy} --start {start_date} --end {end_date}",
+    )
+    try:
+        git_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path.cwd(),
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        git_sha = "unknown"
+    append_experiment(
+        settings.data_dir / "research" / "experiments.jsonl",
+        ExperimentRecord(
+            run_id=f"{strategy}-{uuid.uuid4().hex[:12]}",
+            created_at=datetime.now(UTC).replace(microsecond=0),
+            strategy=strategy,
+            kind="validation",
+            git_sha=git_sha,
+            command=_validation_command(
+                strategy=strategy,
+                start_date=start_date,
+                end_date=end_date,
+                bootstrap_resamples=bootstrap_resamples,
+                bootstrap_seed=bootstrap_seed,
+                quick=quick,
+            ),
+            params=dict(chosen),
+            metrics={
+                "dsr": float(report.deflated_sharpe),
+                "psr": float(report.probabilistic_sharpe),
+                "bootstrap_lower_5": float(
+                    report.bootstrap_ci.total_return_p05 if report.bootstrap_ci else 0.0
+                ),
+                "holdout_total_return": float(
+                    report.holdout.total_return if report.holdout is not None else 0.0
+                ),
+            },
+            gates={
+                "deflated_sharpe": bool(report.gate_deflated_sharpe),
+                "probabilistic_sharpe": bool(report.gate_probabilistic_sharpe),
+                "bootstrap_lower": bool(report.gate_bootstrap_lower),
+                "regime": bool(report.gate_regime),
+                "holdout": bool(report.gate_holdout),
+                "overall": bool(report.passed),
+            },
+            artifacts={
+                "tearsheet": str(html_path),
+                "validation_report": str(validation_json),
+                "walkforward": str(out_dir / "walkforward.parquet"),
+            },
+            data_snapshot_id=snapshot.snapshot_id,
+            wall_time_seconds=round(time.monotonic() - started, 3),
+        ),
     )
 
     table = Table(title=f"Validation report — {strategy}")
@@ -910,6 +975,26 @@ def governance_drift() -> None:
     console.print(f"[dim]wrote {path}[/dim]")
 
 
+@governance.command("halt", help="Emergency stop: block all non-dry-run paper orders.")
+@click.option("--reason", required=True, help="Operator reason recorded in governance/halt.json.")
+def governance_halt(reason: str) -> None:
+    from quant.governance.halt import set_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    state = set_halt(settings.data_dir, reason=reason)
+    console.print(f"[red]Governance halted[/red] at {state.updated_at.isoformat()}: {state.reason}")
+
+
+@governance.command("resume", help="Resume paper orders after an emergency halt.")
+@click.option("--reason", required=True, help="Operator reason recorded in governance/halt.json.")
+def governance_resume(reason: str) -> None:
+    from quant.governance.halt import clear_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    state = clear_halt(settings.data_dir, reason=reason)
+    console.print(f"[green]Governance resumed[/green] at {state.updated_at.isoformat()}: {state.reason}")
+
+
 @cli.group(help="Data subcommands.")
 def data() -> None:
     pass
@@ -983,6 +1068,208 @@ def data_inventory() -> None:
         size_mb = sum(f.stat().st_size for f in files) / (1024 * 1024)
         table.add_row(sub, str(len(files)), f"{size_mb:.2f}")
     console.print(table)
+
+
+@data.command("snapshot", help="Create an immutable manifest for raw bar cache inputs.")
+@click.option("--symbols", required=True, help="Comma-separated symbols to include.")
+@click.option("--start", required=True, help="Requested start date (YYYY-MM-DD).")
+@click.option("--end", required=True, help="Requested end date (YYYY-MM-DD).")
+@click.option("--snapshot-id", default=None, help="Optional deterministic snapshot id.")
+def data_snapshot(symbols: str, start: str, end: str, snapshot_id: str | None) -> None:
+    from quant.data.snapshot import create_data_snapshot
+
+    settings = Settings()  # type: ignore[call-arg]
+    symbol_list = [item.strip().upper() for item in symbols.split(",") if item.strip()]
+    manifest = create_data_snapshot(
+        settings.data_dir,
+        symbols=symbol_list,
+        start=date.fromisoformat(start),
+        end=date.fromisoformat(end),
+        snapshot_id=snapshot_id,
+    )
+    table = Table(title=f"Data snapshot — {manifest.snapshot_id}", show_header=True)
+    table.add_column("Symbol")
+    table.add_column("Rows", justify="right")
+    table.add_column("SHA-256")
+    for symbol, row in manifest.symbols.items():
+        table.add_row(symbol, str(row.rows), row.sha256[:12] if row.sha256 else "missing")
+    console.print(table)
+
+
+@data.command("quality", help="Run daily bar cache quality checks and write ops health.")
+@click.option("--symbols", default=None, help="Comma-separated symbols. Default: all raw caches.")
+@click.option("--start", default="2010-01-01", show_default=True)
+@click.option("--end", default=None, help="End date (YYYY-MM-DD). Default: today.")
+def data_quality(symbols: str | None, start: str, end: str | None) -> None:
+    from quant.data.quality import evaluate_bar_quality
+
+    settings = Settings()  # type: ignore[call-arg]
+    raw_dir = settings.data_dir / "raw"
+    if symbols:
+        symbol_list = [item.strip().upper() for item in symbols.split(",") if item.strip()]
+    else:
+        symbol_list = sorted(path.stem.upper() for path in raw_dir.glob("*.parquet"))
+    frames = {}
+    for symbol in symbol_list:
+        path = raw_dir / f"{symbol}.parquet"
+        if path.exists():
+            frames[symbol] = pd.read_parquet(path)
+        else:
+            frames[symbol] = pd.DataFrame()
+    end_date = date.fromisoformat(end) if end else date.today()
+    report = evaluate_bar_quality(
+        frames,
+        start=date.fromisoformat(start),
+        end=end_date,
+    )
+    out = settings.data_dir / "ops" / "health" / "data_quality.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(
+            {
+                "passed": report.passed,
+                "start": report.start.isoformat(),
+                "end": report.end.isoformat(),
+                "symbols": {
+                    symbol: {
+                        "rows": row.rows,
+                        "missing_bars": row.missing_bars,
+                        "duplicate_timestamps": row.duplicate_timestamps,
+                        "impossible_ohlc": row.impossible_ohlc,
+                        "stale": row.stale,
+                        "passed": row.passed,
+                    }
+                    for symbol, row in report.symbols.items()
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    table = Table(title="Data quality", show_header=True)
+    for col in ("Symbol", "Rows", "Missing", "Dupes", "Bad OHLC", "Stale", "Pass"):
+        table.add_column(col)
+    for symbol, row in report.symbols.items():
+        table.add_row(
+            symbol,
+            str(row.rows),
+            str(row.missing_bars),
+            str(row.duplicate_timestamps),
+            str(row.impossible_ohlc),
+            "yes" if row.stale else "no",
+            "yes" if row.passed else "no",
+        )
+    console.print(table)
+    console.print(f"[dim]wrote {out}[/dim]")
+
+
+@cli.group(help="Research experiment registry and comparison.")
+def research() -> None:
+    pass
+
+
+def _experiments_path() -> Path:
+    settings = Settings()  # type: ignore[call-arg]
+    return settings.data_dir / "research" / "experiments.jsonl"
+
+
+@research.command("list", help="List recorded research/backtest/validation experiments.")
+def research_list() -> None:
+    from quant.research.registry import list_experiments
+
+    rows = list_experiments(_experiments_path())
+    table = Table(title="Research experiments", show_header=True)
+    for col in ("Run ID", "Strategy", "Kind", "Created", "DSR", "Overall"):
+        table.add_column(col)
+    for row in rows:
+        table.add_row(
+            row.run_id,
+            row.strategy,
+            row.kind,
+            row.created_at.isoformat(),
+            f"{row.metrics.get('dsr', float('nan')):.4f}" if "dsr" in row.metrics else "—",
+            str(row.gates.get("overall", "")),
+        )
+    console.print(table)
+
+
+@research.command("show", help="Show one experiment as JSON.")
+@click.argument("run_id")
+def research_show(run_id: str) -> None:
+    from quant.research.registry import list_experiments
+
+    for row in list_experiments(_experiments_path()):
+        if row.run_id == run_id:
+            console.print_json(json.dumps(row.to_json_dict(), sort_keys=True))
+            return
+    raise click.ClickException(f"Unknown experiment {run_id!r}")
+
+
+@research.command("compare", help="Compare metrics between two experiments.")
+@click.argument("left")
+@click.argument("right")
+def research_compare(left: str, right: str) -> None:
+    from quant.research.registry import compare_experiments
+
+    comparison = compare_experiments(_experiments_path(), left, right)
+    table = Table(title=f"Experiment comparison {left} -> {right}", show_header=True)
+    table.add_column("Metric")
+    table.add_column("Delta", justify="right")
+    metric_delta = comparison["metric_delta"]
+    if isinstance(metric_delta, dict):
+        for metric, delta in sorted(metric_delta.items()):
+            table.add_row(str(metric), f"{float(delta):+0.4f}")
+    console.print(table)
+
+
+@research.command("leaderboard", help="Rank experiments by a metric.")
+@click.option("--metric", default="dsr", show_default=True)
+def research_leaderboard(metric: str) -> None:
+    from quant.research.registry import leaderboard
+
+    rows = leaderboard(_experiments_path(), metric=metric)
+    table = Table(title=f"Research leaderboard — {metric}", show_header=True)
+    for col in ("Run ID", "Strategy", "Metric"):
+        table.add_column(col)
+    for row in rows:
+        table.add_row(row.run_id, row.strategy, f"{row.metrics[metric]:.4f}")
+    console.print(table)
+
+
+@cli.group(help="Portfolio risk commands.")
+def risk() -> None:
+    pass
+
+
+@risk.command("pretrade", help="Write a conservative pre-trade risk report.")
+def risk_pretrade() -> None:
+    from quant.risk.pretrade import build_pretrade_report
+
+    settings = Settings()  # type: ignore[call-arg]
+    report = build_pretrade_report(equity=1.0, orders=[], reference_prices={})
+    out = settings.data_dir / "risk" / "pretrade_report.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(
+            {
+                "passed": report.passed,
+                "equity": report.equity,
+                "gross_exposure": report.gross_exposure,
+                "symbol_weights": report.symbol_weights,
+                "violations": [
+                    {"code": v.code, "detail": v.detail, "symbol": v.symbol}
+                    for v in report.violations
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    console.print(f"[green]Pre-trade risk passed[/green]; wrote {out}")
 
 
 @cli.command(help="List all registered strategies.")

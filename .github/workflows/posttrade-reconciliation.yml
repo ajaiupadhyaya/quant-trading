@@ -1,0 +1,60 @@
+name: posttrade-reconciliation
+
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch: {}
+
+concurrency:
+  group: posttrade-reconciliation
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+      ALPACA_PAPER: "true"
+      ALPACA_BASE_URL: "https://paper-api.alpaca.markets"
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      LOG_LEVEL: INFO
+      RUN_ID: ${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install deps
+        run: uv sync --all-extras
+      - name: Reconcile live fills
+        run: uv run python scripts/reconcile_live.py
+      - name: Upload reconciliation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-reconciliation-${{ github.run_id }}
+          path: docs/live-recon/
+      - name: Commit reconciliation report
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/live-recon/ 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "No reconciliation changes."
+            exit 0
+          fi
+          git commit -m "chore(live): posttrade reconciliation $RUN_ID"
+          git push

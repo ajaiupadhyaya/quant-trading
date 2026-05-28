@@ -291,6 +291,28 @@ def test_include_quarantined_requires_dry_run(
     assert "dry-run" in report.skipped_reason.lower()
 
 
+def test_emergency_halt_blocks_non_dry_run(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    from quant.governance.halt import set_halt
+
+    set_halt(fake_settings.data_dir, reason="operator stop")
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=False,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+        skip_safety_checks=True,
+    )
+
+    assert report.enabled_strategies == []
+    assert report.skipped_reason is not None
+    assert "halt" in report.skipped_reason.lower()
+    assert client.submitted == []
+
+
 def test_dry_run_can_include_quarantined_for_observation(
     fake_settings: Settings, patched_bars: None
 ) -> None:

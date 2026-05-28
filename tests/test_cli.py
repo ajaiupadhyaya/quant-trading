@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 from typing import ClassVar
@@ -24,7 +25,18 @@ def test_cli_help_succeeds() -> None:
 
 @pytest.mark.parametrize(
     "subcommand",
-    ["status", "backtest", "validate", "rebalance", "tearsheet", "journal", "monitor", "data"],
+    [
+        "status",
+        "backtest",
+        "validate",
+        "rebalance",
+        "tearsheet",
+        "journal",
+        "monitor",
+        "data",
+        "research",
+        "risk",
+    ],
 )
 def test_cli_subcommand_help_succeeds(subcommand: str) -> None:
     result = CliRunner().invoke(cli, [subcommand, "--help"])
@@ -100,6 +112,122 @@ def test_data_refresh_command(tmp_data_dir: Path, fake_env: None) -> None:
         result = runner.invoke(cli, ["data", "refresh"])
     assert result.exit_code == 0, result.output
     assert "symbols_fetched" in result.output.lower() or "fetched" in result.output.lower()
+
+
+def test_research_cli_lists_and_compares_experiments(tmp_data_dir: Path, fake_env: None) -> None:
+    from datetime import UTC, datetime
+
+    from quant.research.registry import ExperimentRecord, append_experiment
+
+    path = tmp_data_dir / "research" / "experiments.jsonl"
+    append_experiment(
+        path,
+        ExperimentRecord(
+            run_id="a",
+            created_at=datetime(2026, 5, 28, tzinfo=UTC),
+            strategy="trend",
+            kind="validation",
+            git_sha="abc",
+            command="quant validate trend",
+            params={},
+            metrics={"dsr": 0.3},
+            gates={"overall": True},
+            artifacts={},
+            data_snapshot_id=None,
+            wall_time_seconds=1.0,
+        ),
+    )
+    append_experiment(
+        path,
+        ExperimentRecord(
+            run_id="b",
+            created_at=datetime(2026, 5, 28, tzinfo=UTC),
+            strategy="momentum",
+            kind="validation",
+            git_sha="abc",
+            command="quant validate momentum",
+            params={},
+            metrics={"dsr": 0.7},
+            gates={"overall": True},
+            artifacts={},
+            data_snapshot_id=None,
+            wall_time_seconds=1.0,
+        ),
+    )
+
+    runner = CliRunner()
+    listed = runner.invoke(cli, ["research", "list"])
+    compared = runner.invoke(cli, ["research", "compare", "a", "b"])
+    ranked = runner.invoke(cli, ["research", "leaderboard", "--metric", "dsr"])
+
+    assert listed.exit_code == 0, listed.output
+    assert "trend" in listed.output
+    assert compared.exit_code == 0, compared.output
+    assert "+0.4000" in compared.output
+    assert ranked.exit_code == 0, ranked.output
+    assert ranked.output.find("│ b") < ranked.output.find("│ a")
+
+
+def test_data_snapshot_and_quality_commands_write_artifacts(
+    tmp_data_dir: Path, fake_env: None
+) -> None:
+    raw = tmp_data_dir / "raw" / "SPY.parquet"
+    dates = pd.bdate_range("2026-01-01", periods=3)
+    pd.DataFrame(
+        {
+            "open": [1.0, 2.0, 3.0],
+            "high": [2.0, 3.0, 4.0],
+            "low": [1.0, 2.0, 3.0],
+            "close": [2.0, 3.0, 4.0],
+            "volume": [100, 100, 100],
+        },
+        index=pd.DatetimeIndex(dates, name="timestamp"),
+    ).to_parquet(raw)
+
+    runner = CliRunner()
+    snapshot = runner.invoke(
+        cli,
+        [
+            "data",
+            "snapshot",
+            "--symbols",
+            "SPY",
+            "--start",
+            "2026-01-01",
+            "--end",
+            "2026-01-06",
+            "--snapshot-id",
+            "cli-snap",
+        ],
+    )
+    quality = runner.invoke(
+        cli,
+        ["data", "quality", "--symbols", "SPY", "--start", "2026-01-01", "--end", "2026-01-06"],
+    )
+
+    assert snapshot.exit_code == 0, snapshot.output
+    assert (tmp_data_dir / "snapshots" / "cli-snap" / "manifest.json").exists()
+    assert quality.exit_code == 0, quality.output
+    assert (tmp_data_dir / "ops" / "health" / "data_quality.json").exists()
+
+
+def test_risk_pretrade_command_writes_report(tmp_data_dir: Path, fake_env: None) -> None:
+    result = CliRunner().invoke(cli, ["risk", "pretrade"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads((tmp_data_dir / "risk" / "pretrade_report.json").read_text())
+    assert payload["passed"] is True
+
+
+def test_governance_halt_and_resume_commands(tmp_data_dir: Path, fake_env: None) -> None:
+    runner = CliRunner()
+    halted = runner.invoke(cli, ["governance", "halt", "--reason", "stop"])
+    resumed = runner.invoke(cli, ["governance", "resume", "--reason", "healthy"])
+
+    assert halted.exit_code == 0, halted.output
+    assert "halted" in halted.output.lower()
+    assert resumed.exit_code == 0, resumed.output
+    assert "resumed" in resumed.output.lower()
 
 
 def test_backtest_command_unknown_strategy(fake_env: None) -> None:
@@ -250,6 +378,9 @@ def test_validate_command_runs_to_completion_on_known_strategy(
         # exit_code may be 0 (pass) or 2 (fail-gate); both indicate the command ran.
         assert result.exit_code in (0, 2), result.output
         assert "Deflated Sharpe" in result.output
+        experiments = tmp_data_dir / "research" / "experiments.jsonl"
+        assert experiments.exists()
+        assert "cli-smoke" in experiments.read_text()
     finally:
         del REGISTRY["cli-smoke"]
 
