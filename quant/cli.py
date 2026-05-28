@@ -1630,6 +1630,184 @@ def sizing_compare(
     )
 
 
+@cli.group(help="Options/Greeks engine + protective hedging overlay — observed-only.")
+def hedge() -> None:
+    pass
+
+
+def _spy_close_series(spy_bars: pd.DataFrame) -> pd.Series:
+    """Extract a clean SPY close series from a get_bars (symbol, field) frame."""
+    if isinstance(spy_bars.columns, pd.MultiIndex):
+        close = spy_bars["SPY"]["close"]
+    else:
+        close = spy_bars["close"] if "close" in spy_bars.columns else spy_bars.iloc[:, 0]
+    return close.sort_index().astype(float)
+
+
+@hedge.command("price", help="Black-Scholes price + Greeks (and implied vol if --mark given).")
+@click.option("--spot", required=True, type=float)
+@click.option("--strike", required=True, type=float)
+@click.option("--days", required=True, type=float, help="Calendar days to expiry.")
+@click.option("--vol", default=0.20, show_default=True, type=float, help="Annualized vol.")
+@click.option("--right", default="put", show_default=True, type=click.Choice(["put", "call"]))
+@click.option("--rate", default=0.03, show_default=True, type=float)
+@click.option("--div", default=0.015, show_default=True, type=float)
+@click.option("--mark", default=None, type=float, help="Market price -> solve implied vol.")
+def hedge_price(
+    spot: float,
+    strike: float,
+    days: float,
+    vol: float,
+    right: str,
+    rate: float,
+    div: float,
+    mark: float | None,
+) -> None:
+    from quant.options import bs_greeks, bs_price, implied_vol
+
+    t_years = days / 365.0
+    price = bs_price(spot, strike, t_years, vol, rate, div, right)
+    g = bs_greeks(spot, strike, t_years, vol, rate, div, right)
+    table = Table(title=f"{right.capitalize()} {strike:g} / {days:g}d on spot {spot:g}")
+    table.add_column("Field")
+    table.add_column("Value", justify="right")
+    table.add_row("price", f"{price:.4f}")
+    table.add_row("delta", f"{g.delta:.4f}")
+    table.add_row("gamma", f"{g.gamma:.6f}")
+    table.add_row("vega", f"{g.vega:.4f}")
+    table.add_row("theta", f"{g.theta:.4f}")
+    table.add_row("rho", f"{g.rho:.4f}")
+    if mark is not None:
+        iv = implied_vol(mark, spot, strike, t_years, rate, div, right)
+        table.add_row("implied vol", f"{iv:.4f}")
+    console.print(table)
+
+
+@hedge.command(
+    "compare", help="Compare a strategy's returns with vs without the SPY hedge overlay."
+)
+@click.argument("strategy")
+@click.option("--start", default="2018-01-01", show_default=True)
+@click.option("--end", default=None, help="History end (YYYY-MM-DD). Default: today.")
+@click.option(
+    "--structure",
+    default="put",
+    show_default=True,
+    type=click.Choice(["put", "collar", "put_spread"]),
+)
+@click.option("--put-moneyness", default=0.05, show_default=True, type=float)
+@click.option("--call-moneyness", default=0.05, show_default=True, type=float)
+@click.option("--spread-width", default=0.10, show_default=True, type=float)
+@click.option("--coverage", default=1.0, show_default=True, type=float)
+@click.option("--tenor-days", default=30, show_default=True, type=int)
+@click.option("--roll-days", default=21, show_default=True, type=int)
+@click.option("--no-regime", is_flag=True, default=False)
+def hedge_compare(
+    strategy: str,
+    start: str,
+    end: str | None,
+    structure: str,
+    put_moneyness: float,
+    call_moneyness: float,
+    spread_width: float,
+    coverage: float,
+    tenor_days: int,
+    roll_days: int,
+    no_regime: bool,
+) -> None:
+    from quant.options import HedgeConfig, compare_hedge
+    from quant.research.registry import ExperimentRecord, append_experiment
+
+    _require_strategy(strategy)
+    settings = Settings()  # type: ignore[call-arg]
+    start_date = date.fromisoformat(start)
+    end_date = date.fromisoformat(end) if end else date.today()
+
+    console.print(f"[bold]Backtesting {strategy} {start_date}..{end_date}...[/bold]")
+    result = _run_single_backtest(strategy, start_date, end_date)
+    returns = result.returns
+    if returns.empty:
+        raise click.ClickException(f"Backtest for {strategy!r} produced no returns.")
+
+    spy_bars = get_bars(BarRequest(symbols=["SPY"], start=start_date, end=end_date))
+    if spy_bars.empty:
+        raise click.ClickException("No SPY bars cached for the hedge underlying.")
+    spy_close = _spy_close_series(spy_bars)
+
+    labels = _load_regime_labels()
+    if labels is None and not no_regime:
+        console.print("[yellow]No regime series found; hedge intensity will be neutral.[/yellow]")
+
+    config = HedgeConfig(
+        structure=structure,
+        put_moneyness=put_moneyness,
+        call_moneyness=call_moneyness,
+        spread_width=spread_width,
+        coverage=coverage,
+        tenor_days=tenor_days,
+        roll_days=roll_days,
+        use_regime=not no_regime,
+    )
+    comp = compare_hedge(returns, spy_close, config, regime_labels=labels)
+
+    table = Table(title=f"Hedge comparison — {strategy} ({structure})")
+    table.add_column("Metric")
+    table.add_column("Baseline", justify="right")
+    table.add_column("Hedged", justify="right")
+    rows = [
+        ("Sharpe", "sharpe"),
+        ("Sortino", "sortino"),
+        ("Max drawdown", "max_drawdown"),
+        ("CVaR 5%", "cvar_5"),
+        ("Worst day", "worst_day"),
+        ("Ann vol", "ann_vol"),
+        ("CAGR", "cagr"),
+        ("Total return", "total_return"),
+    ]
+    for label_text, key in rows:
+        table.add_row(label_text, f"{comp.baseline[key]:.4f}", f"{comp.hedged[key]:.4f}")
+    console.print(table)
+    console.print(
+        f"Hedge cost — {comp.n_rolls} rolls, total premium {comp.total_premium:.4f}, "
+        f"~{comp.premium_drag_annual:.4f}/yr, mean contracts {comp.mean_contracts:.4f}"
+    )
+
+    gates = {
+        "gate_maxdd_improved": comp.hedged["max_drawdown"] >= comp.baseline["max_drawdown"],
+        "gate_cvar_improved": comp.hedged["cvar_5"] >= comp.baseline["cvar_5"],
+    }
+    append_experiment(
+        settings.data_dir / "research" / "experiments.jsonl",
+        ExperimentRecord(
+            run_id=f"hedge-{uuid.uuid4().hex[:12]}",
+            created_at=datetime.now(UTC).replace(microsecond=0),
+            strategy=strategy,
+            kind="research",
+            git_sha=_git_sha(),
+            command=f"quant hedge compare {strategy} --structure {structure}",
+            params={
+                "structure": structure,
+                "put_moneyness": put_moneyness,
+                "call_moneyness": call_moneyness,
+                "spread_width": spread_width,
+                "coverage": coverage,
+                "tenor_days": tenor_days,
+                "roll_days": roll_days,
+                "use_regime": not no_regime,
+            },
+            metrics={f"hedged_{k}": v for k, v in comp.hedged.items()}
+            | {
+                "total_premium": comp.total_premium,
+                "premium_drag_annual": comp.premium_drag_annual,
+            },
+            gates=gates,
+            artifacts={},
+            data_snapshot_id=None,
+            wall_time_seconds=0.0,
+        ),
+    )
+
+
 @cli.command(help="List all registered strategies.")
 def strategies() -> None:
     settings = (
