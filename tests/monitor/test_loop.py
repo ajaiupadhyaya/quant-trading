@@ -6,6 +6,7 @@ from pathlib import Path
 from quant.governance.halt import load_halt
 from quant.monitor.daemon import run_loop
 from quant.monitor.guardrails import GuardrailConfig, GuardrailInputs
+from quant.util.logging import logger
 
 NOW = datetime(2026, 5, 28, 14, 0, 0, tzinfo=UTC)
 
@@ -63,3 +64,28 @@ def test_run_loop_continues_on_tick_error(tmp_path: Path) -> None:
     # first tick errored (no TickResult), second succeeded
     assert len(results) == 1
     assert any("error" in line.lower() for line in printed)
+
+
+def test_run_loop_logs_tick_error_without_console_sink(tmp_path: Path) -> None:
+    # A headless daemon (console_print=None) must still surface tick errors via
+    # the logger rather than failing silently.
+    def boom() -> GuardrailInputs:
+        raise RuntimeError("transient")
+
+    logged: list[str] = []
+    handle = logger.add(lambda m: logged.append(str(m)), level="WARNING")
+    try:
+        results = run_loop(
+            tmp_path,
+            GuardrailConfig(),
+            interval_s=0.0,
+            max_ticks=1,
+            inputs_fn=boom,
+            sleep=lambda s: None,
+            console_print=None,
+            now_fn=lambda: NOW,
+        )
+    finally:
+        logger.remove(handle)
+    assert results == []
+    assert any("monitor tick error" in line for line in logged)

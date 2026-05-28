@@ -34,6 +34,7 @@ from quant.monitor.guardrails import (
     evaluate_guardrails,
 )
 from quant.monitor.status import MonitorStatus, write_status
+from quant.util.logging import logger
 
 
 @dataclass(frozen=True)
@@ -201,10 +202,11 @@ def run_loop(
 ) -> list[TickResult]:
     """Repeatedly run a tick, printing the heartbeat, sleeping between ticks.
 
-    Fail-safe: a tick that raises is caught, reported via ``console_print``, and
-    the loop continues. ``inputs_fn`` (test seam) supplies inputs directly;
-    otherwise ``alpaca_positions_fn`` is consulted each tick for reconciliation.
-    Stops after ``max_ticks`` ticks (None = forever).
+    Fail-safe: a tick that raises is caught, logged (and reported via
+    ``console_print`` if given), and the loop continues. ``inputs_fn`` (test
+    seam) supplies inputs directly; otherwise ``alpaca_positions_fn`` is
+    consulted each tick for reconciliation. Stops after ``max_ticks`` ticks
+    (None = forever).
     """
     results: list[TickResult] = []
     tick = 0
@@ -230,6 +232,8 @@ def run_loop(
                 console_print(res.heartbeat)
             results.append(res)
         except Exception as exc:  # fail-safe: never crash the loop
+            # Always log so a headless daemon (no console sink) never fails silently.
+            logger.warning("monitor tick error (continuing): {!r}", exc)
             if console_print is not None:
                 console_print(f"monitor tick error (continuing): {exc!r}")
         tick += 1
