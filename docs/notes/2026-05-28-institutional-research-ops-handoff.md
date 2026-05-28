@@ -5,7 +5,8 @@ Branch: `main`
 This note tracks the institutional-grade research and paper-operations work
 completed on 2026-05-28. The feature branch work was merged and pushed to
 `main` in commit `e8ba591`, then follow-up pretrade-risk integration work
-continued on `main`.
+continued on `main` through `4b46928`. A final market-open readiness pass was
+completed and pushed in `f3526c3`.
 
 ## Completed This Session
 
@@ -51,9 +52,22 @@ continued on `main`.
   - `.github/workflows/premarket-health.yml`
   - `.github/workflows/posttrade-reconciliation.yml`
   - daily rebalance now runs data quality and pretrade risk, uploads ops artifacts, and commits `data/ops/health/` and `data/risk/`.
+  - premarket and daily rebalance data-quality checks now target the live
+    defensive ETF universe (`SPY, TLT, IEF, GLD, DBC, VNQ, EFA, EEM`) instead
+    of every cached research symbol.
 - Added roadmap docs:
   - `docs/institutional-research-ops.md`
   - README now references new research/risk/data/governance commands.
+- Completed market-open readiness fixes:
+  - `quant doctor` now derives readiness from governance-live strategies, not
+    broad code-level `enabled_live` flags. This prevents quarantined research
+    strategy snapshots from blocking the actual evidence-gated live path.
+  - `quant data quality` uses the embedded NYSE trading calendar instead of a
+    plain weekday calendar, so market holidays are not counted as missing bars.
+  - `quant data quality` defaults to the last completed trading session rather
+    than the current in-progress session.
+  - Added the 2025-01-09 Jimmy Carter national day of mourning closure to the
+    embedded NYSE calendar.
 
 ## Tests Already Run
 
@@ -79,47 +93,60 @@ Additional passing checks after the pretrade-risk integration:
 The broader nearby test slice passed with `46 passed, 1 warning`. Full
 repository `pytest` passed with `414 passed, 1 warning`.
 
+Final market-open readiness checks:
+
+```bash
+.venv/bin/ruff check .
+.venv/bin/mypy quant
+.venv/bin/pytest
+.venv/bin/quant doctor
+.venv/bin/quant data quality --start 2018-01-01 --symbols SPY,TLT,IEF,GLD,DBC,VNQ,EFA,EEM
+.venv/bin/quant risk pretrade
+```
+
+Results:
+
+- `ruff`: passed.
+- `mypy`: passed.
+- full `pytest`: `418 passed, 1 warning`.
+- `quant doctor`: `7/7 checks passed`; Alpaca paper account reachable; one
+  governance-live strategy: `defensive-etf-allocation`.
+- live ETF data quality: passed with zero missing bars, zero duplicate
+  timestamps, and zero bad OHLC rows for the live ETF universe.
+- pretrade risk: passed; proposed dry-run orders were buys for `DBC`, `EEM`,
+  and `SPY`, with no risk violations.
+
 ## Known Remaining Work
 
-1. Rerun quality checks:
-
-   ```bash
-   .venv/bin/ruff check .
-   .venv/bin/mypy quant
-   .venv/bin/pytest
-   ```
-
-2. Fix any resulting lint/type/test failures.
-
-3. Add richer risk decomposition:
+1. Add richer risk decomposition:
    - equity beta, duration, commodity, gold, REIT, developed ex-US, emerging exposure.
    - report whether the book is mostly SPY/TLT beta.
 
-4. Add full institutional evidence packet fields:
+2. Add full institutional evidence packet fields:
    - parameter stability analysis.
    - false-discovery/variant count tracking.
    - holdout access logging.
    - turnover/capacity/drawdown recovery/tail metrics.
 
-5. Add strategy remediation scaffolds:
+3. Add strategy remediation scaffolds:
    - trend crisis sleeve and volatility target experiments.
    - momentum crash protection/defensive overlay.
    - risk-parity adaptive covariance and stress deleveraging.
    - multi-factor PIT diagnostics.
    - pairs shortability/cost realism.
 
-6. Make ops workflows production-polished:
+4. Make ops workflows production-polished:
    - ensure GitHub shell paths are covered by tests.
    - decide whether `premarket-health` should have `contents: write` and commit health artifacts, or remain upload-only.
    - confirm schedule times in ET/UTC comments.
 
-7. Add TUI panels for:
+5. Add TUI panels for:
    - research leaderboard.
    - risk/pretrade status.
    - data quality.
    - halt status.
 
-8. Run acceptance commands from the implementation plan:
+6. Run periodic acceptance commands after future strategy/data changes:
 
    ```bash
    uv run pytest
@@ -133,22 +160,21 @@ repository `pytest` passed with `414 passed, 1 warning`.
    uv run quant rebalance --dry-run
    ```
 
-9. Commit and push the current follow-up pretrade-risk changes when green.
-
 ## Current Git State At Handoff
 
-Uncommitted follow-up changes currently exist on `main`. Key touched areas:
+Before this documentation update, `main` was clean and synchronized with
+`origin/main` at `f3526c3`.
 
-- `docs/notes/2026-05-28-institutional-research-ops-handoff.md`
-- `quant/cli.py`
-- `quant/live/rebalance.py`
-- `tests/live/test_rebalance.py`
-- `tests/test_cli.py`
+Latest relevant pushed commits:
+
+- `f3526c3 fix(ops): align readiness checks with governance live trading`
+- `4b46928 feat(risk): build pretrade reports from rebalance plans`
+- `e8ba591 feat(research): add institutional audit and ops layer`
 
 ## Suggested Resume Order Tomorrow
 
-1. Run `git status -sb` and confirm whether the current follow-up changes are
-   still uncommitted on `main`.
-2. Run the remaining acceptance commands that need live/data credentials.
-3. Commit and push the pretrade-risk follow-up changes.
+1. Check GitHub Actions for the premarket health and daily rebalance runs.
+2. Inspect `data/risk/pretrade_report.json` and `data/ops/health/data_quality.json`.
+3. Run `quant governance status`, `quant risk pretrade`, and
+   `quant rebalance --dry-run` before any manual intervention.
 4. Continue with portfolio risk decomposition and TUI risk/research panels.
