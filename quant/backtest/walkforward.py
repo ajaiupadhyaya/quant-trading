@@ -142,6 +142,8 @@ def run_walkforward(
             starting_equity=cumulative_equity,
             slippage_bps=config.slippage_bps,
             commission_bps=config.commission_bps,
+            annual_borrow_bps=config.annual_borrow_bps,
+            annual_financing_bps=config.annual_financing_bps,
             execution=config.execution,
         )
         test_strat = strategy_factory(best, bars)

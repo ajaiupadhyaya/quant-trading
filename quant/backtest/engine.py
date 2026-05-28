@@ -132,6 +132,11 @@ def run_backtest(
             config=config,
             starting_equity=config.starting_equity,
             ending_equity=config.starting_equity,
+            metadata={
+                "borrow_cost": 0.0,
+                "margin_financing_cost": 0.0,
+                "financing_cost_total": 0.0,
+            },
         )
 
     cash: float = config.starting_equity
