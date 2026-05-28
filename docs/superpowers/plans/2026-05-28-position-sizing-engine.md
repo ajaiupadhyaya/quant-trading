@@ -103,8 +103,12 @@ def test_drawdown_throttle_deep_drawdown_floors_to_zero() -> None:
 
 
 def test_drawdown_throttle_partial_ramp() -> None:
-    # one -10% day, dd_floor 0.20 -> 1 + (-0.10)/0.20 = 0.5
-    rets = np.array([-0.10])
+    # equity rises to a peak (1.0) then falls 10% from it: 1 + (-0.10)/0.20 = 0.5.
+    # The leading 0.0 establishes the peak — matching the repo convention
+    # (metrics.max_drawdown / _common.drawdown_leverage_factor) where equity is
+    # cumprod(1+returns) with no implicit leading-capital point, so a lone down
+    # day is its own peak (dd=0).
+    rets = np.array([0.0, -0.10])
     assert math.isclose(drawdown_throttle(rets, 0.20), 0.5)
 
 
