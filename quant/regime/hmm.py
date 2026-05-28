@@ -16,6 +16,13 @@ from quant.regime.models import HMMParams
 _LOG_2PI = float(np.log(2.0 * np.pi))
 
 
+def _safe_log(x: np.ndarray) -> np.ndarray:
+    """Log of a probability array; zeros map to -inf without a RuntimeWarning."""
+    with np.errstate(divide="ignore"):
+        result: np.ndarray = np.log(x)
+    return result
+
+
 def log_emission(obs: np.ndarray, params: HMMParams) -> np.ndarray:
     """Per-state Gaussian log-density. obs (T, F) -> (T, K)."""
     x = np.asarray(obs, dtype=float)
@@ -33,8 +40,8 @@ def log_emission(obs: np.ndarray, params: HMMParams) -> np.ndarray:
 def forward_filter(obs: np.ndarray, params: HMMParams) -> np.ndarray:
     """Online filtered posteriors P(state_t | obs[0..t]). Returns (T, K)."""
     le = log_emission(obs, params)  # (T, K)
-    log_trans = np.log(params.trans_mat)  # (K, K)
-    log_start = np.log(params.start_prob)  # (K,)
+    log_trans = _safe_log(params.trans_mat)  # (K, K)
+    log_start = _safe_log(params.start_prob)  # (K,)
     n_obs = le.shape[0]
     log_alpha = np.empty_like(le)
     log_alpha[0] = log_start + le[0]
@@ -96,7 +103,7 @@ def _fit_once(
     params = HMMParams(start, trans, means, variances)
     for _ in range(max_iter):
         le = log_emission(obs, params)
-        gamma, xi_sum, loglik = _forward_backward(le, np.log(start), np.log(trans))
+        gamma, xi_sum, loglik = _forward_backward(le, _safe_log(start), _safe_log(trans))
         if loglik - prev_ll < tol:
             return params, loglik
         prev_ll = loglik
@@ -113,7 +120,7 @@ def _fit_once(
         params = HMMParams(start, trans, means, variances)
     # max_iter exhausted: authoritative loglik of the params we return.
     le = log_emission(obs, params)
-    _, _, loglik = _forward_backward(le, np.log(params.start_prob), np.log(params.trans_mat))
+    _, _, loglik = _forward_backward(le, _safe_log(params.start_prob), _safe_log(params.trans_mat))
     return params, loglik
 
 
@@ -145,11 +152,11 @@ def fit_hmm(
 def viterbi(obs: np.ndarray, params: HMMParams) -> np.ndarray:
     """Most-likely state path (offline, uses full sample). Returns (T,) int array."""
     le = log_emission(obs, params)
-    log_trans = np.log(params.trans_mat)
+    log_trans = _safe_log(params.trans_mat)
     n_obs, n_states = le.shape
     delta = np.empty_like(le)
     psi = np.zeros_like(le, dtype=int)
-    delta[0] = np.log(params.start_prob) + le[0]
+    delta[0] = _safe_log(params.start_prob) + le[0]
     for t in range(1, n_obs):
         scores = delta[t - 1][:, None] + log_trans  # (K, K)
         psi[t] = np.argmax(scores, axis=0)
@@ -164,8 +171,8 @@ def viterbi(obs: np.ndarray, params: HMMParams) -> np.ndarray:
 def score(obs: np.ndarray, params: HMMParams) -> float:
     """Total log-likelihood of obs under params (forward recursion)."""
     le = log_emission(obs, params)
-    log_trans = np.log(params.trans_mat)
-    log_alpha = np.log(params.start_prob) + le[0]
+    log_trans = _safe_log(params.trans_mat)
+    log_alpha = _safe_log(params.start_prob) + le[0]
     for t in range(1, le.shape[0]):
         log_alpha = logsumexp(log_alpha[:, None] + log_trans, axis=0) + le[t]
     return float(logsumexp(log_alpha))

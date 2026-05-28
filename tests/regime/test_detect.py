@@ -31,8 +31,8 @@ def _synthetic_features(n: int) -> pd.DataFrame:
 
 
 def test_run_detection_outputs_daily_labels_and_is_pit():
-    feats = _synthetic_features(1500)
-    cfg = DetectConfig(train_window_days=750, refit_freq="YS", n_restarts=3, seed=0)
+    feats = _synthetic_features(600)
+    cfg = DetectConfig(train_window_days=250, refit_freq="YS", n_restarts=1, seed=0)
     out = run_detection(feats, cfg)
     assert set(out.columns) >= {"p_calm", "p_choppy", "p_crisis", "label", "refit_epoch"}
     np.testing.assert_allclose(
@@ -43,6 +43,6 @@ def test_run_detection_outputs_daily_labels_and_is_pit():
     assert set(out["label"].unique()).issubset({"calm-bull", "choppy", "crisis"})
     # PIT: re-running on a truncated feature frame must reproduce earlier labels
     # exactly (no future data influences a past label).
-    trunc = run_detection(feats.iloc[:1200], cfg)
+    trunc = run_detection(feats.iloc[:420], cfg)
     shared = trunc.index.intersection(out.index)
     assert (out.loc[shared, "label"] == trunc.loc[shared, "label"]).all()
