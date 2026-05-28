@@ -194,6 +194,20 @@ improves and the audit command shows fresh passing evidence. Runtime note:
 slow enough that weekly automation should run it with explicit timeout limits
 or a conservative first pass.
 
+### Monitoring daemon (kill-switch automation)
+
+`quant guard run` is a headless guardian loop. Each tick it evaluates
+guardrails — paper-P&L drift, account drawdown, position reconciliation, bar
+freshness — and **automatically pulls the kill-switch** (`set_halt`) on a
+halt-severity verdict, so a bleeding or misbehaving book stops trading without
+a human in the loop. It streams a one-line heartbeat and writes
+`data/ops/monitor_status.json`.
+
+Key safety property: the daemon can HALT but **never resumes** — restarting
+trading is always a deliberate `quant governance resume`. Use `quant guard check`
+for a one-shot, read-only evaluation (never halts), and `quant guard run --dry-run`
+to observe what it *would* do without touching the kill-switch.
+
 ## Live paper trading
 
 Daily flow once `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` are set:
