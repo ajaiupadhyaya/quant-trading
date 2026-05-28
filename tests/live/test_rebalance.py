@@ -95,6 +95,29 @@ def test_dry_run_does_not_persist_strategy_positions(
     assert not (fake_settings.data_dir / "live" / "strategy_positions.parquet").exists()
 
 
+def test_planning_mode_does_not_write_bookkeeping(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+        record_bookkeeping=False,
+    )
+
+    assert report.dry_run is True
+    assert report.total_orders == len(client.submitted)
+    assert not (fake_settings.data_dir / "live" / "equity.parquet").exists()
+    assert not (fake_settings.data_dir / "live" / "trades.parquet").exists()
+    assert not (fake_settings.data_dir / "live" / "strategy_positions.parquet").exists()
+    momentum_outcome = next(o for o in report.outcomes if o.slug == "momentum")
+    for order in momentum_outcome.orders:
+        assert momentum_outcome.reference_prices[order.symbol] > 0
+
+
 def test_live_run_persists_positions_and_trades(
     fake_settings: Settings, patched_bars: None
 ) -> None:

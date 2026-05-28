@@ -1,10 +1,11 @@
 # 2026-05-28 Institutional Research/Ops Handoff
 
-Branch: `codex/institutional-research-ops`
+Branch: `main`
 
-This session started implementation of the institutional-grade research and
-paper-operations plan. Work is intentionally on a feature branch; `main` remains
-the previously pushed paper-trading baseline.
+This note tracks the institutional-grade research and paper-operations work
+completed on 2026-05-28. The feature branch work was merged and pushed to
+`main` in commit `e8ba591`, then follow-up pretrade-risk integration work
+continued on `main`.
 
 ## Completed This Session
 
@@ -38,7 +39,14 @@ the previously pushed paper-trading baseline.
   - `quant/risk/pretrade.py`
   - CLI command: `quant risk pretrade`
   - writes `data/risk/pretrade_report.json`
-  - current CLI report is conservative/empty-order by default; full proposed-order integration remains.
+  - builds a side-effect-free dry-run rebalance order plan.
+  - reports proposed-order gross exposure, per-symbol concentration, reference
+    prices, strategy outcomes, violations, and skipped reasons.
+- Added rebalance planning mode:
+  - `run_rebalance(..., record_bookkeeping=False)` computes the same proposed
+    orders without appending equity rows, trades, or strategy-position snapshots.
+  - strategy outcomes now include latest reference prices from the strategy bar
+    cache for use by pretrade risk.
 - Added ops workflows:
   - `.github/workflows/premarket-health.yml`
   - `.github/workflows/posttrade-reconciliation.yml`
@@ -58,12 +66,18 @@ Passing focused tests:
 .venv/bin/pytest tests/data/test_providers.py
 ```
 
-Validation status before stopping:
+Additional passing checks after the pretrade-risk integration:
 
-- `ruff check .` was run and auto-fixed several import/style issues.
-- `mypy quant` was run and found issues in `quant/research/registry.py` and `quant/cli.py`.
-- Those mypy issues were patched, but `ruff` and `mypy` have **not** been rerun after the final patch.
-- Full `pytest` has **not** been rerun after the final patch.
+```bash
+.venv/bin/pytest tests/live/test_rebalance.py::test_planning_mode_does_not_write_bookkeeping tests/test_cli.py::test_risk_pretrade_command_writes_report tests/risk/test_pretrade.py
+.venv/bin/ruff check .
+.venv/bin/mypy quant
+.venv/bin/pytest tests/live/test_rebalance.py tests/test_cli.py tests/risk/test_pretrade.py
+.venv/bin/pytest
+```
+
+The broader nearby test slice passed with `46 passed, 1 warning`. Full
+repository `pytest` passed with `414 passed, 1 warning`.
 
 ## Known Remaining Work
 
@@ -77,40 +91,35 @@ Validation status before stopping:
 
 2. Fix any resulting lint/type/test failures.
 
-3. Improve `quant risk pretrade`:
-   - currently writes a valid zero-order risk report.
-   - should be upgraded to build a proposed dry-run order plan without appending trades/equity.
-   - should include reference prices, gross exposure, concentration, and violations for actual proposed orders.
-
-4. Add richer risk decomposition:
+3. Add richer risk decomposition:
    - equity beta, duration, commodity, gold, REIT, developed ex-US, emerging exposure.
    - report whether the book is mostly SPY/TLT beta.
 
-5. Add full institutional evidence packet fields:
+4. Add full institutional evidence packet fields:
    - parameter stability analysis.
    - false-discovery/variant count tracking.
    - holdout access logging.
    - turnover/capacity/drawdown recovery/tail metrics.
 
-6. Add strategy remediation scaffolds:
+5. Add strategy remediation scaffolds:
    - trend crisis sleeve and volatility target experiments.
    - momentum crash protection/defensive overlay.
    - risk-parity adaptive covariance and stress deleveraging.
    - multi-factor PIT diagnostics.
    - pairs shortability/cost realism.
 
-7. Make ops workflows production-polished:
+6. Make ops workflows production-polished:
    - ensure GitHub shell paths are covered by tests.
    - decide whether `premarket-health` should have `contents: write` and commit health artifacts, or remain upload-only.
    - confirm schedule times in ET/UTC comments.
 
-8. Add TUI panels for:
+7. Add TUI panels for:
    - research leaderboard.
    - risk/pretrade status.
    - data quality.
    - halt status.
 
-9. Run acceptance commands from the implementation plan:
+8. Run acceptance commands from the implementation plan:
 
    ```bash
    uv run pytest
@@ -124,39 +133,22 @@ Validation status before stopping:
    uv run quant rebalance --dry-run
    ```
 
-10. Commit and push the feature branch when green:
-
-   ```bash
-   git status -sb
-   git add -A
-   git commit -m "feat(research): add institutional audit and ops layer"
-   git push -u origin codex/institutional-research-ops
-   ```
+9. Commit and push the current follow-up pretrade-risk changes when green.
 
 ## Current Git State At Handoff
 
-Uncommitted changes exist on `codex/institutional-research-ops`. Key touched
-areas:
+Uncommitted follow-up changes currently exist on `main`. Key touched areas:
 
-- `.github/workflows/daily-rebalance.yml`
-- `.github/workflows/premarket-health.yml`
-- `.github/workflows/posttrade-reconciliation.yml`
-- `README.md`
-- `docs/institutional-research-ops.md`
 - `docs/notes/2026-05-28-institutional-research-ops-handoff.md`
 - `quant/cli.py`
-- `quant/data/*`
-- `quant/governance/halt.py`
 - `quant/live/rebalance.py`
-- `quant/research/*`
-- `quant/risk/*`
-- new/updated tests under `tests/`
+- `tests/live/test_rebalance.py`
+- `tests/test_cli.py`
 
 ## Suggested Resume Order Tomorrow
 
-1. Run `git status -sb` and confirm branch is `codex/institutional-research-ops`.
-2. Run `ruff`, `mypy`, then focused tests listed above.
-3. Run full `pytest`.
-4. Finish the real proposed-order integration for `quant risk pretrade`.
-5. Run acceptance commands.
-6. Commit and push the branch.
+1. Run `git status -sb` and confirm whether the current follow-up changes are
+   still uncommitted on `main`.
+2. Run the remaining acceptance commands that need live/data credentials.
+3. Commit and push the pretrade-risk follow-up changes.
+4. Continue with portfolio risk decomposition and TUI risk/research panels.

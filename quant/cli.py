@@ -1245,10 +1245,25 @@ def risk() -> None:
 
 @risk.command("pretrade", help="Write a conservative pre-trade risk report.")
 def risk_pretrade() -> None:
+    from quant.live import run_rebalance
     from quant.risk.pretrade import build_pretrade_report
 
     settings = Settings()  # type: ignore[call-arg]
-    report = build_pretrade_report(equity=1.0, orders=[], reference_prices={})
+    rebalance_report = run_rebalance(
+        dry_run=True,
+        skip_safety_checks=True,
+        record_bookkeeping=False,
+    )
+    orders = [order for outcome in rebalance_report.outcomes for order in outcome.orders]
+    reference_prices: dict[str, float] = {}
+    for outcome in rebalance_report.outcomes:
+        reference_prices.update(outcome.reference_prices)
+
+    report = build_pretrade_report(
+        equity=rebalance_report.equity,
+        orders=orders,
+        reference_prices=reference_prices,
+    )
     out = settings.data_dir / "risk" / "pretrade_report.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
@@ -1262,6 +1277,22 @@ def risk_pretrade() -> None:
                     {"code": v.code, "detail": v.detail, "symbol": v.symbol}
                     for v in report.violations
                 ],
+                "rebalance": {
+                    "asof": rebalance_report.asof.isoformat(),
+                    "dry_run": rebalance_report.dry_run,
+                    "enabled_strategies": rebalance_report.enabled_strategies,
+                    "total_orders": rebalance_report.total_orders,
+                    "skipped_reason": rebalance_report.skipped_reason,
+                    "outcomes": [
+                        {
+                            "strategy": outcome.slug,
+                            "orders": len(outcome.orders),
+                            "error": outcome.error,
+                            "reference_prices": outcome.reference_prices,
+                        }
+                        for outcome in rebalance_report.outcomes
+                    ],
+                },
             },
             indent=2,
             sort_keys=True,
@@ -1269,7 +1300,9 @@ def risk_pretrade() -> None:
         + "\n",
         encoding="utf-8",
     )
-    console.print(f"[green]Pre-trade risk passed[/green]; wrote {out}")
+    status = "passed" if report.passed else "blocked"
+    color = "green" if report.passed else "red"
+    console.print(f"[{color}]Pre-trade risk {status}[/{color}]; wrote {out}")
 
 
 @cli.command(help="List all registered strategies.")

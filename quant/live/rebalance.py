@@ -50,6 +50,7 @@ class StrategyRebalanceOutcome:
     target: dict[str, int]
     previous: dict[str, int]
     orders: list[OrderTemplate]
+    reference_prices: dict[str, float] = field(default_factory=dict)
     error: str | None = None
 
 
@@ -101,6 +102,18 @@ def _bars_for(strategy_cls: type[Strategy], asof: date, history_days: int) -> pd
     return get_bars(req)
 
 
+def _latest_reference_prices(bars: pd.DataFrame, symbols: set[str]) -> dict[str, float]:
+    prices: dict[str, float] = {}
+    for symbol in sorted(symbols):
+        try:
+            closes = bars[(symbol, "close")].dropna()
+        except (KeyError, TypeError):
+            continue
+        if not closes.empty:
+            prices[symbol] = float(closes.iloc[-1])
+    return prices
+
+
 def _latest_chosen_params(data_dir: Path, slug: str) -> dict[str, Any]:
     """Read ``data/backtests/<slug>/chosen_params.json`` and return its ``latest`` field.
 
@@ -134,6 +147,7 @@ def run_rebalance(
     skip_safety_checks: bool = False,
     risk_budget: object | None = None,
     include_quarantined: bool = False,
+    record_bookkeeping: bool = True,
 ) -> RebalanceReport:
     """Execute one rebalance pass. Returns a structured report for the CLI to render."""
     from quant.live.safety import (
@@ -192,15 +206,16 @@ def run_rebalance(
             )
 
     account = client.account()
-    append_equity_row(
-        settings.data_dir,
-        asof=asof,
-        equity=account.equity,
-        last_equity=account.last_equity,
-        cash=account.cash,
-        buying_power=account.buying_power,
-        portfolio_value=account.portfolio_value,
-    )
+    if record_bookkeeping:
+        append_equity_row(
+            settings.data_dir,
+            asof=asof,
+            equity=account.equity,
+            last_equity=account.last_equity,
+            cash=account.cash,
+            buying_power=account.buying_power,
+            portfolio_value=account.portfolio_value,
+        )
 
     if strategies is not None:
         enabled = strategies
@@ -365,6 +380,10 @@ def run_rebalance(
 
         previous = last_strategy_positions(settings.data_dir, slug)
         orders = reconcile(target=target, current=previous, strategy_slug=slug)
+        reference_prices = _latest_reference_prices(
+            bars,
+            set(target) | set(previous) | {order.symbol for order in orders},
+        )
 
         for order in orders:
             try:
@@ -391,6 +410,7 @@ def run_rebalance(
                 target=target,
                 previous=previous,
                 orders=orders,
+                reference_prices=reference_prices,
                 error=err,
             )
         )
@@ -398,10 +418,10 @@ def run_rebalance(
         # Update our per-strategy bookkeeping with the new target, even in dry-run.
         # Dry-run snapshots are useful in tests but in production daily-rebalance.yml
         # we only commit when dry_run=False.
-        if target and not dry_run:
+        if target and not dry_run and record_bookkeeping:
             write_strategy_positions(settings.data_dir, asof, slug, target)
 
-    if all_trade_rows:
+    if all_trade_rows and record_bookkeeping:
         append_trades(settings.data_dir, all_trade_rows)
 
     return report

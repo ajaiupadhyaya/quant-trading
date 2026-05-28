@@ -212,11 +212,47 @@ def test_data_snapshot_and_quality_commands_write_artifacts(
 
 
 def test_risk_pretrade_command_writes_report(tmp_data_dir: Path, fake_env: None) -> None:
-    result = CliRunner().invoke(cli, ["risk", "pretrade"])
+    from quant.execution.orders import OrderSide, OrderTemplate
+    from quant.live.rebalance import RebalanceReport, StrategyRebalanceOutcome
+
+    planned = RebalanceReport(
+        asof=date(2026, 5, 28),
+        equity=100_000.0,
+        enabled_strategies=["defensive-etf-allocation"],
+        dry_run=True,
+        outcomes=[
+            StrategyRebalanceOutcome(
+                slug="defensive-etf-allocation",
+                target={"SPY": 20},
+                previous={},
+                orders=[
+                    OrderTemplate(
+                        symbol="SPY",
+                        qty=20,
+                        side=OrderSide.BUY,
+                        strategy_slug="defensive-etf-allocation",
+                    )
+                ],
+                reference_prices={"SPY": 500.0},
+            )
+        ],
+    )
+
+    with patch("quant.live.run_rebalance", return_value=planned) as run:
+        result = CliRunner().invoke(cli, ["risk", "pretrade"])
+
+    run.assert_called_once_with(
+        dry_run=True,
+        skip_safety_checks=True,
+        record_bookkeeping=False,
+    )
 
     assert result.exit_code == 0, result.output
     payload = json.loads((tmp_data_dir / "risk" / "pretrade_report.json").read_text())
     assert payload["passed"] is True
+    assert payload["gross_exposure"] == 0.1
+    assert payload["symbol_weights"] == {"SPY": 0.1}
+    assert payload["rebalance"]["total_orders"] == 1
 
 
 def test_governance_halt_and_resume_commands(tmp_data_dir: Path, fake_env: None) -> None:
