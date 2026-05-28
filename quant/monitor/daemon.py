@@ -9,6 +9,8 @@ cannot trigger a false halt.
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -181,3 +183,57 @@ def run_once(
         heartbeat=heartbeat,
         at=now,
     )
+
+
+def run_loop(
+    data_dir: Path,
+    config: GuardrailConfig,
+    *,
+    interval_s: float = 300.0,
+    dry_run: bool = False,
+    max_ticks: int | None = None,
+    inputs_fn: Callable[[], GuardrailInputs] | None = None,
+    alpaca_positions_fn: Callable[[], list[PositionRow] | None] | None = None,
+    symbols: list[str] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    console_print: Callable[[str], None] | None = None,
+    now_fn: Callable[[], datetime] | None = None,
+) -> list[TickResult]:
+    """Repeatedly run a tick, printing the heartbeat, sleeping between ticks.
+
+    Fail-safe: a tick that raises is caught, reported via ``console_print``, and
+    the loop continues. ``inputs_fn`` (test seam) supplies inputs directly;
+    otherwise ``alpaca_positions_fn`` is consulted each tick for reconciliation.
+    Stops after ``max_ticks`` ticks (None = forever).
+    """
+    results: list[TickResult] = []
+    tick = 0
+    while max_ticks is None or tick < max_ticks:
+        try:
+            tick_inputs = inputs_fn() if inputs_fn is not None else None
+            positions = (
+                alpaca_positions_fn()
+                if (tick_inputs is None and alpaca_positions_fn is not None)
+                else None
+            )
+            now = now_fn() if now_fn is not None else None
+            res = run_once(
+                data_dir,
+                config,
+                inputs=tick_inputs,
+                alpaca_positions=positions,
+                symbols=symbols,
+                dry_run=dry_run,
+                now=now,
+            )
+            if console_print is not None:
+                console_print(res.heartbeat)
+            results.append(res)
+        except Exception as exc:  # fail-safe: never crash the loop
+            if console_print is not None:
+                console_print(f"monitor tick error (continuing): {exc!r}")
+        tick += 1
+        if max_ticks is not None and tick >= max_ticks:
+            break
+        sleep(interval_s)
+    return results
