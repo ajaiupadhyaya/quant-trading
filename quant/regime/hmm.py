@@ -46,3 +46,91 @@ def forward_filter(obs: np.ndarray, params: HMMParams) -> np.ndarray:
     log_post = log_alpha - np.asarray(logsumexp(log_alpha, axis=1, keepdims=True), dtype=float)
     posterior: np.ndarray = np.exp(log_post)
     return posterior
+
+
+def _forward_backward(
+    le: np.ndarray, log_start: np.ndarray, log_trans: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Return (gamma (T,K), xi_sum (K,K), loglik). Full-sample (offline) smoothing."""
+    n_obs, n_states = le.shape
+    log_alpha = np.empty_like(le)
+    log_alpha[0] = log_start + le[0]
+    for t in range(1, n_obs):
+        log_alpha[t] = logsumexp(log_alpha[t - 1][:, None] + log_trans, axis=0) + le[t]
+    log_beta = np.zeros_like(le)
+    for t in range(n_obs - 2, -1, -1):
+        log_beta[t] = logsumexp(log_trans + le[t + 1][None, :] + log_beta[t + 1][None, :], axis=1)
+    loglik = float(logsumexp(log_alpha[-1]))
+    log_gamma = log_alpha + log_beta - loglik
+    gamma = np.exp(log_gamma)
+    xi_sum = np.zeros((n_states, n_states))
+    for t in range(n_obs - 1):
+        log_xi = (
+            log_alpha[t][:, None]
+            + log_trans
+            + le[t + 1][None, :]
+            + log_beta[t + 1][None, :]
+            - loglik
+        )
+        xi_sum += np.exp(log_xi)
+    return gamma, xi_sum, loglik
+
+
+def _fit_once(
+    obs: np.ndarray,
+    n_states: int,
+    max_iter: int,
+    tol: float,
+    var_floor: float,
+    rng: np.random.Generator,
+) -> tuple[HMMParams, float]:
+    n_obs, _n_features = obs.shape
+    # Init means at random observations; variances at global variance; uniform trans.
+    idx = rng.choice(n_obs, size=n_states, replace=False)
+    means = obs[idx].copy()
+    variances = np.tile(obs.var(axis=0) + var_floor, (n_states, 1))
+    trans = np.full((n_states, n_states), 1.0 / n_states)
+    start = np.full(n_states, 1.0 / n_states)
+
+    prev_ll = -np.inf
+    params = HMMParams(start, trans, means, variances)
+    for _ in range(max_iter):
+        le = log_emission(obs, params)
+        gamma, xi_sum, loglik = _forward_backward(le, np.log(start), np.log(trans))
+        # M-step.
+        start = gamma[0] / gamma[0].sum()
+        trans = xi_sum / xi_sum.sum(axis=1, keepdims=True)
+        weights = gamma.sum(axis=0)  # (K,)
+        means = (gamma.T @ obs) / weights[:, None]
+        diff2: np.ndarray = (obs[:, None, :] - means[None, :, :]) ** 2  # (T, K, F)
+        variances = np.einsum("tk,tkf->kf", gamma, diff2) / weights[:, None]
+        variances = np.maximum(variances, var_floor)
+        params = HMMParams(start, trans, means, variances)
+        if loglik - prev_ll < tol:
+            break
+        prev_ll = loglik
+    return params, prev_ll
+
+
+def fit_hmm(
+    obs: np.ndarray,
+    n_states: int = 3,
+    n_restarts: int = 8,
+    max_iter: int = 100,
+    tol: float = 1e-4,
+    seed: int = 0,
+    var_floor: float = 1e-6,
+) -> HMMParams:
+    """Baum-Welch EM with multiple seeded restarts; keep the best log-likelihood."""
+    x = np.asarray(obs, dtype=float)
+    if x.ndim != 2 or x.shape[0] < n_states * 10:
+        raise ValueError(f"fit_hmm needs a (T, F) array with T >= {n_states * 10}")
+    best: HMMParams | None = None
+    best_ll = -np.inf
+    for restart in range(n_restarts):
+        rng = np.random.default_rng(seed + restart)
+        params, ll = _fit_once(x, n_states, max_iter, tol, var_floor, rng)
+        if ll > best_ll:
+            best_ll, best = ll, params
+    assert best is not None
+    return best

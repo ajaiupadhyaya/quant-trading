@@ -33,3 +33,33 @@ def test_forward_filter_is_normalized_and_causal():
     # must not change earlier rows.
     post_trunc = forward_filter(obs[:2], _toy_params())
     np.testing.assert_allclose(post[:2], post_trunc, atol=1e-12)
+
+
+def test_fit_recovers_known_params_and_is_seed_reproducible():
+    rng = np.random.default_rng(0)
+    true = HMMParams(
+        start_prob=np.array([1.0, 0.0]),
+        trans_mat=np.array([[0.97, 0.03], [0.05, 0.95]]),
+        means=np.array([[0.0], [5.0]]),
+        variances=np.array([[0.5], [0.5]]),
+    )
+    # Generate a long sample from `true`.
+    states = np.zeros(4000, dtype=int)
+    for t in range(1, states.size):
+        states[t] = rng.choice(2, p=true.trans_mat[states[t - 1]])
+    obs = true.means[states] + rng.normal(0, np.sqrt(0.5), size=(4000, 1))
+
+    from quant.regime.hmm import fit_hmm
+
+    fit_a = fit_hmm(obs, n_states=2, n_restarts=4, seed=7)
+    fit_b = fit_hmm(obs, n_states=2, n_restarts=4, seed=7)
+
+    # Seed reproducibility.
+    np.testing.assert_allclose(fit_a.means, fit_b.means)
+
+    # Recover the two cluster means (order-agnostic).
+    recovered = np.sort(fit_a.means.ravel())
+    np.testing.assert_allclose(recovered, np.array([0.0, 5.0]), atol=0.4)
+
+    # Transition matrix rows are valid distributions.
+    np.testing.assert_allclose(fit_a.trans_mat.sum(axis=1), np.ones(2), atol=1e-9)
