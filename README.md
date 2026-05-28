@@ -17,6 +17,8 @@ pass the same gates.
 
 See [§ Status & roadmap](#status--roadmap) for explicitly-deferred items.
 
+**Charter:** [`docs/CHARTER.md`](docs/CHARTER.md) — the governing methodology every strategy and backtest is held to.
+
 **Design spec:** [`docs/specs/2026-05-23-quant-trading-design.md`](docs/specs/2026-05-23-quant-trading-design.md)
 
 ## What this is
