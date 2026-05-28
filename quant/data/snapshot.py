@@ -49,7 +49,9 @@ def _sha256(path: Path) -> str:
 def _symbol_manifest(data_dir: Path, symbol: str) -> SnapshotSymbol:
     path = data_dir / "raw" / f"{symbol}.parquet"
     if not path.exists():
-        return SnapshotSymbol(symbol=symbol, path=str(path), sha256="", rows=0, data_start=None, data_end=None)
+        return SnapshotSymbol(
+            symbol=symbol, path=str(path), sha256="", rows=0, data_start=None, data_end=None
+        )
     df = pd.read_parquet(path)
     idx = pd.DatetimeIndex(df.index)
     return SnapshotSymbol(

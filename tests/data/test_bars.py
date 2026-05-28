@@ -194,9 +194,7 @@ def test_fetch_yfinance_single_symbol_handles_multiindex_columns(
             ("SPY", "Adj Close"): [101.0, 102.0],
             ("SPY", "Volume"): [1_000_000, 1_100_000],
         },
-        index=pd.DatetimeIndex(
-            [pd.Timestamp(date(2024, 1, 2)), pd.Timestamp(date(2024, 1, 3))]
-        ),
+        index=pd.DatetimeIndex([pd.Timestamp(date(2024, 1, 2)), pd.Timestamp(date(2024, 1, 3))]),
     )
     with patch("yfinance.download", return_value=fake_yf_response):
         out = _fetch_yfinance(["SPY"], date(2024, 1, 2), date(2024, 1, 3))

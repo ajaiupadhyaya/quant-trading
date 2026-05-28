@@ -70,7 +70,9 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     try:
         text = json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n"
     except ValueError as exc:
-        raise GovernanceError(f"Cannot write governance artifact with non-finite values: {path}") from exc
+        raise GovernanceError(
+            f"Cannot write governance artifact with non-finite values: {path}"
+        ) from exc
     path.write_text(text, encoding="utf-8")
 
 
@@ -146,9 +148,7 @@ def _expect_str_list(raw: dict[str, Any], key: str, path: Path) -> list[str]:
     return value
 
 
-def write_validation_manifest(
-    path: Path, evidence_by_slug: dict[str, ValidationEvidence]
-) -> None:
+def write_validation_manifest(path: Path, evidence_by_slug: dict[str, ValidationEvidence]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": 1,

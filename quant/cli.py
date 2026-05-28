@@ -1011,7 +1011,9 @@ def governance_drift() -> None:
             f"{row.z_score:+.2f}",
             row.flag,
         )
-    console.print(table if rows else "[yellow]Not enough paper equity history for drift windows.[/yellow]")
+    console.print(
+        table if rows else "[yellow]Not enough paper equity history for drift windows.[/yellow]"
+    )
     console.print(f"[dim]wrote {path}[/dim]")
 
 
@@ -1032,7 +1034,9 @@ def governance_resume(reason: str) -> None:
 
     settings = Settings()  # type: ignore[call-arg]
     state = clear_halt(settings.data_dir, reason=reason)
-    console.print(f"[green]Governance resumed[/green] at {state.updated_at.isoformat()}: {state.reason}")
+    console.print(
+        f"[green]Governance resumed[/green] at {state.updated_at.isoformat()}: {state.reason}"
+    )
 
 
 @cli.group(help="Data subcommands.")
@@ -1139,7 +1143,9 @@ def data_snapshot(symbols: str, start: str, end: str, snapshot_id: str | None) -
 @data.command("quality", help="Run daily bar cache quality checks and write ops health.")
 @click.option("--symbols", default=None, help="Comma-separated symbols. Default: all raw caches.")
 @click.option("--start", default="2010-01-01", show_default=True)
-@click.option("--end", default=None, help="End date (YYYY-MM-DD). Default: last completed trading day.")
+@click.option(
+    "--end", default=None, help="End date (YYYY-MM-DD). Default: last completed trading day."
+)
 def data_quality(symbols: str | None, start: str, end: str | None) -> None:
     from quant.data.quality import evaluate_bar_quality
 

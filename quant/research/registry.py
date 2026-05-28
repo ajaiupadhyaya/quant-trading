@@ -60,7 +60,9 @@ class ExperimentRecord:
             gates={str(k): bool(v) for k, v in gates.items()},
             artifacts={str(k): str(v) for k, v in artifacts.items()},
             data_snapshot_id=(
-                None if payload.get("data_snapshot_id") is None else str(payload["data_snapshot_id"])
+                None
+                if payload.get("data_snapshot_id") is None
+                else str(payload["data_snapshot_id"])
             ),
             wall_time_seconds=float(wall_time),
         )

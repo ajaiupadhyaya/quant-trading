@@ -37,10 +37,18 @@ REPORT_DIR = REPO_ROOT / "docs" / "live-recon"
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Reconcile live Alpaca fills vs backtest model.")
-    parser.add_argument("--since", type=date.fromisoformat, default=None,
-                        help="Start date (inclusive). Default: 7 days before --until.")
-    parser.add_argument("--until", type=date.fromisoformat, default=date.today(),
-                        help="End date (inclusive). Default: today.")
+    parser.add_argument(
+        "--since",
+        type=date.fromisoformat,
+        default=None,
+        help="Start date (inclusive). Default: 7 days before --until.",
+    )
+    parser.add_argument(
+        "--until",
+        type=date.fromisoformat,
+        default=date.today(),
+        help="End date (inclusive). Default: today.",
+    )
     return parser.parse_args()
 
 
@@ -151,7 +159,8 @@ def main() -> int:
 
     if trades.empty:
         report = ReconciliationReport(
-            since=since, until=until,
+            since=since,
+            until=until,
             modeled_slippage_bps=BacktestConfig().slippage_bps,
             rows=[],
         )

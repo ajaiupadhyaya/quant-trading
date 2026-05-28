@@ -131,9 +131,7 @@ def validation_report_to_evidence(data_dir: Path, slug: str) -> ValidationEviden
             gate_regime=_expect_bool(raw, "gate_regime", data_dir, slug),
             gate_holdout=_expect_bool(raw, "gate_holdout", data_dir, slug),
             deflated_sharpe=_expect_number(raw, "deflated_sharpe", data_dir, slug),
-            probabilistic_sharpe=_expect_number(
-                raw, "probabilistic_sharpe", data_dir, slug
-            ),
+            probabilistic_sharpe=_expect_number(raw, "probabilistic_sharpe", data_dir, slug),
             bootstrap_total_return_p05=_expect_optional_number(
                 raw, "bootstrap_total_return_p05", data_dir, slug
             ),

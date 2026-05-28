@@ -296,9 +296,7 @@ def test_missing_governance_artifacts_fail_closed_for_default_rebalance(
     assert "governance" in report.skipped_reason.lower()
 
 
-def test_include_quarantined_requires_dry_run(
-    fake_settings: Settings, patched_bars: None
-) -> None:
+def test_include_quarantined_requires_dry_run(fake_settings: Settings, patched_bars: None) -> None:
     _write_state_file(fake_settings.data_dir, {"momentum": "quarantined"})
     client = _StubAlpacaClient()
     report = run_rebalance(
@@ -314,9 +312,7 @@ def test_include_quarantined_requires_dry_run(
     assert "dry-run" in report.skipped_reason.lower()
 
 
-def test_emergency_halt_blocks_non_dry_run(
-    fake_settings: Settings, patched_bars: None
-) -> None:
+def test_emergency_halt_blocks_non_dry_run(fake_settings: Settings, patched_bars: None) -> None:
     from quant.governance.halt import set_halt
 
     set_halt(fake_settings.data_dir, reason="operator stop")

@@ -67,7 +67,9 @@ def evaluate_bar_quality(
         low = bars["low"].astype(float)
         open_ = bars["open"].astype(float)
         close = bars["close"].astype(float)
-        impossible = int(((high < low) | (open_ > high) | (open_ < low) | (close > high) | (close < low)).sum())
+        impossible = int(
+            ((high < low) | (open_ > high) | (open_ < low) | (close > high) | (close < low)).sum()
+        )
         last_date = unique_idx.max().date()
         stale = (pd.Timestamp(end).date() - last_date).days > stale_after_days
         out[symbol] = SymbolQuality(

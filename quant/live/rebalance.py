@@ -91,7 +91,9 @@ def _governance_selected_strategies(
     for slug, state in sorted(states.items()):
         if slug not in REGISTRY:
             continue
-        if state.state is GovernanceState.LIVE or (include_quarantined and state.state is GovernanceState.QUARANTINED):
+        if state.state is GovernanceState.LIVE or (
+            include_quarantined and state.state is GovernanceState.QUARANTINED
+        ):
             selected.append(slug)
     return selected, None
 

@@ -59,7 +59,7 @@ def summarize_drift(
             diff = recent["realized"] - recent["expected"]
             vol = float(diff.std(ddof=1))
             gap = float(diff.sum())
-            z = 0.0 if vol <= 0 else gap / (vol * (window ** 0.5))
+            z = 0.0 if vol <= 0 else gap / (vol * (window**0.5))
             rows.append(
                 DriftRow(
                     strategy=slug,

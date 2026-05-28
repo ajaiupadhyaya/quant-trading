@@ -81,9 +81,7 @@ class ReconciliationReport:
                 "n_rejected": sum(1 for r in rows if r.status == "rejected"),
                 "n_missing": sum(1 for r in rows if r.status == "missing"),
                 "mean_slippage_bps": mean(slippages) if slippages else None,
-                "median_fill_lag_s": (
-                    sorted(lags)[len(lags) // 2] if lags else None
-                ),
+                "median_fill_lag_s": (sorted(lags)[len(lags) // 2] if lags else None),
             }
         return out
 
@@ -117,9 +115,7 @@ def reconcile(
     for _, t in trades.iterrows():
         coid = str(t["client_order_id"])
         order = orders_by_coid.get(coid)
-        submission_date = (
-            t["date"].date() if hasattr(t["date"], "date") else t["date"]
-        )
+        submission_date = t["date"].date() if hasattr(t["date"], "date") else t["date"]
 
         if order is None:
             rows.append(

@@ -84,7 +84,7 @@ def test_defensive_etf_risk_off_uses_defensive_assets_only(
     etf_bars: pd.DataFrame,
 ) -> None:
     stressed = etf_bars.copy()
-    stressed.loc[stressed.index[-260]:, ("SPY", "close")] = pd.Series(
+    stressed.loc[stressed.index[-260] :, ("SPY", "close")] = pd.Series(
         range(260, 0, -1), index=stressed.index[-260:]
     ).astype(float)
     strat = DefensiveETFAllocation.build(bars=stressed)

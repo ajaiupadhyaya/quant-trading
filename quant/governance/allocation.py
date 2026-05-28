@@ -43,10 +43,7 @@ def allocate_capital(
             evidence = evidence_by_slug.get(slug)
             raw[slug] = max(float(evidence.deflated_sharpe), 0.0) if evidence else 0.0
     else:
-        raw = {
-            slug: _evidence_score(evidence_by_slug.get(slug))
-            for slug in live
-        }
+        raw = {slug: _evidence_score(evidence_by_slug.get(slug)) for slug in live}
     if sum(raw.values()) <= 0:
         raw = {slug: 1.0 for slug in live}
     return _normalize_with_cap_and_floor(
@@ -117,9 +114,6 @@ def _normalize_with_cap_and_floor(
     if free_total <= 0:
         scaled = {slug: (1.0 - locked_total) / len(free) for slug in free}
     else:
-        scaled = {
-            slug: weight / free_total * (1.0 - locked_total)
-            for slug, weight in free.items()
-        }
+        scaled = {slug: weight / free_total * (1.0 - locked_total) for slug, weight in free.items()}
     combined = {**below, **scaled}
     return _normalize_with_cap(combined, max_weight=max_weight)

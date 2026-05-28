@@ -44,7 +44,9 @@ def build_pretrade_report(
     for order in orders:
         price = float(reference_prices.get(order.symbol, 0.0))
         signed = 1.0 if order.side is OrderSide.BUY else -1.0
-        symbol_notional[order.symbol] = symbol_notional.get(order.symbol, 0.0) + signed * order.qty * price
+        symbol_notional[order.symbol] = (
+            symbol_notional.get(order.symbol, 0.0) + signed * order.qty * price
+        )
 
     denominator = max(float(equity), 1e-9)
     symbol_weights = {

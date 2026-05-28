@@ -43,9 +43,7 @@ def _snapshot(client: AlpacaClient) -> dict[str, object]:
     }
 
 
-def _diff_positions(
-    prev: dict[str, int], cur: dict[str, int]
-) -> list[str]:
+def _diff_positions(prev: dict[str, int], cur: dict[str, int]) -> list[str]:
     """Return human-readable diff strings for position changes."""
     diffs: list[str] = []
     for sym in sorted(set(prev) | set(cur)):
@@ -108,8 +106,7 @@ def main() -> int:
             ts = datetime.now(UTC).strftime("%H:%M:%SZ")
             line = (
                 f"[{ts}] eq=${cur['equity']:,.0f} uPL=${cur['unrealized_pl']:+,.0f} "
-                f"cash=${cur['cash']:,.0f} pos={cur['n_positions']} | "
-                + " ".join(reasons)
+                f"cash=${cur['cash']:,.0f} pos={cur['n_positions']} | " + " ".join(reasons)
             )
             sys.stdout.write(line + "\n")
             sys.stdout.flush()

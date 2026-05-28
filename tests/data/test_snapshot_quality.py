@@ -20,7 +20,13 @@ def _write_raw(data_dir: Path, symbol: str, df: pd.DataFrame) -> None:
 def test_create_data_snapshot_hashes_raw_inputs(tmp_data_dir: Path) -> None:
     dates = pd.bdate_range("2026-01-01", periods=3)
     df = pd.DataFrame(
-        {"open": [1, 2, 3], "high": [2, 3, 4], "low": [1, 2, 3], "close": [2, 3, 4], "volume": [10, 10, 10]},
+        {
+            "open": [1, 2, 3],
+            "high": [2, 3, 4],
+            "low": [1, 2, 3],
+            "close": [2, 3, 4],
+            "volume": [10, 10, 10],
+        },
         index=pd.DatetimeIndex(dates, name="timestamp"),
     )
     _write_raw(tmp_data_dir, "SPY", df)

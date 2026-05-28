@@ -90,7 +90,9 @@ def _write_execution_cost_section(buf: StringIO, report: ReconciliationReport) -
     buf.write("\n## Execution cost (fill-time mid)\n\n")
     rows = [r for r in report.rows if r.execution_cost_bps is not None]
     if not rows:
-        buf.write("_no fill-time mid prices available; rows are marked `no_mid_price` when requested._\n")
+        buf.write(
+            "_no fill-time mid prices available; rows are marked `no_mid_price` when requested._\n"
+        )
         return
     buf.write("| coid | symbol | side | mid | fill | cost (bps) |\n|---|---|---|---:|---:|---:|\n")
     for r in rows:
@@ -106,14 +108,17 @@ def _write_execution_cost_section(buf: StringIO, report: ReconciliationReport) -
 def _write_fidelity_section(buf: StringIO, report: ReconciliationReport) -> None:
     buf.write("\n## Fidelity\n\n")
     flagged = [
-        r for r in report.rows
+        r
+        for r in report.rows
         if r.status
         in {"partial", "rejected", "missing", "no_signal_price", "no_fill_price", "no_mid_price"}
     ]
     if not flagged:
         buf.write("_all orders filled cleanly._\n")
         return
-    buf.write("| coid | symbol | side | submitted | filled | status |\n|---|---|---|---:|---:|---|\n")
+    buf.write(
+        "| coid | symbol | side | submitted | filled | status |\n|---|---|---|---:|---:|---|\n"
+    )
     for r in flagged:
         buf.write(
             f"| `{r.client_order_id}` | {r.symbol} | {r.side} | "
@@ -124,7 +129,9 @@ def _write_fidelity_section(buf: StringIO, report: ReconciliationReport) -> None
 def _write_per_symbol_section(buf: StringIO, report: ReconciliationReport) -> None:
     buf.write("\n## Per-symbol breakdown\n\n")
     by_sym = report.aggregate_by_symbol()
-    buf.write("| symbol | n filled | mean slippage (bps) | median lag (s) |\n|---|---:|---:|---:|\n")
+    buf.write(
+        "| symbol | n filled | mean slippage (bps) | median lag (s) |\n|---|---:|---:|---:|\n"
+    )
     for sym, stats in sorted(by_sym.items()):
         slip = stats["mean_slippage_bps"]
         lag = stats["median_fill_lag_s"]

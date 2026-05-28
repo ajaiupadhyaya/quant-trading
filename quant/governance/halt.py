@@ -22,7 +22,9 @@ def halt_path(data_dir: Path) -> Path:
 def load_halt(data_dir: Path) -> HaltState:
     path = halt_path(data_dir)
     if not path.exists():
-        return HaltState(active=False, reason="not halted", updated_at=datetime.fromtimestamp(0, UTC))
+        return HaltState(
+            active=False, reason="not halted", updated_at=datetime.fromtimestamp(0, UTC)
+        )
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"Malformed halt artifact: {path}")
