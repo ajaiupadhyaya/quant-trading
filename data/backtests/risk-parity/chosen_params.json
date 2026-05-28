@@ -1,221 +1,85 @@
 {
   "slug": "risk-parity",
   "strategy_name": "HRP All-Weather",
-  "n_windows": 19,
-  "latest": {
-    "vol_target_annual": 0.06,
-    "lookback_days": 504,
-    "shrinkage_floor": 0.2
-  },
+  "n_windows": 11,
+  "latest": {},
   "windows": [
-    {
-      "train_start": "2010-01-01",
-      "train_end": "2014-12-31",
-      "test_start": "2015-01-01",
-      "test_end": "2015-12-31",
-      "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 126,
-        "shrinkage_floor": 0.4
-      }
-    },
-    {
-      "train_start": "2010-07-01",
-      "train_end": "2015-06-30",
-      "test_start": "2015-07-01",
-      "test_end": "2016-06-30",
-      "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 126,
-        "shrinkage_floor": 0.4
-      }
-    },
-    {
-      "train_start": "2011-01-01",
-      "train_end": "2015-12-31",
-      "test_start": "2016-01-01",
-      "test_end": "2016-12-31",
-      "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 252,
-        "shrinkage_floor": 0.4
-      }
-    },
-    {
-      "train_start": "2011-07-01",
-      "train_end": "2016-06-30",
-      "test_start": "2016-07-01",
-      "test_end": "2017-06-30",
-      "params": {
-        "vol_target_annual": 0.06,
-        "lookback_days": 126,
-        "shrinkage_floor": 0.4
-      }
-    },
-    {
-      "train_start": "2012-01-01",
-      "train_end": "2016-12-31",
-      "test_start": "2017-01-01",
-      "test_end": "2017-12-31",
-      "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 126,
-        "shrinkage_floor": 0.4
-      }
-    },
-    {
-      "train_start": "2012-07-01",
-      "train_end": "2017-06-30",
-      "test_start": "2017-07-01",
-      "test_end": "2018-06-30",
-      "params": {
-        "vol_target_annual": 0.06,
-        "lookback_days": 63,
-        "shrinkage_floor": 0.4
-      }
-    },
-    {
-      "train_start": "2013-01-01",
-      "train_end": "2017-12-31",
-      "test_start": "2018-01-01",
-      "test_end": "2018-12-31",
-      "params": {
-        "vol_target_annual": 0.06,
-        "lookback_days": 63,
-        "shrinkage_floor": 0.4
-      }
-    },
-    {
-      "train_start": "2013-07-01",
-      "train_end": "2018-06-30",
-      "test_start": "2018-07-01",
-      "test_end": "2019-06-30",
-      "params": {
-        "vol_target_annual": 0.06,
-        "lookback_days": 63,
-        "shrinkage_floor": 0.4
-      }
-    },
-    {
-      "train_start": "2014-01-01",
-      "train_end": "2018-12-31",
-      "test_start": "2019-01-01",
-      "test_end": "2019-12-31",
-      "params": {
-        "vol_target_annual": 0.06,
-        "lookback_days": 63,
-        "shrinkage_floor": 0.4
-      }
-    },
-    {
-      "train_start": "2014-07-01",
-      "train_end": "2019-06-30",
-      "test_start": "2019-07-01",
-      "test_end": "2020-06-30",
-      "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 252,
-        "shrinkage_floor": 0.4
-      }
-    },
     {
       "train_start": "2015-01-01",
       "train_end": "2019-12-31",
       "test_start": "2020-01-01",
       "test_end": "2020-12-31",
-      "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 252,
-        "shrinkage_floor": 0.4
-      }
+      "params": {}
     },
     {
       "train_start": "2015-07-01",
       "train_end": "2020-06-30",
       "test_start": "2020-07-01",
       "test_end": "2021-06-30",
-      "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 252,
-        "shrinkage_floor": 0.0
-      }
+      "params": {}
     },
     {
       "train_start": "2016-01-01",
       "train_end": "2020-12-31",
       "test_start": "2021-01-01",
       "test_end": "2021-12-31",
-      "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 252,
-        "shrinkage_floor": 0.0
-      }
+      "params": {}
     },
     {
       "train_start": "2016-07-01",
       "train_end": "2021-06-30",
       "test_start": "2021-07-01",
       "test_end": "2022-06-30",
-      "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 504,
-        "shrinkage_floor": 0.4
-      }
+      "params": {}
     },
     {
       "train_start": "2017-01-01",
       "train_end": "2021-12-31",
       "test_start": "2022-01-01",
       "test_end": "2022-12-31",
-      "params": {
-        "vol_target_annual": 0.08,
-        "lookback_days": 252,
-        "shrinkage_floor": 0.0
-      }
+      "params": {}
     },
     {
       "train_start": "2017-07-01",
       "train_end": "2022-06-30",
       "test_start": "2022-07-01",
       "test_end": "2023-06-30",
-      "params": {
-        "vol_target_annual": 0.06,
-        "lookback_days": 504,
-        "shrinkage_floor": 0.0
-      }
+      "params": {}
     },
     {
       "train_start": "2018-01-01",
       "train_end": "2022-12-31",
       "test_start": "2023-01-01",
       "test_end": "2023-12-31",
-      "params": {
-        "vol_target_annual": 0.06,
-        "lookback_days": 504,
-        "shrinkage_floor": 0.0
-      }
+      "params": {}
     },
     {
       "train_start": "2018-07-01",
       "train_end": "2023-06-30",
       "test_start": "2023-07-01",
       "test_end": "2024-06-30",
-      "params": {
-        "vol_target_annual": 0.06,
-        "lookback_days": 504,
-        "shrinkage_floor": 0.2
-      }
+      "params": {}
     },
     {
       "train_start": "2019-01-01",
       "train_end": "2023-12-31",
       "test_start": "2024-01-01",
       "test_end": "2024-12-31",
-      "params": {
-        "vol_target_annual": 0.06,
-        "lookback_days": 504,
-        "shrinkage_floor": 0.2
-      }
+      "params": {}
+    },
+    {
+      "train_start": "2019-07-01",
+      "train_end": "2024-06-30",
+      "test_start": "2024-07-01",
+      "test_end": "2025-06-30",
+      "params": {}
+    },
+    {
+      "train_start": "2020-01-01",
+      "train_end": "2024-12-31",
+      "test_start": "2025-01-01",
+      "test_end": "2025-12-31",
+      "params": {}
     }
   ]
 }
