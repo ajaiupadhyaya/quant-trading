@@ -59,3 +59,5 @@ def test_default_config_values() -> None:
     assert cfg.slippage_bps == 5.0
     assert cfg.commission_bps == 0.0
     assert cfg.execution == "next_open"
+    assert cfg.annual_borrow_bps == 50.0
+    assert cfg.annual_financing_bps == 200.0

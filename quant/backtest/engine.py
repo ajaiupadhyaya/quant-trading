@@ -27,6 +27,11 @@ class BacktestConfig:
     starting_equity: float = 100_000.0
     slippage_bps: float = 5.0
     commission_bps: float = 0.0
+    # Financing (gap #2, slice 2a): short borrow fee + margin-debit financing,
+    # accrued daily (actual/365). On by default. annual_financing_bps is a flat
+    # approximation of the broker call rate and only bites under >1x gross.
+    annual_borrow_bps: float = 50.0
+    annual_financing_bps: float = 200.0
     execution: Literal["next_open", "close"] = "next_open"
 
 
