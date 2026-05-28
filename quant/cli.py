@@ -1284,6 +1284,133 @@ def research_leaderboard(metric: str) -> None:
     console.print(table)
 
 
+@cli.group(help="Market-wide regime detection (HMM/Kalman) — an observed, gated signal.")
+def regime() -> None:
+    pass
+
+
+def _git_sha() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=Path.cwd(), text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
+def _regime_series_path() -> Path:
+    return Settings().data_dir / "regime" / "regime_series.parquet"  # type: ignore[call-arg]
+
+
+@regime.command("fit", help="Refit the HMM walk-forward and persist the daily regime series.")
+@click.option("--start", default="2010-01-01", show_default=True)
+@click.option("--end", default=None, help="History end (YYYY-MM-DD). Default: today.")
+def regime_fit(start: str, end: str | None) -> None:
+    from quant.regime.detect import DetectConfig, persist_regime_series, run_detection
+    from quant.regime.features import FeatureConfig, load_market_features
+    from quant.research.registry import ExperimentRecord, append_experiment
+
+    settings = Settings()  # type: ignore[call-arg]
+    start_date = pd.Timestamp(start).date()
+    end_date = pd.Timestamp(end).date() if end else pd.Timestamp.today().date()
+    feats = load_market_features(start_date, end_date, FeatureConfig())
+    series = run_detection(feats, DetectConfig())
+    path = persist_regime_series(series, settings.data_dir)
+
+    append_experiment(
+        settings.data_dir / "research" / "experiments.jsonl",
+        ExperimentRecord(
+            run_id=f"regime-{uuid.uuid4().hex[:12]}",
+            created_at=datetime.now(UTC).replace(microsecond=0),
+            strategy="regime",
+            kind="research",
+            git_sha=_git_sha(),
+            command=f"quant regime fit --start {start} --end {end_date}",
+            params={"start": str(start_date), "end": str(end_date)},
+            metrics={"n_days": float(len(series))},
+            gates={},
+            artifacts={"regime_series": str(path)},
+            data_snapshot_id=None,
+            wall_time_seconds=0.0,
+        ),
+    )
+    console.print(f"[green]Wrote {len(series)} regime rows to {path}[/green]")
+
+
+@regime.command("label", help="Print the regime label + posterior as of a date (default latest).")
+@click.option("--asof", default=None, help="Date (YYYY-MM-DD). Default: latest row.")
+def regime_label(asof: str | None) -> None:
+    path = _regime_series_path()
+    if not path.exists():
+        raise click.ClickException("No regime series. Run `quant regime fit` first.")
+    frame = pd.read_parquet(path)
+    row = frame.loc[pd.Timestamp(asof)] if asof else frame.iloc[-1]
+    title_date = asof if asof else str(pd.Timestamp(frame.index[-1]).date())
+    table = Table(title="Regime as of " + title_date)
+    for col in ("Label", "p(calm)", "p(choppy)", "p(crisis)"):
+        table.add_column(col)
+    label_val = str(row["label"])
+    p_calm = f"{float(row['p_calm']):.2f}"
+    p_choppy = f"{float(row['p_choppy']):.2f}"
+    p_crisis = f"{float(row['p_crisis']):.2f}"
+    table.add_row(label_val, p_calm, p_choppy, p_crisis)
+    console.print(table)
+
+
+@regime.command("validate", help="Run the four out-of-sample gates and log to the registry.")
+@click.option("--start", default="2010-01-01", show_default=True)
+@click.option("--end", default=None)
+def regime_validate(start: str, end: str | None) -> None:
+    from quant.data import bars
+    from quant.regime.detect import DetectConfig, run_detection
+    from quant.regime.features import FeatureConfig, _extract_close, load_market_features
+    from quant.regime.validation import validate_regime_series
+    from quant.research.registry import ExperimentRecord, append_experiment
+
+    settings = Settings()  # type: ignore[call-arg]
+    start_date = pd.Timestamp(start).date()
+    end_date = pd.Timestamp(end).date() if end else pd.Timestamp.today().date()
+    cfg = DetectConfig()
+    feats = load_market_features(start_date, end_date, FeatureConfig())
+    series = run_detection(feats, cfg)
+
+    spy = bars.get_bars(bars.BarRequest(symbols=["SPY"], start=start_date, end=end_date))
+    spy_ret = _extract_close(spy, "SPY").pct_change(fill_method=None)
+    report = validate_regime_series(series, spy_returns=spy_ret)
+
+    # Gate 4: real PIT check — labels invariant under a 90% truncation.
+    cutoff = feats.index[int(len(feats) * 0.9)]
+    trunc = run_detection(feats.loc[:cutoff], cfg)
+    shared = trunc.index.intersection(series.index)
+    pit_ok = bool((series.loc[shared, "label"] == trunc.loc[shared, "label"]).all())
+    gates = {**report.gates, "pit_consistent": pit_ok}
+
+    append_experiment(
+        settings.data_dir / "research" / "experiments.jsonl",
+        ExperimentRecord(
+            run_id=f"regime-{uuid.uuid4().hex[:12]}",
+            created_at=datetime.now(UTC).replace(microsecond=0),
+            strategy="regime",
+            kind="validation",
+            git_sha=_git_sha(),
+            command=f"quant regime validate --start {start} --end {end_date}",
+            params={"start": str(start_date), "end": str(end_date)},
+            metrics=report.metrics,
+            gates=gates,
+            artifacts={},
+            data_snapshot_id=None,
+            wall_time_seconds=0.0,
+        ),
+    )
+    val_table = Table(title="Regime validation gates")
+    val_table.add_column("Gate")
+    val_table.add_column("Pass")
+    for name, ok in gates.items():
+        val_table.add_row(name, "[green]yes[/green]" if ok else "[red]no[/red]")
+    console.print(val_table)
+    console.print(f"Overall: {'PASS' if all(gates.values()) else 'FAIL'}")
+
+
 @cli.group(help="Portfolio risk commands.")
 def risk() -> None:
     pass

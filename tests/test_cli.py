@@ -520,3 +520,32 @@ def test_strategies_shows_governance_column(tmp_data_dir: Path, fake_env: None) 
     result = CliRunner().invoke(cli, ["strategies"])
     assert result.exit_code == 0, result.output
     assert "Governance" in result.output
+
+
+def test_regime_label_and_validate_commands(tmp_path, monkeypatch):
+    import pandas as pd
+
+    monkeypatch.setenv("QUANT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ALPACA_API_KEY", "x")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "y")
+    monkeypatch.setenv("FRED_API_KEY", "z")
+
+    idx = pd.bdate_range("2020-01-01", periods=10)
+    frame = pd.DataFrame(
+        {
+            "p_calm": 0.7,
+            "p_choppy": 0.2,
+            "p_crisis": 0.1,
+            "label": "calm-bull",
+            "refit_epoch": 0,
+        },
+        index=idx,
+    )
+    frame.index.name = "date"
+    out = tmp_path / "regime" / "regime_series.parquet"
+    out.parent.mkdir(parents=True)
+    frame.to_parquet(out)
+
+    result = CliRunner().invoke(cli, ["regime", "label"])
+    assert result.exit_code == 0, result.output
+    assert "calm-bull" in result.output
