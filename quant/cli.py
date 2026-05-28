@@ -15,7 +15,7 @@ import webbrowser
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import click
 import pandas as pd
@@ -231,6 +231,7 @@ def combined_book(start: str, end: str | None) -> None:
     table.add_column("CAGR", justify="right")
     table.add_column("Max DD", justify="right")
     table.add_column("Turnover", justify="right")
+    table.add_column("Financing $", justify="right")
     for slug in sorted(result.per_strategy):
         sub = result.per_strategy[slug]
         table.add_row(
@@ -241,8 +242,13 @@ def combined_book(start: str, end: str | None) -> None:
             f"{cagr(sub.returns):.2%}",
             f"{max_drawdown(sub.returns):.2%}",
             f"{annualized_turnover(sub.trades, sub.equity_curve):.0%}",
+            f"${float(cast(Any, sub.metadata.get('financing_cost_total')) or 0.0):,.0f}",
         )
     table.add_section()
+    combined_financing: float = sum(
+        float(cast(Any, s.metadata.get("financing_cost_total")) or 0.0)
+        for s in result.per_strategy.values()
+    )
     table.add_row(
         "[bold]COMBINED[/]",
         "100.0%",
@@ -251,6 +257,7 @@ def combined_book(start: str, end: str | None) -> None:
         f"{cagr(result.returns):.2%}",
         f"{max_drawdown(result.returns):.2%}",
         f"{annualized_turnover(result.trades, result.equity_curve):.0%}",
+        f"${combined_financing:,.0f}",
     )
     console.print(table)
 
