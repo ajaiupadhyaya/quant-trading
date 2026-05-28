@@ -154,6 +154,8 @@ def test_write_combined_tearsheet_renders_html(tmp_path) -> None:  # type: ignor
     # Each sub-strategy slug should appear in the breakdown table.
     for slug in result.per_strategy:
         assert slug in html
+    # Turnover row must appear in the combined tear-sheet.
+    assert "Turnover" in html
 
 
 def test_allocation_missing_keys_raises() -> None:
