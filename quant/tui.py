@@ -41,6 +41,25 @@ from quant.util.config import Settings
 REFRESH_SECONDS = 60
 
 
+def latest_regime(data_dir: Path) -> tuple[str, dict[str, float]]:
+    """Return (label, {p_calm,p_choppy,p_crisis}) from the persisted regime series.
+
+    Returns ("unknown", zeros) when no series has been written yet.
+    """
+    path = data_dir / "regime" / "regime_series.parquet"
+    if not path.exists():
+        return "unknown", {"p_calm": 0.0, "p_choppy": 0.0, "p_crisis": 0.0}
+    frame = pd.read_parquet(path)
+    if frame.empty:
+        return "unknown", {"p_calm": 0.0, "p_choppy": 0.0, "p_crisis": 0.0}
+    row = frame.iloc[-1]
+    return str(row["label"]), {
+        "p_calm": float(row["p_calm"]),
+        "p_choppy": float(row["p_choppy"]),
+        "p_crisis": float(row["p_crisis"]),
+    }
+
+
 @dataclass(frozen=True)
 class StrategySnapshot:
     slug: str
@@ -62,6 +81,10 @@ class MonitorSnapshot:
     strategies: list[StrategySnapshot]
     today_trades: pd.DataFrame
     equity_history: pd.DataFrame = field(default_factory=pd.DataFrame)
+    regime_label: str = "unknown"
+    regime_posterior: dict[str, float] = field(
+        default_factory=lambda: {"p_calm": 0.0, "p_choppy": 0.0, "p_crisis": 0.0}
+    )
 
     @classmethod
     def build(
@@ -112,6 +135,8 @@ class MonitorSnapshot:
             for spec in list_strategies()
         ]
 
+        regime_label, regime_posterior = latest_regime(data_dir)
+
         return cls(
             asof=asof,
             account=account,
@@ -119,13 +144,20 @@ class MonitorSnapshot:
             strategies=strategies,
             today_trades=today_trades,
             equity_history=equity_hist,
+            regime_label=regime_label,
+            regime_posterior=regime_posterior,
         )
 
 
 # ---- pure-function renderers (tested independently of Textual) ---------------
 
 
-def render_account_table(account: AccountInfo, today_pnl: float) -> Table:
+def render_account_table(
+    account: AccountInfo,
+    today_pnl: float,
+    regime_label: str = "unknown",
+    regime_posterior: dict[str, float] | None = None,
+) -> Table:
     table = Table(title="Account", show_header=False, expand=True)
     table.add_column("Field", style="bold")
     table.add_column("Value", justify="right")
@@ -135,6 +167,8 @@ def render_account_table(account: AccountInfo, today_pnl: float) -> Table:
     table.add_row("Cash", f"${account.cash:,.2f}")
     table.add_row("Buying Power", f"${account.buying_power:,.2f}")
     table.add_row("Pattern Day Trader", "yes" if account.pattern_day_trader else "no")
+    p_crisis = (regime_posterior or {}).get("p_crisis", 0.0)
+    table.add_row("Regime", f"{regime_label}  (crisis {p_crisis:.0%})")
     return table
 
 
@@ -385,7 +419,14 @@ class QuantMonitor(App[None]):
             filtered_trades = snap.today_trades[snap.today_trades["strategy"] == slug_filter]
 
         if self._account_pane is not None:
-            self._account_pane.update(render_account_table(snap.account, today_pnl))
+            self._account_pane.update(
+                render_account_table(
+                    snap.account,
+                    today_pnl,
+                    regime_label=snap.regime_label,
+                    regime_posterior=snap.regime_posterior,
+                )
+            )
         if self._strategies_pane is not None:
             self._strategies_pane.update(
                 render_strategies_table(snap.strategies, selected=slug_filter)

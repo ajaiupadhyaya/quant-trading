@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from rich.table import Table
 from rich.text import Text
 
@@ -174,3 +175,22 @@ def test_monitor_snapshot_builds_from_stubs(tmp_path: Path) -> None:
     # Strategies snapshot reflects the registry + per-strategy counts.
     momentum = next(s for s in snap.strategies if s.slug == "momentum")
     assert momentum.n_positions == 1
+
+
+def test_snapshot_reads_regime_label(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QUANT_DATA_DIR", str(tmp_path))
+    idx = pd.bdate_range("2020-01-01", periods=3)
+    frame = pd.DataFrame(
+        {"p_calm": 0.6, "p_choppy": 0.3, "p_crisis": 0.1, "label": "calm-bull", "refit_epoch": 0},
+        index=idx,
+    )
+    frame.index.name = "date"
+    path = tmp_path / "regime" / "regime_series.parquet"
+    path.parent.mkdir(parents=True)
+    frame.to_parquet(path)
+
+    from quant.tui import latest_regime
+
+    label, posterior = latest_regime(tmp_path)
+    assert label == "calm-bull"
+    assert posterior["p_crisis"] == 0.1
