@@ -1489,6 +1489,145 @@ def risk_pretrade() -> None:
     console.print(f"[{color}]Pre-trade risk {status}[/{color}]; wrote {out}")
 
 
+@cli.group(
+    help="Position sizing — an observed, comparison-only overlay (vol-target/Kelly/dd/regime)."
+)
+def sizing() -> None:
+    pass
+
+
+def _run_single_backtest(strategy_slug: str, start_date: date, end_date: date):  # type: ignore[no-untyped-def]
+    """Run one default-param backtest and return its BacktestResult."""
+    from quant.backtest.engine import run_backtest
+
+    strategy_cls = REGISTRY[strategy_slug]
+    universe = list(strategy_cls.spec.universe)
+    bars = get_bars(BarRequest(symbols=universe, start=start_date, end=end_date))
+    if bars.empty:
+        raise click.ClickException(f"No bars for {strategy_slug!r} over {start_date}..{end_date}.")
+    strat = strategy_cls.build(bars=bars)
+    return run_backtest(strat, bars, BacktestConfig(), start_date, end_date)
+
+
+def _load_regime_labels() -> pd.Series | None:
+    path = _regime_series_path()
+    if not path.exists():
+        return None
+    frame = pd.read_parquet(path)
+    if "label" not in frame.columns:
+        return None
+    return frame["label"]
+
+
+@sizing.command("compare", help="Compare a strategy's returns with vs without the sizing overlay.")
+@click.argument("strategy")
+@click.option("--start", default="2018-01-01", show_default=True)
+@click.option("--end", default=None, help="History end (YYYY-MM-DD). Default: today.")
+@click.option("--target-vol", default=0.15, show_default=True, type=float)
+@click.option("--max-leverage", default=2.0, show_default=True, type=float)
+@click.option("--kelly-fraction", default=0.5, show_default=True, type=float)
+@click.option("--dd-floor", default=0.20, show_default=True, type=float)
+@click.option("--no-vol-target", is_flag=True, default=False)
+@click.option("--no-kelly", is_flag=True, default=False)
+@click.option("--no-drawdown", is_flag=True, default=False)
+@click.option("--no-regime", is_flag=True, default=False)
+def sizing_compare(
+    strategy: str,
+    start: str,
+    end: str | None,
+    target_vol: float,
+    max_leverage: float,
+    kelly_fraction: float,
+    dd_floor: float,
+    no_vol_target: bool,
+    no_kelly: bool,
+    no_drawdown: bool,
+    no_regime: bool,
+) -> None:
+    from quant.research.registry import ExperimentRecord, append_experiment
+    from quant.sizing import SizingConfig, compare_sizing
+
+    _require_strategy(strategy)
+    settings = Settings()  # type: ignore[call-arg]
+    start_date = date.fromisoformat(start)
+    end_date = date.fromisoformat(end) if end else date.today()
+
+    console.print(f"[bold]Backtesting {strategy} {start_date}..{end_date}...[/bold]")
+    result = _run_single_backtest(strategy, start_date, end_date)
+    returns = result.returns
+    if returns.empty:
+        raise click.ClickException(f"Backtest for {strategy!r} produced no returns.")
+
+    labels = _load_regime_labels()
+    if labels is None:
+        console.print("[yellow]No regime series found; regime component will be neutral.[/yellow]")
+
+    config = SizingConfig(
+        target_vol=target_vol,
+        max_leverage=max_leverage,
+        kelly_fraction=kelly_fraction,
+        dd_floor=dd_floor,
+        use_vol_target=not no_vol_target,
+        use_kelly=not no_kelly,
+        use_drawdown=not no_drawdown,
+        use_regime=not no_regime,
+    )
+    comp = compare_sizing(returns, config, regime_labels=labels)
+
+    table = Table(title=f"Sizing comparison — {strategy}")
+    table.add_column("Metric")
+    table.add_column("Baseline", justify="right")
+    table.add_column("Sized", justify="right")
+    rows = [
+        ("Sharpe", "sharpe"),
+        ("Sortino", "sortino"),
+        ("Max drawdown", "max_drawdown"),
+        ("Ann vol", "ann_vol"),
+        ("CAGR", "cagr"),
+        ("Total return", "total_return"),
+        ("Win rate", "win_rate"),
+    ]
+    for label_text, key in rows:
+        table.add_row(label_text, f"{comp.baseline[key]:.4f}", f"{comp.sized[key]:.4f}")
+    console.print(table)
+    console.print(
+        f"Gross exposure — mean {comp.gross_mean:.2f}, "
+        f"min {comp.gross_min:.2f}, max {comp.gross_max:.2f}"
+    )
+
+    gates = {
+        "gate_sharpe_improved": comp.sized["sharpe"] >= comp.baseline["sharpe"],
+        "gate_maxdd_improved": comp.sized["max_drawdown"] >= comp.baseline["max_drawdown"],
+    }
+    append_experiment(
+        settings.data_dir / "research" / "experiments.jsonl",
+        ExperimentRecord(
+            run_id=f"sizing-{uuid.uuid4().hex[:12]}",
+            created_at=datetime.now(UTC).replace(microsecond=0),
+            strategy=strategy,
+            kind="research",
+            git_sha=_git_sha(),
+            command=f"quant sizing compare {strategy} --start {start_date} --end {end_date}",
+            params={
+                "target_vol": target_vol,
+                "max_leverage": max_leverage,
+                "kelly_fraction": kelly_fraction,
+                "dd_floor": dd_floor,
+                "use_vol_target": not no_vol_target,
+                "use_kelly": not no_kelly,
+                "use_drawdown": not no_drawdown,
+                "use_regime": not no_regime,
+            },
+            metrics={f"sized_{k}": v for k, v in comp.sized.items()}
+            | {"gross_mean": comp.gross_mean},
+            gates=gates,
+            artifacts={},
+            data_snapshot_id=None,
+            wall_time_seconds=0.0,
+        ),
+    )
+
+
 @cli.command(help="List all registered strategies.")
 def strategies() -> None:
     settings = (
