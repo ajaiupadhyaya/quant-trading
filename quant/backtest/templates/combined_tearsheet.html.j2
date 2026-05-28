@@ -33,6 +33,7 @@
       <tr><td class="label">Total Return</td><td class="value">{{ "{:+.2%}".format(metrics.total_return) }}</td></tr>
       <tr><td class="label">CAGR</td><td class="value">{{ "{:+.2%}".format(metrics.cagr) }}</td></tr>
       <tr><td class="label">Sharpe</td><td class="value">{{ "{:.2f}".format(metrics.sharpe) }}</td></tr>
+      <tr><td class="label">Turnover (ann., 1-way)</td><td class="value">{{ "{:.0%}".format(metrics.turnover) }}</td></tr>
       <tr><td class="label">Sortino</td><td class="value">{{ "{:.2f}".format(metrics.sortino) }}</td></tr>
       <tr><td class="label">Max Drawdown</td><td class="value">{{ "{:.2%}".format(metrics.max_drawdown) }}</td></tr>
       <tr><td class="label">Win Rate (daily)</td><td class="value">{{ "{:.1%}".format(metrics.win_rate) }}</td></tr>
@@ -61,7 +62,7 @@
       <thead>
         <tr>
           <th>Strategy</th><th>Alloc</th><th>Start $</th><th>End $</th>
-          <th>Total Ret</th><th>Sharpe</th><th>CAGR</th><th>Max DD</th><th>Trades</th>
+          <th>Total Ret</th><th>Sharpe</th><th>CAGR</th><th>Max DD</th><th>Turnover</th><th>Trades</th>
         </tr>
       </thead>
       <tbody>
@@ -75,6 +76,7 @@
             <td class="num">{{ "{:.2f}".format(s.sharpe) }}</td>
             <td class="num">{{ "{:+.2%}".format(s.cagr) }}</td>
             <td class="num">{{ "{:.2%}".format(s.max_drawdown) }}</td>
+            <td class="num">{{ "{:.0%}".format(s.turnover) }}</td>
             <td class="num">{{ s.n_trades }}</td>
           </tr>
         {% endfor %}
