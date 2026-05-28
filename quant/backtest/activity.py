@@ -43,5 +43,7 @@ def annualized_turnover(
     if not np.isfinite(mean_equity) or mean_equity <= _EQUITY_EPS:
         return 0.0
     traded_notional = float((trades["qty"].abs() * trades["fill_price"]).sum())
+    if not np.isfinite(traded_notional):
+        return 0.0
     one_way = traded_notional / 2.0
     return float((one_way / mean_equity) * (periods_per_year / n_days))

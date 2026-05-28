@@ -18,10 +18,18 @@ def _flat_equity(value: float, n_days: int) -> pd.Series:
 
 
 def test_hand_computed_value():
-    # one buy + one sell of $1000 notional each -> two-way $2000, one-way $1000.
+    # two fills of $1000 notional each -> two-way $2000, one-way $1000.
     # mean equity $10,000 over exactly one trading year (252d).
     # (1000 / 10000) * (252 / 252) = 0.10
     trades = _ledger([(100, 10.0), (100, 10.0)])
+    equity = _flat_equity(10_000.0, 252)
+    assert annualized_turnover(trades, equity) == 0.10
+
+
+def test_signed_qty_uses_absolute_notional():
+    # qty sign (buy/sell direction) must not change turnover -- |qty| is used.
+    # A +100 buy and a -100 sell @ $10 over 252d on $10,000 = same 0.10 as two buys.
+    trades = _ledger([(100, 10.0), (-100, 10.0)])
     equity = _flat_equity(10_000.0, 252)
     assert annualized_turnover(trades, equity) == 0.10
 
