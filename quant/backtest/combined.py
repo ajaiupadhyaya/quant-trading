@@ -101,6 +101,8 @@ def run_combined_book(
             starting_equity=slice_equity,
             slippage_bps=config.slippage_bps,
             commission_bps=config.commission_bps,
+            annual_borrow_bps=config.annual_borrow_bps,
+            annual_financing_bps=config.annual_financing_bps,
             execution=config.execution,
         )
         logger.info(

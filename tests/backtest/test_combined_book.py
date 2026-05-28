@@ -169,3 +169,81 @@ def test_allocation_missing_keys_raises() -> None:
             end=date(2023, 12, 31),
             allocation={"strat-a": 1.0},
         )
+
+
+def test_combined_book_charges_financing_to_shorting_substrategy():
+    from datetime import date
+    from typing import ClassVar
+
+    import numpy as np
+    import pandas as pd
+
+    from quant.backtest.combined import run_combined_book
+    from quant.backtest.engine import BacktestConfig
+    from quant.strategies.base import Strategy, StrategySpec
+
+    dates = pd.bdate_range("2024-01-02", "2024-03-29")
+    df = pd.DataFrame(
+        {f: np.full(len(dates), 100.0) for f in ("open", "high", "low", "close")}
+        | {"volume": np.full(len(dates), 1_000_000, dtype=np.int64)},
+        index=dates,
+    )
+    df.index.name = "timestamp"
+    bars = pd.concat({"AAA": df}, axis=1)
+
+    class _Short(Strategy):
+        spec: ClassVar[StrategySpec] = StrategySpec(
+            slug="short-test",
+            name="Short (test)",
+            description="100-share AAA short.",
+            universe=["AAA"],
+            rebalance_frequency="monthly",
+        )
+        default_params: ClassVar[dict[str, object]] = {}
+
+        def __init__(self, bars: pd.DataFrame) -> None:
+            super().__init__(params=None)
+            self._bars = bars
+
+        def generate_signals(self, asof: date) -> pd.Series:
+            return pd.Series({"AAA": -1.0})
+
+        def target_positions(self, asof: date, equity: float) -> dict[str, int]:
+            return {"AAA": -100}
+
+    cfg = BacktestConfig(
+        starting_equity=1_000_000.0,
+        slippage_bps=0.0,
+        commission_bps=0.0,
+        annual_borrow_bps=50.0,
+        annual_financing_bps=0.0,
+        execution="close",
+    )
+    result = run_combined_book(
+        strategies={"short-test": _Short(bars)},
+        bars_per_strategy={"short-test": bars},
+        config=cfg,
+        start=date(2024, 1, 2),
+        end=date(2024, 3, 29),
+        allocation={"short-test": 1.0},
+    )
+    sub = result.per_strategy["short-test"]
+    assert sub.metadata["financing_cost_total"] > 0.0
+
+    cfg0 = BacktestConfig(
+        starting_equity=1_000_000.0,
+        slippage_bps=0.0,
+        commission_bps=0.0,
+        annual_borrow_bps=0.0,
+        annual_financing_bps=0.0,
+        execution="close",
+    )
+    result0 = run_combined_book(
+        strategies={"short-test": _Short(bars)},
+        bars_per_strategy={"short-test": bars},
+        config=cfg0,
+        start=date(2024, 1, 2),
+        end=date(2024, 3, 29),
+        allocation={"short-test": 1.0},
+    )
+    assert result0.per_strategy["short-test"].metadata["financing_cost_total"] == 0.0
