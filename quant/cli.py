@@ -1658,5 +1658,127 @@ def strategies() -> None:
     console.print(table)
 
 
+@cli.group(help="Monitoring daemon (guardrails + auto kill-switch) — can HALT, never resumes.")
+def guard() -> None:
+    pass
+
+
+def _enabled_universe_symbols() -> list[str]:
+    """Union of the live-enabled strategies' universes (for bar-freshness)."""
+    from quant.live.safety import enabled_strategy_slugs
+
+    symbols: set[str] = set()
+    for slug in enabled_strategy_slugs():
+        symbols.update(REGISTRY[slug].spec.universe)
+    return sorted(symbols)
+
+
+def _best_effort_positions(settings: Settings) -> tuple[list[Any] | None, str]:
+    """Fetch Alpaca positions for reconciliation; (None, note) on any failure."""
+    try:
+        client = AlpacaClient(settings=settings)
+        return list(client.positions()), "ok"
+    except Exception as exc:  # recon is optional; degrade gracefully
+        return None, f"alpaca unavailable: {exc!r}"
+
+
+def _render_guardrail_table(report: Any) -> Table:
+    table = Table(title="Guardrails", show_header=True)
+    table.add_column("Guardrail")
+    table.add_column("Severity")
+    table.add_column("Detail")
+    palette = {"ok": "green", "warn": "yellow", "halt": "red"}
+    for o in report.outcomes:
+        color = palette.get(o.severity, "white")
+        table.add_row(o.name, f"[{color}]{o.severity}[/{color}]", o.detail)
+    return table
+
+
+@guard.command(
+    "check", help="Evaluate guardrails once and print. Never halts, never writes status."
+)
+def guard_check() -> None:
+    from quant.monitor.daemon import format_heartbeat, gather_inputs
+    from quant.monitor.guardrails import GuardrailConfig, evaluate_guardrails
+
+    settings = Settings()  # type: ignore[call-arg]
+    config = GuardrailConfig()
+    positions, note = _best_effort_positions(settings)
+    if positions is None:
+        console.print(f"[yellow]reconciliation skipped — {note}[/yellow]")
+    inputs = gather_inputs(
+        settings.data_dir,
+        asof=date.today(),
+        config=config,
+        alpaca_positions=positions,
+        symbols=_enabled_universe_symbols(),
+    )
+    report = evaluate_guardrails(inputs, config)
+    console.print(_render_guardrail_table(report))
+    hb = format_heartbeat(
+        inputs, report, datetime.now(UTC).replace(microsecond=0), halt_active=False
+    )
+    console.print(hb)
+    if report.halting:
+        console.print(
+            "[red]A halt-severity guardrail is tripped. `quant guard run` would halt trading.[/red]"
+        )
+
+
+@guard.command(
+    "run", help="Run the monitoring daemon. Auto-halts on a halt verdict (unless --dry-run)."
+)
+@click.option(
+    "--interval", default=300.0, show_default=True, type=float, help="Seconds between ticks."
+)
+@click.option("--once", is_flag=True, default=False, help="Run a single tick and exit.")
+@click.option(
+    "--dry-run", is_flag=True, default=False, help="Evaluate + report but never set the halt."
+)
+@click.option("--max-ticks", default=None, type=int, help="Stop after N ticks (default: forever).")
+def guard_run(interval: float, once: bool, dry_run: bool, max_ticks: int | None) -> None:
+    from quant.monitor.daemon import run_loop, run_once
+    from quant.monitor.guardrails import GuardrailConfig
+
+    settings = Settings()  # type: ignore[call-arg]
+    config = GuardrailConfig()
+    symbols = _enabled_universe_symbols()
+
+    def positions_fn() -> list[Any] | None:
+        pos, _ = _best_effort_positions(settings)
+        return pos
+
+    if once:
+        res = run_once(
+            settings.data_dir,
+            config,
+            alpaca_positions=positions_fn(),
+            symbols=symbols,
+            dry_run=dry_run,
+        )
+        console.print(res.heartbeat)
+        if res.halt_triggered:
+            console.print(
+                "[bold red]TRADING HALTED by the monitor. "
+                "Investigate, then resume with `quant governance resume --reason ...`.[/bold red]"
+            )
+        return
+
+    console.print(
+        f"[bold]Monitor daemon starting (interval={interval}s, dry_run={dry_run}). "
+        "Ctrl-C to stop. The daemon can HALT but never resumes.[/bold]"
+    )
+    run_loop(
+        settings.data_dir,
+        config,
+        interval_s=interval,
+        dry_run=dry_run,
+        max_ticks=max_ticks,
+        alpaca_positions_fn=positions_fn,
+        symbols=symbols,
+        console_print=lambda s: console.print(s),
+    )
+
+
 if __name__ == "__main__":  # pragma: no cover
     cli()
