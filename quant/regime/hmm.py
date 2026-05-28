@@ -97,19 +97,24 @@ def _fit_once(
     for _ in range(max_iter):
         le = log_emission(obs, params)
         gamma, xi_sum, loglik = _forward_backward(le, np.log(start), np.log(trans))
-        # M-step.
-        start = gamma[0] / gamma[0].sum()
-        trans = xi_sum / xi_sum.sum(axis=1, keepdims=True)
-        weights = gamma.sum(axis=0)  # (K,)
-        means = (gamma.T @ obs) / weights[:, None]
-        diff2: np.ndarray = (obs[:, None, :] - means[None, :, :]) ** 2  # (T, K, F)
-        variances = np.einsum("tk,tkf->kf", gamma, diff2) / weights[:, None]
-        variances = np.maximum(variances, var_floor)
-        params = HMMParams(start, trans, means, variances)
         if loglik - prev_ll < tol:
-            break
+            return params, loglik
         prev_ll = loglik
-    return params, prev_ll
+        # M-step -> next params.
+        start = gamma[0] / gamma[0].sum()
+        row_sums = xi_sum.sum(axis=1, keepdims=True)
+        trans = np.divide(
+            xi_sum, row_sums, out=np.full_like(xi_sum, 1.0 / n_states), where=row_sums > 0
+        )
+        weights = gamma.sum(axis=0)
+        means = (gamma.T @ obs) / weights[:, None]
+        diff2: np.ndarray = (obs[:, None, :] - means[None, :, :]) ** 2
+        variances = np.maximum(np.einsum("tk,tkf->kf", gamma, diff2) / weights[:, None], var_floor)
+        params = HMMParams(start, trans, means, variances)
+    # max_iter exhausted: authoritative loglik of the params we return.
+    le = log_emission(obs, params)
+    _, _, loglik = _forward_backward(le, np.log(params.start_prob), np.log(params.trans_mat))
+    return params, loglik
 
 
 def fit_hmm(
@@ -132,5 +137,6 @@ def fit_hmm(
         params, ll = _fit_once(x, n_states, max_iter, tol, var_floor, rng)
         if ll > best_ll:
             best_ll, best = ll, params
-    assert best is not None
+    if best is None:
+        raise ValueError("fit_hmm requires n_restarts >= 1")
     return best

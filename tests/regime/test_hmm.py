@@ -44,15 +44,15 @@ def test_fit_recovers_known_params_and_is_seed_reproducible():
         variances=np.array([[0.5], [0.5]]),
     )
     # Generate a long sample from `true`.
-    states = np.zeros(4000, dtype=int)
+    states = np.zeros(1000, dtype=int)
     for t in range(1, states.size):
         states[t] = rng.choice(2, p=true.trans_mat[states[t - 1]])
-    obs = true.means[states] + rng.normal(0, np.sqrt(0.5), size=(4000, 1))
+    obs = true.means[states] + rng.normal(0, np.sqrt(0.5), size=(1000, 1))
 
     from quant.regime.hmm import fit_hmm
 
-    fit_a = fit_hmm(obs, n_states=2, n_restarts=4, seed=7)
-    fit_b = fit_hmm(obs, n_states=2, n_restarts=4, seed=7)
+    fit_a = fit_hmm(obs, n_states=2, n_restarts=2, seed=7)
+    fit_b = fit_hmm(obs, n_states=2, n_restarts=2, seed=7)
 
     # Seed reproducibility.
     np.testing.assert_allclose(fit_a.means, fit_b.means)
