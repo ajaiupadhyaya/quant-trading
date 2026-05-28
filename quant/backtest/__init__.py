@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from quant.backtest.activity import annualized_turnover
 from quant.backtest.combined import CombinedResult, run_combined_book
 from quant.backtest.engine import BacktestConfig, BacktestResult, run_backtest
 from quant.backtest.tearsheet import write_combined_tearsheet, write_tearsheet
@@ -19,6 +20,7 @@ __all__ = [
     "CombinedResult",
     "WalkforwardResult",
     "WalkforwardWindow",
+    "annualized_turnover",
     "iter_windows",
     "run_backtest",
     "run_combined_book",
