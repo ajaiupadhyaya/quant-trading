@@ -190,6 +190,7 @@ def backtest(strategy: str, quick: bool, start: str, end: str | None) -> None:
 @click.option("--end", default=None, help="History end (YYYY-MM-DD). Default: today.")
 def combined_book(start: str, end: str | None) -> None:
     from quant.backtest import run_combined_book
+    from quant.backtest.activity import annualized_turnover
     from quant.backtest.metrics import cagr, max_drawdown, sharpe
 
     start_date = date.fromisoformat(start)
@@ -229,6 +230,7 @@ def combined_book(start: str, end: str | None) -> None:
     table.add_column("Sharpe", justify="right")
     table.add_column("CAGR", justify="right")
     table.add_column("Max DD", justify="right")
+    table.add_column("Turnover", justify="right")
     for slug in sorted(result.per_strategy):
         sub = result.per_strategy[slug]
         table.add_row(
@@ -238,6 +240,7 @@ def combined_book(start: str, end: str | None) -> None:
             f"{sharpe(sub.returns):.2f}",
             f"{cagr(sub.returns):.2%}",
             f"{max_drawdown(sub.returns):.2%}",
+            f"{annualized_turnover(sub.trades, sub.equity_curve):.0%}",
         )
     table.add_section()
     table.add_row(
@@ -247,6 +250,7 @@ def combined_book(start: str, end: str | None) -> None:
         f"{sharpe(result.returns):.2f}",
         f"{cagr(result.returns):.2%}",
         f"{max_drawdown(result.returns):.2%}",
+        f"{annualized_turnover(result.trades, result.equity_curve):.0%}",
     )
     console.print(table)
 
