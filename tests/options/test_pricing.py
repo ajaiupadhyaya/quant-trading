@@ -1,3 +1,4 @@
+import dataclasses
 import math
 
 import pytest
@@ -70,7 +71,7 @@ def test_nonfinite_inputs_return_nan():
 def test_greeks_is_frozen_dataclass():
     g = bs_greeks(S, K, T, VOL, R, Q, "call")
     assert isinstance(g, Greeks)
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         g.delta = 0.0  # type: ignore[misc]
 
 

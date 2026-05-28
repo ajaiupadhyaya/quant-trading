@@ -10,8 +10,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from scipy.optimize import brentq
-from scipy.stats import norm
+from scipy.optimize import brentq  # type: ignore[import-untyped]
+from scipy.stats import norm  # type: ignore[import-untyped]
 
 
 @dataclass(frozen=True)
@@ -60,8 +60,8 @@ def bs_price(
     disc_q = math.exp(-q * t_years)
     disc_r = math.exp(-r * t_years)
     if right == "call":
-        return spot * disc_q * norm.cdf(d1) - strike * disc_r * norm.cdf(d2)
-    return strike * disc_r * norm.cdf(-d2) - spot * disc_q * norm.cdf(-d1)
+        return float(spot * disc_q * norm.cdf(d1) - strike * disc_r * norm.cdf(d2))
+    return float(strike * disc_r * norm.cdf(-d2) - spot * disc_q * norm.cdf(-d1))
 
 
 def bs_greeks(

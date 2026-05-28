@@ -1641,7 +1641,8 @@ def _spy_close_series(spy_bars: pd.DataFrame) -> pd.Series:
         close = spy_bars["SPY"]["close"]
     else:
         close = spy_bars["close"] if "close" in spy_bars.columns else spy_bars.iloc[:, 0]
-    return close.sort_index().astype(float)
+    out: pd.Series = close.sort_index().astype(float)
+    return out
 
 
 @hedge.command("price", help="Black-Scholes price + Greeks (and implied vol if --mark given).")

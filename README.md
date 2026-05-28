@@ -101,6 +101,30 @@ point-in-time (the day-`t` scalar uses only data through `t-1`) and observation-
 only: it does not change live allocation. Components are individually toggleable
 (`--no-vol-target`, `--no-kelly`, `--no-drawdown`, `--no-regime`).
 
+### Options/Greeks engine + hedging overlay (observed overlay)
+
+An analytic Black-Scholes-Merton core (price, full Greeks, implied vol) plus a
+protective hedging overlay that insures the equity book's tail.
+
+```bash
+uv run quant hedge price --spot 500 --strike 475 --days 30 --vol 0.18 --right put
+uv run quant hedge price ... --mark 6.5      # back out implied vol from a market price
+uv run quant hedge compare <strategy>        # baseline vs SPY-hedged returns + cost
+uv run quant hedge compare trend --structure collar --coverage 0.5 --no-regime
+```
+
+`quant hedge compare` estimates the book's net SPY beta point-in-time, builds an
+index-level hedge (protective `put`, `collar`, or `put_spread`), rolls it on a
+fixed cadence, and reprices every leg daily via Black-Scholes off the cached SPY
+bars — no options-data vendor, fully offline-reproducible. Hedge intensity scales
+with the regime label (light in calm-bull, full in crisis) when a regime series
+is present. Like the sizing overlay it is observation-only and honest about the
+tradeoff: protective puts reduce drawdown and CVaR in crashes but drag Sharpe and
+CAGR in calm markets (the insurance premium is real, and surfaced rather than
+hidden). It logs a `kind="research"` experiment with `gate_maxdd_improved` /
+`gate_cvar_improved` flags. See
+`docs/superpowers/specs/2026-05-28-options-greeks-hedging-overlay-design.md`.
+
 ## Running a backtest
 
 Once at least one strategy is registered (Plans 4-5), run the full walk-forward

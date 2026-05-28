@@ -18,8 +18,20 @@ def test_hedge_price_with_mark_shows_iv():
     res = runner.invoke(
         cli,
         [
-            "hedge", "price", "--spot", "500", "--strike", "480", "--days", "30",
-            "--vol", "0.2", "--mark", "8.0", "--right", "put",
+            "hedge",
+            "price",
+            "--spot",
+            "500",
+            "--strike",
+            "480",
+            "--days",
+            "30",
+            "--vol",
+            "0.2",
+            "--mark",
+            "8.0",
+            "--right",
+            "put",
         ],
     )
     assert res.exit_code == 0, res.output

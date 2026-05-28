@@ -1,3 +1,5 @@
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -68,5 +70,5 @@ def test_comparison_is_frozen_with_expected_keys():
     assert isinstance(comp, HedgeComparison)
     for key in ("sharpe", "max_drawdown", "cvar_5", "worst_day", "cagr"):
         assert key in comp.hedged and key in comp.baseline
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         comp.total_premium = 0.0  # type: ignore[misc]

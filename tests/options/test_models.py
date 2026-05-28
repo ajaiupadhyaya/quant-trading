@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from quant.options.models import HedgeConfig, HedgeDecision, HedgeStructure, OptionLeg
@@ -27,7 +29,7 @@ def test_config_defaults():
 
 def test_config_is_frozen():
     cfg = HedgeConfig()
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         cfg.coverage = 2.0  # type: ignore[misc]
 
 
