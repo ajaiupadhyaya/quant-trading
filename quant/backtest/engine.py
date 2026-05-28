@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 
+from quant.backtest.financing import financing_charge
+
 if TYPE_CHECKING:
     from quant.strategies.base import Strategy
 
@@ -141,6 +143,10 @@ def run_backtest(
     # Pending orders queued by a prior bar's rebalance (only used when execution == "next_open").
     pending: list[tuple[str, int, Side]] = []  # (symbol, qty, side)
 
+    prev_ts: pd.Timestamp | None = None
+    borrow_total: float = 0.0
+    margin_financing_total: float = 0.0
+
     def _execute_fill(ts: pd.Timestamp, sym: str, qty: int, side: Side, mid: float) -> None:
         nonlocal cash
         fill = apply_costs(qty=qty, mid_price=mid, side=side, config=config)
@@ -166,6 +172,27 @@ def run_backtest(
 
     for ts in history:
         asof: date = ts.date()
+
+        # 0. Accrue overnight financing on positions/cash carried from the prior
+        #    bar, priced at the PRIOR bar's close (PIT, no lookahead).
+        if prev_ts is not None:
+            prior_close = {
+                sym: float(bars[(sym, "close")].loc[prev_ts])
+                for sym in positions
+                if (sym, "close") in bars.columns
+            }
+            charge = financing_charge(
+                positions=positions,
+                prior_close=prior_close,
+                cash=cash,
+                days_elapsed=(ts - prev_ts).days,
+                annual_borrow_bps=config.annual_borrow_bps,
+                annual_financing_bps=config.annual_financing_bps,
+            )
+            cash -= charge.total
+            borrow_total += charge.borrow_cost
+            margin_financing_total += charge.margin_financing_cost
+        prev_ts = ts
 
         # 1. Execute pending fills on today's open (if any from prior bar's rebalance).
         if pending:
@@ -239,4 +266,9 @@ def run_backtest(
         config=config,
         starting_equity=config.starting_equity,
         ending_equity=ending_equity,
+        metadata={
+            "borrow_cost": borrow_total,
+            "margin_financing_cost": margin_financing_total,
+            "financing_cost_total": borrow_total + margin_financing_total,
+        },
     )
