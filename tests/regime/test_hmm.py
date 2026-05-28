@@ -63,3 +63,23 @@ def test_fit_recovers_known_params_and_is_seed_reproducible():
 
     # Transition matrix rows are valid distributions.
     np.testing.assert_allclose(fit_a.trans_mat.sum(axis=1), np.ones(2), atol=1e-9)
+
+
+def test_viterbi_recovers_path_and_score_is_finite():
+    from quant.regime.hmm import score, viterbi
+
+    params = HMMParams(
+        start_prob=np.array([0.5, 0.5]),
+        trans_mat=np.array([[0.95, 0.05], [0.05, 0.95]]),
+        means=np.array([[0.0], [10.0]]),
+        variances=np.array([[0.25], [0.25]]),
+    )
+    # Low-noise: first 20 near 0 (state 0), next 20 near 10 (state 1).
+    obs = np.concatenate([np.zeros(20), np.full(20, 10.0)])[:, None] + np.random.default_rng(
+        1
+    ).normal(0, 0.05, size=(40, 1))
+    path = viterbi(obs, params)
+    assert path.shape == (40,)
+    assert path[:20].tolist() == [0] * 20
+    assert path[20:].tolist() == [1] * 20
+    assert np.isfinite(score(obs, params))

@@ -140,3 +140,32 @@ def fit_hmm(
     if best is None:
         raise ValueError("fit_hmm requires n_restarts >= 1")
     return best
+
+
+def viterbi(obs: np.ndarray, params: HMMParams) -> np.ndarray:
+    """Most-likely state path (offline, uses full sample). Returns (T,) int array."""
+    le = log_emission(obs, params)
+    log_trans = np.log(params.trans_mat)
+    n_obs, n_states = le.shape
+    delta = np.empty_like(le)
+    psi = np.zeros_like(le, dtype=int)
+    delta[0] = np.log(params.start_prob) + le[0]
+    for t in range(1, n_obs):
+        scores = delta[t - 1][:, None] + log_trans  # (K, K)
+        psi[t] = np.argmax(scores, axis=0)
+        delta[t] = scores[psi[t], np.arange(n_states)] + le[t]
+    path = np.empty(n_obs, dtype=int)
+    path[-1] = int(np.argmax(delta[-1]))
+    for t in range(n_obs - 2, -1, -1):
+        path[t] = psi[t + 1, path[t + 1]]
+    return path
+
+
+def score(obs: np.ndarray, params: HMMParams) -> float:
+    """Total log-likelihood of obs under params (forward recursion)."""
+    le = log_emission(obs, params)
+    log_trans = np.log(params.trans_mat)
+    log_alpha = np.log(params.start_prob) + le[0]
+    for t in range(1, le.shape[0]):
+        log_alpha = logsumexp(log_alpha[:, None] + log_trans, axis=0) + le[t]
+    return float(logsumexp(log_alpha))
