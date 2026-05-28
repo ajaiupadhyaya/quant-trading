@@ -1,5 +1,14 @@
 {
-  "rows": [],
-  "run_date": "2026-05-27",
+  "rows": [
+    {
+      "expected_return": 0.0,
+      "flag": "normal",
+      "realized_return": -0.00433905609466223,
+      "strategy": "account",
+      "window": 5,
+      "z_score": -0.9130662448319067
+    }
+  ],
+  "run_date": "2026-05-28",
   "version": 1
 }

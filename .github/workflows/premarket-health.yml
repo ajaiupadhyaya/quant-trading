@@ -39,7 +39,7 @@ jobs:
       - name: Governance status
         run: uv run quant governance status
       - name: Data quality
-        run: uv run quant data quality --start 2018-01-01
+        run: uv run quant data quality --start 2018-01-01 --symbols SPY,TLT,IEF,GLD,DBC,VNQ,EFA,EEM
       - name: Dry-run rebalance
         run: uv run quant rebalance --dry-run
       - name: Upload health artifacts

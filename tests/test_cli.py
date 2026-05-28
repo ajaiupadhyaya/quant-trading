@@ -255,6 +255,50 @@ def test_risk_pretrade_command_writes_report(tmp_data_dir: Path, fake_env: None)
     assert payload["rebalance"]["total_orders"] == 1
 
 
+def test_doctor_uses_governance_live_strategies(tmp_data_dir: Path) -> None:
+    from datetime import datetime
+
+    from quant.cli import _doctor_governance_live_slugs
+    from quant.governance.models import GovernanceState, StrategyState
+    from quant.governance.store import strategy_states_path, write_strategy_states
+
+    write_strategy_states(
+        strategy_states_path(tmp_data_dir),
+        {
+            "defensive-etf-allocation": StrategyState(
+                slug="defensive-etf-allocation",
+                state=GovernanceState.LIVE,
+                evaluated_at=datetime(2026, 5, 28),
+                validation_age_days=0,
+                reason_codes=[],
+                reason="eligible",
+                code_enabled_live=True,
+            ),
+            "momentum": StrategyState(
+                slug="momentum",
+                state=GovernanceState.QUARANTINED,
+                evaluated_at=datetime(2026, 5, 28),
+                validation_age_days=1,
+                reason_codes=["gate_failed"],
+                reason="bootstrap failed",
+                code_enabled_live=True,
+            ),
+        },
+    )
+
+    slugs, error = _doctor_governance_live_slugs(tmp_data_dir)
+
+    assert error is None
+    assert slugs == ["defensive-etf-allocation"]
+
+
+def test_data_quality_default_end_uses_last_completed_session() -> None:
+    from quant.cli import _default_data_quality_end_date
+
+    assert _default_data_quality_end_date(date(2026, 5, 28)) == date(2026, 5, 27)
+    assert _default_data_quality_end_date(date(2026, 5, 30)) == date(2026, 5, 29)
+
+
 def test_governance_halt_and_resume_commands(tmp_data_dir: Path, fake_env: None) -> None:
     runner = CliRunner()
     halted = runner.invoke(cli, ["governance", "halt", "--reason", "stop"])

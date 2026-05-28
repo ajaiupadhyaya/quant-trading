@@ -56,6 +56,30 @@ def _can_load_settings() -> bool:
         return False
 
 
+def _doctor_governance_live_slugs(data_dir: Path) -> tuple[list[str], str | None]:
+    from quant.governance.models import GovernanceError, GovernanceState
+    from quant.governance.store import load_strategy_states, strategy_states_path
+
+    try:
+        states = load_strategy_states(strategy_states_path(data_dir))
+    except GovernanceError as exc:
+        return [], str(exc)
+    live = sorted(
+        slug
+        for slug, state in states.items()
+        if slug in REGISTRY and state.state is GovernanceState.LIVE
+    )
+    if not live:
+        return [], "No governance-live strategies; run `quant governance refresh`."
+    return live, None
+
+
+def _default_data_quality_end_date(today: date) -> date:
+    from quant.util.trading_calendar import previous_trading_day
+
+    return previous_trading_day(today)
+
+
 @cli.command(help="Show Alpaca account snapshot and per-strategy attribution.")
 def status() -> None:
     client = AlpacaClient()
@@ -631,7 +655,6 @@ def doctor() -> None:
         check_market_open,
         check_reconciliation,
         check_risk_limits,
-        enabled_strategy_slugs,
     )
 
     checks: list[tuple[str, bool, str]] = []
@@ -651,6 +674,23 @@ def doctor() -> None:
     except Exception as exc:
         checks.append(("config", False, f"Settings() raised: {exc!r}"))
         settings_obj = None
+
+    governance_live_slugs: list[str] = []
+    if settings_obj is not None:
+        governance_live_slugs, governance_error = _doctor_governance_live_slugs(
+            settings_obj.data_dir
+        )
+        checks.append(
+            (
+                "governance",
+                governance_error is None,
+                (
+                    f"{len(governance_live_slugs)} live: {', '.join(governance_live_slugs)}"
+                    if governance_error is None
+                    else governance_error
+                ),
+            )
+        )
 
     # 2. Alpaca connectivity (account fetch).
     alpaca_positions: list[object] = []
@@ -676,7 +716,7 @@ def doctor() -> None:
     # 4. Bar cache freshness.
     if settings_obj is not None:
         # Sample one strategy's universe — pick the smallest one.
-        sample_slug = enabled_strategy_slugs()[:1]
+        sample_slug = governance_live_slugs[:1]
         sample_symbols = list(REGISTRY[sample_slug[0]].spec.universe) if sample_slug else []
         if sample_symbols:
             fresh = check_bar_freshness(
@@ -689,14 +729,14 @@ def doctor() -> None:
         recon = check_reconciliation(
             data_dir=settings_obj.data_dir,
             alpaca_positions=alpaca_positions,  # type: ignore[arg-type]
-            enabled_slugs=enabled_strategy_slugs(),
+            enabled_slugs=governance_live_slugs,
         )
         checks.append(("reconciliation", recon.ok, recon.detail))
 
     # 6. Risk limits.
     if settings_obj is not None:
         risk = check_risk_limits(
-            data_dir=settings_obj.data_dir, enabled_slugs=enabled_strategy_slugs()
+            data_dir=settings_obj.data_dir, enabled_slugs=governance_live_slugs
         )
         checks.append(("risk_limits", risk.ok, risk.detail))
 
@@ -1099,7 +1139,7 @@ def data_snapshot(symbols: str, start: str, end: str, snapshot_id: str | None) -
 @data.command("quality", help="Run daily bar cache quality checks and write ops health.")
 @click.option("--symbols", default=None, help="Comma-separated symbols. Default: all raw caches.")
 @click.option("--start", default="2010-01-01", show_default=True)
-@click.option("--end", default=None, help="End date (YYYY-MM-DD). Default: today.")
+@click.option("--end", default=None, help="End date (YYYY-MM-DD). Default: last completed trading day.")
 def data_quality(symbols: str | None, start: str, end: str | None) -> None:
     from quant.data.quality import evaluate_bar_quality
 
@@ -1116,7 +1156,7 @@ def data_quality(symbols: str | None, start: str, end: str | None) -> None:
             frames[symbol] = pd.read_parquet(path)
         else:
             frames[symbol] = pd.DataFrame()
-    end_date = date.fromisoformat(end) if end else date.today()
+    end_date = date.fromisoformat(end) if end else _default_data_quality_end_date(date.today())
     report = evaluate_bar_quality(
         frames,
         start=date.fromisoformat(start),

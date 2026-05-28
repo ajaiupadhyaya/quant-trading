@@ -92,6 +92,7 @@ def _full_closures(year: int) -> frozenset[date]:
         date(2012, 10, 29),  # Hurricane Sandy
         date(2012, 10, 30),  # Hurricane Sandy
         date(2018, 12, 5),  # George H.W. Bush state funeral
+        date(2025, 1, 9),  # Jimmy Carter national day of mourning
     }
     for d in extras:
         if d.year == year:

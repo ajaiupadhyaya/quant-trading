@@ -28,6 +28,7 @@ from quant.util.trading_calendar import (
         date(2024, 11, 28),  # Thanksgiving
         date(2024, 12, 25),  # Christmas
         date(2025, 1, 1),
+        date(2025, 1, 9),  # Jimmy Carter national day of mourning
         date(2025, 4, 18),  # Good Friday
         date(2026, 1, 19),  # MLK observed
     ],

@@ -1,0 +1,71 @@
+{
+  "end": "2026-05-27",
+  "passed": true,
+  "start": "2018-01-01",
+  "symbols": {
+    "DBC": {
+      "duplicate_timestamps": 0,
+      "impossible_ohlc": 0,
+      "missing_bars": 0,
+      "passed": true,
+      "rows": 4124,
+      "stale": false
+    },
+    "EEM": {
+      "duplicate_timestamps": 0,
+      "impossible_ohlc": 0,
+      "missing_bars": 0,
+      "passed": true,
+      "rows": 4124,
+      "stale": false
+    },
+    "EFA": {
+      "duplicate_timestamps": 0,
+      "impossible_ohlc": 0,
+      "missing_bars": 0,
+      "passed": true,
+      "rows": 4124,
+      "stale": false
+    },
+    "GLD": {
+      "duplicate_timestamps": 0,
+      "impossible_ohlc": 0,
+      "missing_bars": 0,
+      "passed": true,
+      "rows": 4124,
+      "stale": false
+    },
+    "IEF": {
+      "duplicate_timestamps": 0,
+      "impossible_ohlc": 0,
+      "missing_bars": 0,
+      "passed": true,
+      "rows": 4124,
+      "stale": false
+    },
+    "SPY": {
+      "duplicate_timestamps": 0,
+      "impossible_ohlc": 0,
+      "missing_bars": 0,
+      "passed": true,
+      "rows": 4124,
+      "stale": false
+    },
+    "TLT": {
+      "duplicate_timestamps": 0,
+      "impossible_ohlc": 0,
+      "missing_bars": 0,
+      "passed": true,
+      "rows": 4124,
+      "stale": false
+    },
+    "VNQ": {
+      "duplicate_timestamps": 0,
+      "impossible_ohlc": 0,
+      "missing_bars": 0,
+      "passed": true,
+      "rows": 4124,
+      "stale": false
+    }
+  }
+}

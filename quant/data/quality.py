@@ -7,6 +7,8 @@ from datetime import date
 
 import pandas as pd
 
+from quant.util.trading_calendar import is_trading_day
+
 
 @dataclass(frozen=True)
 class SymbolQuality:
@@ -45,7 +47,13 @@ def evaluate_bar_quality(
     end: date,
     stale_after_days: int = 7,
 ) -> DataQualityReport:
-    expected = pd.bdate_range(start, end)
+    expected = pd.DatetimeIndex(
+        [
+            day
+            for day in pd.date_range(start, end, freq="D")
+            if is_trading_day(pd.Timestamp(day).date())
+        ]
+    )
     out: dict[str, SymbolQuality] = {}
     for symbol, bars in sorted(bars_by_symbol.items()):
         if bars.empty:

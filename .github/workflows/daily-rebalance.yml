@@ -59,7 +59,7 @@ jobs:
           uv run quant data refresh --start 2018-01-01 || echo "non-fatal: refresh partial"
 
       - name: Data quality report
-        run: uv run quant data quality --start 2018-01-01
+        run: uv run quant data quality --start 2018-01-01 --symbols SPY,TLT,IEF,GLD,DBC,VNQ,EFA,EEM
 
       - name: Pre-trade risk report
         run: uv run quant risk pretrade

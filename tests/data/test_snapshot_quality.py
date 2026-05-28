@@ -60,3 +60,22 @@ def test_data_quality_flags_missing_duplicate_and_impossible_ohlc() -> None:
     assert report.symbols["SPY"].missing_bars >= 1
     assert report.symbols["SPY"].impossible_ohlc == 1
     assert not report.passed
+
+
+def test_data_quality_does_not_count_market_holidays_as_missing() -> None:
+    idx = pd.DatetimeIndex(["2026-01-16", "2026-01-20"], name="timestamp")
+    bars = pd.DataFrame(
+        {
+            "open": [10.0, 10.5],
+            "high": [11.0, 11.0],
+            "low": [9.0, 10.0],
+            "close": [10.5, 10.75],
+            "volume": [100, 100],
+        },
+        index=idx,
+    )
+
+    report = evaluate_bar_quality({"SPY": bars}, start=date(2026, 1, 16), end=date(2026, 1, 20))
+
+    assert report.symbols["SPY"].missing_bars == 0
+    assert report.passed
