@@ -54,7 +54,9 @@ def test_flat_price_zero_costs_preserves_equity_exactly() -> None:
     """If all prices are constant and costs are zero, equity should be flat at start."""
     bars = _flat_bars(["AAA", "BBB"])
     strat = EqualWeightStrategy(bars=bars)
-    cfg = BacktestConfig(starting_equity=100_000.0, slippage_bps=0.0, commission_bps=0.0)
+    cfg = BacktestConfig(
+        starting_equity=100_000.0, slippage_bps=0.0, commission_bps=0.0, impact_coef_bps=0.0
+    )
     result = run_backtest(strat, bars, cfg, date(2024, 1, 2), date(2024, 3, 29))
     # All prices constant → equity = cash + shares * 100. Should equal starting_equity bar-for-bar
     # once the first rebalance fills, ± rounding from integer share count.

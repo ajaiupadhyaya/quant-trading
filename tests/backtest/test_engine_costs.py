@@ -63,3 +63,17 @@ def test_default_config_values() -> None:
     assert cfg.annual_financing_bps == 200.0
     assert cfg.impact_coef_bps == 100.0
     assert cfg.adv_window == 21
+
+
+def test_impact_adds_to_spread() -> None:
+    cfg = BacktestConfig(slippage_bps=10.0, commission_bps=0.0)
+    fill = apply_costs(qty=100, mid_price=50.0, side="buy", config=cfg, impact_bps=20.0)
+    # total slip = (10 + 20) / 1e4 = 0.003 -> fill = 50.00 * 1.003 = 50.15
+    assert fill.fill_price == pytest.approx(50.15, abs=1e-6)
+    assert fill.slippage_cost == pytest.approx(100 * (50.15 - 50.0), abs=1e-6)
+
+
+def test_impact_defaults_to_zero() -> None:
+    cfg = BacktestConfig(slippage_bps=10.0, commission_bps=0.0)
+    fill = apply_costs(qty=100, mid_price=50.0, side="buy", config=cfg)
+    assert fill.fill_price == pytest.approx(50.05, abs=1e-6)

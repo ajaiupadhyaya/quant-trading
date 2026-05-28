@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Literal
 import pandas as pd
 
 from quant.backtest.financing import financing_charge
+from quant.backtest.impact import market_impact_bps, trailing_dollar_adv
 
 if TYPE_CHECKING:
     from quant.strategies.base import Strategy
@@ -67,11 +68,18 @@ class BacktestResult:
     metadata: dict[str, object] = field(default_factory=dict)
 
 
-def apply_costs(qty: int, mid_price: float, side: Side, config: BacktestConfig) -> FillReport:
-    """Move the mid-price by slippage and compute commission as bps of notional.
+def apply_costs(
+    qty: int, mid_price: float, side: Side, config: BacktestConfig, impact_bps: float = 0.0
+) -> FillReport:
+    """Move the mid-price by spread + market impact; commission as bps of notional.
 
-    Buy: fill_price = mid * (1 + slippage_bps / 1e4)
-    Sell: fill_price = mid * (1 - slippage_bps / 1e4)
+    The fill price moves by ``(slippage_bps + impact_bps) / 1e4``: ``slippage_bps``
+    is the flat half-spread, ``impact_bps`` the size-dependent market impact
+    computed upstream (0.0 when impact is disabled or ADV is unknown).
+    ``slippage_cost`` therefore captures spread + impact combined.
+
+    Buy: fill_price = mid * (1 + (slippage_bps + impact_bps) / 1e4)
+    Sell: fill_price = mid * (1 - (slippage_bps + impact_bps) / 1e4)
     Commission: |qty| * fill_price * commission_bps / 1e4
     """
     if side not in ("buy", "sell"):
@@ -79,7 +87,7 @@ def apply_costs(qty: int, mid_price: float, side: Side, config: BacktestConfig) 
     if qty == 0:
         return FillReport(fill_price=mid_price, slippage_cost=0.0, commission_cost=0.0)
 
-    slip = config.slippage_bps / 1e4
+    slip = (config.slippage_bps + impact_bps) / 1e4
     sign = +1.0 if side == "buy" else -1.0
     fill_price = mid_price * (1.0 + sign * slip)
     slippage_cost = abs(qty) * abs(fill_price - mid_price)
@@ -159,7 +167,9 @@ def run_backtest(
 
     def _execute_fill(ts: pd.Timestamp, sym: str, qty: int, side: Side, mid: float) -> None:
         nonlocal cash
-        fill = apply_costs(qty=qty, mid_price=mid, side=side, config=config)
+        adv = trailing_dollar_adv(bars, sym, ts, config.adv_window)
+        impact = market_impact_bps(abs(qty) * mid, adv, config.impact_coef_bps)
+        fill = apply_costs(qty=qty, mid_price=mid, side=side, config=config, impact_bps=impact)
         notional = qty * fill.fill_price
         if side == "buy":
             cash -= notional + fill.commission_cost
