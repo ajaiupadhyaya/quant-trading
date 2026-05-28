@@ -33,10 +33,10 @@
       <tr><td class="label">Total Return</td><td class="value">{{ "{:+.2%}".format(metrics.total_return) }}</td></tr>
       <tr><td class="label">CAGR</td><td class="value">{{ "{:+.2%}".format(metrics.cagr) }}</td></tr>
       <tr><td class="label">Sharpe</td><td class="value">{{ "{:.2f}".format(metrics.sharpe) }}</td></tr>
-      <tr><td class="label">Turnover (ann., 1-way)</td><td class="value">{{ "{:.0%}".format(metrics.turnover) }}</td></tr>
       <tr><td class="label">Sortino</td><td class="value">{{ "{:.2f}".format(metrics.sortino) }}</td></tr>
       <tr><td class="label">Max Drawdown</td><td class="value">{{ "{:.2%}".format(metrics.max_drawdown) }}</td></tr>
       <tr><td class="label">Win Rate (daily)</td><td class="value">{{ "{:.1%}".format(metrics.win_rate) }}</td></tr>
+      <tr><td class="label">Turnover (ann., 1-way)</td><td class="value">{{ "{:.0%}".format(metrics.turnover) }}</td></tr>
       <tr><td class="label">Trades</td><td class="value">{{ metrics.n_trades }}</td></tr>
       <tr><td class="label">Starting Equity</td><td class="value">${{ "{:,.0f}".format(metrics.starting_equity) }}</td></tr>
       <tr><td class="label">Ending Equity</td><td class="value">${{ "{:,.0f}".format(metrics.ending_equity) }}</td></tr>

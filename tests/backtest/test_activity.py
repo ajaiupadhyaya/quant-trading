@@ -73,3 +73,10 @@ def test_empty_equity_is_zero():
 def test_zero_mean_equity_is_zero():
     trades = _ledger([(100, 10.0)])
     assert annualized_turnover(trades, _flat_equity(0.0, 252)) == 0.0
+
+
+def test_nan_fill_price_is_zero():
+    # a NaN fill price is data corruption -> 0.0 sentinel, not a silently
+    # understated figure (pandas .sum() would otherwise skip the NaN).
+    trades = _ledger([(100, 10.0), (100, float("nan"))])
+    assert annualized_turnover(trades, _flat_equity(10_000.0, 252)) == 0.0

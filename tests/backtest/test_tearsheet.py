@@ -65,6 +65,7 @@ def test_tearsheet_html_contains_strategy_name(
     assert "Sharpe" in html
     assert "Max Drawdown" in html
     assert "CAGR" in html
+    assert "Turnover" in html
 
 
 def test_tearsheet_walkforward_parquet_matches_oos_curve(
