@@ -92,6 +92,15 @@ construction (walk-forward refit + filtered posteriors). It is an **observed
 signal only** — it does not change any live position until it passes its own
 validation gate. See `docs/superpowers/specs/2026-05-28-regime-detection-engine-design.md`.
 
+### Position sizing (observed overlay)
+
+`quant sizing compare <strategy>` reports how a composable gross-exposure
+overlay — volatility targeting, fractional Kelly, a drawdown throttle, and the
+regime multiplier — would have reshaped a strategy's realized return path. It is
+point-in-time (the day-`t` scalar uses only data through `t-1`) and observation-
+only: it does not change live allocation. Components are individually toggleable
+(`--no-vol-target`, `--no-kelly`, `--no-drawdown`, `--no-regime`).
+
 ## Running a backtest
 
 Once at least one strategy is registered (Plans 4-5), run the full walk-forward
