@@ -1516,7 +1516,9 @@ def _load_regime_labels() -> pd.Series | None:
     frame = pd.read_parquet(path)
     if "label" not in frame.columns:
         return None
-    return frame["label"]
+    # sort_index: _as_of_label slices with .loc[:prior_ts], which requires a
+    # monotonic index. The producer writes it sorted, but harden on read.
+    return frame["label"].sort_index()
 
 
 @sizing.command("compare", help="Compare a strategy's returns with vs without the sizing overlay.")
