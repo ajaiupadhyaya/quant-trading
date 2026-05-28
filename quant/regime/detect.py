@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from quant.regime.hmm import fit_hmm, forward_filter
+from quant.regime.hmm import fit_hmm, forward_filter, score
 from quant.regime.models import N_STATES, REGIME_LABELS, HMMParams
 
 
@@ -132,6 +132,33 @@ def run_detection(features: pd.DataFrame, config: DetectConfig) -> pd.DataFrame:
     result_df: pd.DataFrame = pd.DataFrame.from_dict(rows, orient="index").sort_index()
     result_df.index.name = "date"
     return result_df
+
+
+def fit_final_model(
+    features: pd.DataFrame, config: DetectConfig
+) -> tuple[HMMParams, dict[str, object]]:
+    """Fit the HMM on the most recent training window — the model that labels today.
+
+    This is the 'latest fitted model' persisted to model.json. Uses the same
+    windowing as the final refit in run_detection.
+    """
+    feats = features.sort_index()
+    train = feats if config.expanding else feats.iloc[-config.train_window_days :]
+    if len(train) < N_STATES * 10:
+        raise ValueError("not enough rows to fit the final regime model")
+    obs = train.to_numpy()
+    params = fit_hmm(obs, n_states=N_STATES, n_restarts=config.n_restarts, seed=config.seed)
+    meta: dict[str, object] = {
+        "n_train_obs": len(train),
+        "train_window_days": config.train_window_days,
+        "expanding": config.expanding,
+        "n_restarts": config.n_restarts,
+        "seed": config.seed,
+        "loglik": float(score(obs, params)),
+        "label_order": list(REGIME_LABELS),
+        "state_mapping": identify_states(params),
+    }
+    return params, meta
 
 
 def persist_regime_series(frame: pd.DataFrame, data_dir: Path) -> Path:

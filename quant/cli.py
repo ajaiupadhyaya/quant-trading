@@ -1306,7 +1306,13 @@ def _regime_series_path() -> Path:
 @click.option("--start", default="2010-01-01", show_default=True)
 @click.option("--end", default=None, help="History end (YYYY-MM-DD). Default: today.")
 def regime_fit(start: str, end: str | None) -> None:
-    from quant.regime.detect import DetectConfig, persist_regime_series, run_detection
+    from quant.regime.detect import (
+        DetectConfig,
+        fit_final_model,
+        persist_model,
+        persist_regime_series,
+        run_detection,
+    )
     from quant.regime.features import FeatureConfig, load_market_features
     from quant.research.registry import ExperimentRecord, append_experiment
 
@@ -1316,6 +1322,10 @@ def regime_fit(start: str, end: str | None) -> None:
     feats = load_market_features(start_date, end_date, FeatureConfig())
     series = run_detection(feats, DetectConfig())
     path = persist_regime_series(series, settings.data_dir)
+
+    model_params, model_meta = fit_final_model(feats, DetectConfig())
+    model_meta["git_sha"] = _git_sha()
+    model_path = persist_model(model_params, model_meta, settings.data_dir)
 
     append_experiment(
         settings.data_dir / "research" / "experiments.jsonl",
@@ -1329,12 +1339,13 @@ def regime_fit(start: str, end: str | None) -> None:
             params={"start": str(start_date), "end": str(end_date)},
             metrics={"n_days": float(len(series))},
             gates={},
-            artifacts={"regime_series": str(path)},
+            artifacts={"regime_series": str(path), "model": str(model_path)},
             data_snapshot_id=None,
             wall_time_seconds=0.0,
         ),
     )
     console.print(f"[green]Wrote {len(series)} regime rows to {path}[/green]")
+    console.print(f"[green]Wrote model to {model_path}[/green]")
 
 
 @regime.command("label", help="Print the regime label + posterior as of a date (default latest).")
@@ -1374,16 +1385,16 @@ def regime_validate(start: str, end: str | None) -> None:
     feats = load_market_features(start_date, end_date, FeatureConfig())
     series = run_detection(feats, cfg)
 
-    spy = bars.get_bars(bars.BarRequest(symbols=["SPY"], start=start_date, end=end_date))
-    spy_ret = _extract_close(spy, "SPY").pct_change(fill_method=None)
-    report = validate_regime_series(series, spy_returns=spy_ret)
-
     # Gate 4: real PIT check — labels invariant under a 90% truncation.
     cutoff = feats.index[int(len(feats) * 0.9)]
     trunc = run_detection(feats.loc[:cutoff], cfg)
     shared = trunc.index.intersection(series.index)
     pit_ok = bool((series.loc[shared, "label"] == trunc.loc[shared, "label"]).all())
-    gates = {**report.gates, "pit_consistent": pit_ok}
+
+    spy = bars.get_bars(bars.BarRequest(symbols=["SPY"], start=start_date, end=end_date))
+    spy_ret = _extract_close(spy, "SPY").pct_change(fill_method=None)
+    report = validate_regime_series(series, spy_returns=spy_ret, pit_consistent=pit_ok)
+    gates = report.gates
 
     append_experiment(
         settings.data_dir / "research" / "experiments.jsonl",

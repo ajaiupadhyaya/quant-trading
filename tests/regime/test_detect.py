@@ -30,6 +30,27 @@ def _synthetic_features(n: int) -> pd.DataFrame:
     return pd.DataFrame({"ret": ret, "vol": vol}, index=idx)
 
 
+def test_fit_final_model_and_persist(tmp_path):
+    from quant.regime.detect import fit_final_model, persist_model
+    from quant.regime.models import HMMParams
+
+    feats = _synthetic_features(400)
+    cfg = DetectConfig(train_window_days=250, n_restarts=1, seed=0)
+    params, meta = fit_final_model(feats, cfg)
+    assert params.n_states == 3
+    assert meta["n_train_obs"] == 250
+    assert "loglik" in meta and "state_mapping" in meta
+
+    path = persist_model(params, meta, tmp_path)
+    assert path.exists()
+    import json
+
+    payload = json.loads(path.read_text())
+    restored = HMMParams.from_json_dict(payload["params"])
+    assert restored.n_states == 3
+    assert payload["meta"]["seed"] == 0
+
+
 def test_run_detection_outputs_daily_labels_and_is_pit():
     feats = _synthetic_features(600)
     cfg = DetectConfig(train_window_days=250, refit_freq="YS", n_restarts=1, seed=0)

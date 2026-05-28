@@ -36,6 +36,7 @@ def test_cli_help_succeeds() -> None:
         "data",
         "research",
         "risk",
+        "regime",
     ],
 )
 def test_cli_subcommand_help_succeeds(subcommand: str) -> None:
@@ -522,7 +523,7 @@ def test_strategies_shows_governance_column(tmp_data_dir: Path, fake_env: None) 
     assert "Governance" in result.output
 
 
-def test_regime_label_and_validate_commands(tmp_path, monkeypatch):
+def test_regime_label_command(tmp_path, monkeypatch):
     import pandas as pd
 
     monkeypatch.setenv("QUANT_DATA_DIR", str(tmp_path))

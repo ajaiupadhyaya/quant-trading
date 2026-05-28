@@ -1,8 +1,9 @@
 """Out-of-sample validation gates for the regime signal.
 
 A signal graduates from observed to tradable only if it is persistent,
-economically coherent, adds predictive risk-reduction, and is point-in-time
-consistent. All metrics use the filtered label series — never smoothed.
+economically coherent (monotonic forward-vol AND crisis-window enrichment),
+adds predictive risk-reduction, and is point-in-time consistent. All metrics
+use the filtered label series — never smoothed.
 """
 
 from __future__ import annotations
@@ -12,7 +13,20 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from quant.backtest.regimes import REGIMES
 from quant.regime.models import REGIME_LABELS
+
+_CRISIS_SLUGS = frozenset({"gfc-2008", "china-2015", "covid-2020", "bear-2022"})
+
+
+def _crisis_window_mask(index: pd.DatetimeIndex) -> pd.Series:
+    """True where the date falls inside a historical crisis window."""
+    mask = pd.Series(False, index=index)
+    for r in REGIMES:
+        if r.slug in _CRISIS_SLUGS:
+            mask |= (index >= pd.Timestamp(r.start)) & (index <= pd.Timestamp(r.end))
+    return mask
+
 
 _DERISK_WEIGHT = {"calm-bull": 1.0, "choppy": 0.5, "crisis": 0.0}
 
@@ -42,6 +56,7 @@ def validate_regime_series(
     frame: pd.DataFrame,
     spy_returns: pd.Series,
     min_median_run: int = 5,
+    pit_consistent: bool = True,
 ) -> RegimeReport:
     """Run the four gates and return a RegimeReport."""
     labels: pd.Series = frame["label"]
@@ -51,7 +66,8 @@ def validate_regime_series(
     median_run = _median_run_length(labels)
     persistence = median_run >= min_median_run
 
-    # Gate 2: coherence — forward vol increases calm -> choppy -> crisis.
+    # Gate 2: coherence — forward vol increases calm -> choppy -> crisis
+    # AND crisis label is enriched inside historical crisis windows (better than base rate).
     fwd_vol: pd.Series = rets.rolling(5).std(ddof=0).shift(-5)
     vol_by_label: dict[str, float] = {
         lbl: float(fwd_vol[labels == lbl].mean()) if (labels == lbl).any() else np.nan
@@ -60,9 +76,23 @@ def validate_regime_series(
     present: list[float] = [
         vol_by_label[lbl] for lbl in REGIME_LABELS if not np.isnan(vol_by_label[lbl])
     ]
-    coherence = len(present) >= 2 and all(
+    monotonic = len(present) >= 2 and all(
         present[i] <= present[i + 1] + 1e-9 for i in range(len(present) - 1)
     )
+    # Crisis label must be enriched inside historical crisis windows (better than base rate).
+    in_crisis_window = _crisis_window_mask(frame.index)  # type: ignore[arg-type]
+    base_rate = float(in_crisis_window.mean())
+    crisis_mask = labels == "crisis"
+    n_crisis = int(crisis_mask.sum())
+    if n_crisis == 0 or base_rate == 0.0:
+        # Sample has no crisis labels or doesn't span any historical crisis window:
+        # can't assess overlap, so don't penalize.
+        crisis_overlap_rate = 0.0
+        overlap_ok = True
+    else:
+        crisis_overlap_rate = float((crisis_mask & in_crisis_window).sum() / n_crisis)
+        overlap_ok = crisis_overlap_rate > base_rate
+    coherence = monotonic and overlap_ok
 
     # Gate 3: predictive lift — de-risk with YESTERDAY's label, compare drawdown.
     weights_raw: pd.Series = labels.map(_DERISK_WEIGHT)
@@ -73,10 +103,9 @@ def validate_regime_series(
     dd_derisk = _max_drawdown(derisked_equity)
     predictive_lift = dd_derisk > dd_base  # less negative = shallower drawdown
 
-    # Gate 4: pit_consistent — placeholder True here; the authoritative check is
-    # check_pit_consistency() run against the live detection path in the CLI and
-    # in tests/regime/test_detect.py. We surface it so the report has 4 gates.
-    pit_consistent = True
+    # Gate 4: pit_consistent — passed in by the caller; the authoritative check
+    # is run against the live detection path in the CLI and in test_detect.py.
+    # We surface it so the report has 4 gates.
 
     # Sanitize fwd_vol metrics: registry requires finite floats (no NaN).
     # vol_by_label may be NaN when a label is absent or the rolling tail is all NaN.
@@ -97,5 +126,7 @@ def validate_regime_series(
             # Registry requires finite floats; emit 0.0 when label absent or tail NaN.
             "fwd_vol_calm": _finite(vol_by_label["calm-bull"]),
             "fwd_vol_crisis": _finite(vol_by_label["crisis"]),
+            "crisis_overlap_rate": crisis_overlap_rate,
+            "crisis_base_rate": base_rate,
         },
     )
