@@ -8,7 +8,6 @@ from quant.regime.validation import RegimeReport, validate_regime_series
 
 def _regime_frame(n: int) -> pd.DataFrame:
     idx = pd.bdate_range("2018-01-01", periods=n)
-    rng = np.random.default_rng(0)  # noqa: F841
     # Persistent blocks: 200 calm, 40 crisis, repeating.
     labels = []
     while len(labels) < n:

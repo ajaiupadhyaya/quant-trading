@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import numpy as np
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from quant.regime.hmm import forward_filter, log_emission
 from quant.regime.models import HMMParams
@@ -83,3 +85,22 @@ def test_viterbi_recovers_path_and_score_is_finite():
     assert path[:20].tolist() == [0] * 20
     assert path[20:].tolist() == [1] * 20
     assert np.isfinite(score(obs, params))
+
+
+@settings(max_examples=25, deadline=None)
+@given(
+    n_obs=st.integers(min_value=40, max_value=120),
+    seed=st.integers(min_value=0, max_value=50),
+)
+def test_forward_filter_rows_are_distributions(n_obs: int, seed: int) -> None:
+    rng = np.random.default_rng(seed)
+    obs = rng.normal(0, 1, size=(n_obs, 2))
+    params = HMMParams(
+        start_prob=np.array([0.4, 0.3, 0.3]),
+        trans_mat=np.full((3, 3), 1 / 3),
+        means=rng.normal(0, 1, size=(3, 2)),
+        variances=np.abs(rng.normal(1, 0.2, size=(3, 2))) + 0.1,
+    )
+    post = forward_filter(obs, params)
+    assert np.all(post >= -1e-9)
+    np.testing.assert_allclose(post.sum(axis=1), np.ones(n_obs), atol=1e-9)

@@ -11,6 +11,7 @@ pass the same gates.
 
 - Strategies: defensive ETF allocation baseline; PCA pair discovery + Engle-Granger ADF + OU half-life + opt-in Kalman hedge; HRP all-weather with Ledoit-Wolf shrinkage; TSMOM with Daniel-Moskowitz drawdown control; inverse-vol momentum; Hou-Xue-Zhang multi-factor on SEC EDGAR PIT fundamentals.
 - Validation: walk-forward + CPCV + DSR + PSR + stationary-block bootstrap + regime stress + OOS holdout + 0/5/15/30bps cost-sensitivity sweep.
+- Regime engine: 3-state Gaussian HMM (calm-bull / choppy / crisis) over SPY return/vol, VIX, drawdown, and term-spread features; walk-forward refit + filtered posteriors; observed/gated signal only — no live allocation change until it passes its own four-gate validation.
 - Live ops: pre-trade safety guards (market-open, reconciliation, risk circuit breaker, bar freshness), `quant doctor` pre-flight, daily / nightly / weekly-grid / smoke CI workflows.
 - Observability: Textual TUI, combined-book tear-sheet with rolling Sharpe/vol + underwater + round-trip P&L distribution, structured trade journal.
 
@@ -75,6 +76,21 @@ uv run quant monitor                 # Textual TUI dashboard (press ? for keybin
 uv run quant doctor                  # pre-flight check before connecting Alpaca
 uv run quant data refresh-fundamentals   # one-time: pull SEC EDGAR PIT facts
 ```
+
+### Regime detection (observed, gated signal)
+
+```bash
+uv run quant regime fit                 # refit HMM walk-forward, write data/regime/regime_series.parquet
+uv run quant regime label               # print the current market regime + posterior
+uv run quant regime label --asof 2022-06-15
+uv run quant regime validate            # run the four out-of-sample gates, log to the registry
+```
+
+A market-wide 3-state Gaussian HMM (calm-bull / choppy / crisis) over SPY
+return/vol, VIX, drawdown, and term-spread features. Point-in-time by
+construction (walk-forward refit + filtered posteriors). It is an **observed
+signal only** — it does not change any live position until it passes its own
+validation gate. See `docs/superpowers/specs/2026-05-28-regime-detection-engine-design.md`.
 
 ## Running a backtest
 
