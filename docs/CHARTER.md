@@ -41,15 +41,15 @@ close.
 |---|---|---|
 | 1 — No lookahead | ✅ Met | PIT feature matrices, SEC EDGAR PIT fundamentals, Kalman/regime PIT, `atol=0` truncation-invariance property tests. |
 | 2 — Realistic execution | ⚠️ Partial | `backtest/engine.py` models flat `slippage_bps` + `commission_bps` + a 0/5/15/30bps cost-sensitivity sweep. **Missing: borrow/financing cost on shorts (L/S books trade unmodeled shorts); size-scaled market impact (slippage is flat bps, not ADV/√-impact).** |
-| 3 — Robust validation | ⚠️ Partial | Walk-forward + CPCV + DSR + PSR + bootstrap + regime stress + OOS holdout; `metrics.py` reports Sharpe/Sortino/maxDD/win-rate/CAGR. **Missing: turnover and capacity metrics, which this charter explicitly requires.** |
+| 3 — Robust validation | ⚠️ Partial | Walk-forward + CPCV + DSR + PSR + bootstrap + regime stress + OOS holdout; `metrics.py` reports Sharpe/Sortino/maxDD/win-rate/CAGR; `activity.py` now reports **annualized turnover** (tear-sheets + `quant backtest`). **Still missing: capacity (deferred to gap #2, needs the market-impact model).** |
 | 4 — Overfitting guard | ✅ Met | Deflated Sharpe (`dsr.py`, Bailey–López de Prado multiple-testing correction), CPCV, walk-forward param grids. |
 | 5 — Reproducibility | ✅ Met | Run registry logs every backtest (params + kind), deterministic governance manifests, git history as audit trail. (RNG seeding audit pending.) |
 | Techniques | ⚠️ Partial | Factor models, momentum, mean-reversion, stat-arb all present. **Missing: ARIMA/GARCH time-series modeling and gradient-boosting ML layer.** |
 
 ### Open gaps being closed
 
-1. **Turnover + capacity metrics** (principle 3) — add to `metrics.py` + tear-sheet.
-2. **Borrow + market-impact costs** (principle 2) — extend the engine cost model.
+1. **Turnover + capacity metrics** (principle 3) — turnover ✅ shipped (`quant/backtest/activity.py`, tear-sheets + CLI). Capacity rides along with gap #2 (needs the market-impact model).
+2. **Borrow + market-impact costs** (principle 2) — extend the engine cost model; lands with capacity.
 3. **ARIMA/GARCH volatility modeling** (techniques) — feeds vol-targeting / sizing.
 4. **Gradient-boosting signal layer** (techniques) — strict OOS/DSR gating, given overfitting risk.
 
