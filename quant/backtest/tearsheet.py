@@ -24,6 +24,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
+from quant.backtest.activity import annualized_turnover
 from quant.backtest.combined import CombinedResult
 from quant.backtest.metrics import (
     cagr,
@@ -49,6 +50,7 @@ class _MetricsBundle:
     sortino: float
     max_drawdown: float
     win_rate: float
+    turnover: float
     n_trades: int
     starting_equity: float
     ending_equity: float
@@ -279,6 +281,7 @@ def write_tearsheet(
         sortino=sortino(result.oos_returns),
         max_drawdown=max_drawdown(result.oos_returns),
         win_rate=win_rate(result.oos_returns),
+        turnover=annualized_turnover(result.oos_trades, result.oos_equity_curve),
         n_trades=len(result.oos_trades),
         starting_equity=float(result.combined_result.starting_equity),
         ending_equity=float(result.combined_result.ending_equity),
@@ -375,6 +378,7 @@ def write_combined_tearsheet(
         sortino=sortino(result.returns),
         max_drawdown=max_drawdown(result.returns),
         win_rate=win_rate(result.returns),
+        turnover=annualized_turnover(result.trades, result.equity_curve),
         n_trades=len(result.trades),
         starting_equity=float(result.starting_equity),
         ending_equity=float(result.ending_equity),
@@ -401,6 +405,7 @@ def write_combined_tearsheet(
                 "sharpe": sharpe(sub.returns),
                 "cagr": cagr(sub.returns),
                 "max_drawdown": max_drawdown(sub.returns),
+                "turnover": annualized_turnover(sub.trades, sub.equity_curve),
                 "n_trades": len(sub.trades),
             }
         )
