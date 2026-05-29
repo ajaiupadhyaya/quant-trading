@@ -34,7 +34,7 @@ def market_impact_bps(
         and math.isfinite(impact_coef_bps)
     ):
         return 0.0
-    if trade_notional <= 0.0 or adv_dollar <= 0.0:
+    if trade_notional <= 0.0 or adv_dollar <= 0.0 or impact_coef_bps <= 0.0:
         return 0.0
     participation = trade_notional / adv_dollar
     return float(impact_coef_bps * math.sqrt(participation))

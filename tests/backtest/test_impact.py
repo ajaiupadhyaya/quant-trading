@@ -57,6 +57,16 @@ def test_nonfinite_inputs_are_zero():
     assert market_impact_bps(1_000_000.0, float("inf"), 100.0) == 0.0
 
 
+def test_nonfinite_coef_is_zero():
+    assert market_impact_bps(1_000_000.0, 1_000_000.0, float("nan")) == 0.0
+
+
+def test_nonpositive_coef_is_zero():
+    # a negative coefficient must NOT produce a negative (optimistic) impact.
+    assert market_impact_bps(1_000_000.0, 1_000_000.0, 0.0) == 0.0
+    assert market_impact_bps(1_000_000.0, 1_000_000.0, -50.0) == 0.0
+
+
 # ---- trailing_dollar_adv ----
 
 
@@ -75,6 +85,7 @@ def test_adv_excludes_fill_bar_volume_pit():
 def test_adv_respects_window_length():
     bars = _bars("AAA", [10.0, 10.0, 10.0, 10.0], [100, 200, 300, 400])
     fill_ts = bars.index[3]
+    # prior bars 0,1,2 -> dollar vol 1000,2000,3000; window=2 keeps last two -> mean(2000,3000)=2500
     assert trailing_dollar_adv(bars, "AAA", fill_ts, window=2) == pytest.approx(2500.0)
 
 
