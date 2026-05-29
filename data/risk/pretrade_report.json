@@ -1,6 +1,6 @@
 {
-  "equity": 993646.8,
-  "gross_exposure": 0.999742693114,
+  "equity": 993048.51,
+  "gross_exposure": 0.000266553148,
   "passed": true,
   "rebalance": {
     "asof": "2026-05-29",
@@ -11,22 +11,21 @@
     "outcomes": [
       {
         "error": null,
-        "orders": 3,
+        "orders": 2,
         "reference_prices": {
-          "DBC": 29.44379997253418,
+          "DBC": 29.42009925842285,
           "EEM": 68.62000274658203,
-          "GLD": 418.4800109863281
+          "GLD": 418.32000732421875
         },
         "strategy": "defensive-etf-allocation"
       }
     ],
     "skipped_reason": null,
-    "total_orders": 3
+    "total_orders": 2
   },
   "symbol_weights": {
-    "DBC": 0.33333102455624775,
-    "EEM": 0.3332775119438868,
-    "GLD": 0.3331341566139855
+    "DBC": 5.9252088819755344e-05,
+    "EEM": 0.0002073010594817227
   },
   "violations": []
 }
