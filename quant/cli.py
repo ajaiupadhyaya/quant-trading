@@ -597,11 +597,19 @@ def validate(
     is_flag=True,
     help="Dry-run only: include quarantined strategies for observation.",
 )
+@click.option(
+    "--winddown-participation",
+    default=0.10,
+    show_default=True,
+    type=float,
+    help="Max fraction of trailing dollar-ADV per orphan wind-down exit order.",
+)
 def rebalance(
     dry_run: bool,
     asof: str | None,
     strategy_filter: str | None,
     include_quarantined: bool,
+    winddown_participation: float,
 ) -> None:
     from quant.live import run_rebalance
 
@@ -615,6 +623,7 @@ def rebalance(
         dry_run=dry_run,
         strategies=strategies_arg,
         include_quarantined=include_quarantined,
+        winddown_participation=winddown_participation,
     )
 
     header = Table(title=f"Rebalance {report.asof} — {'DRY RUN' if dry_run else 'LIVE'}")
@@ -643,6 +652,19 @@ def rebalance(
             outcome.error or "",
         )
     console.print(detail)
+
+    if report.winddown_outcomes:
+        wd = Table(title="Orphan wind-down (exit-only)", show_header=True)
+        wd.add_column("Strategy")
+        wd.add_column("Exited", justify="right")
+        wd.add_column("Remaining", justify="right")
+        wd.add_column("Note")
+        for o in report.winddown_outcomes:
+            exited = ", ".join(f"{s}:{q}" for s, q in sorted(o.exited.items())) or "—"
+            remaining = ", ".join(f"{s}:{q}" for s, q in sorted(o.remaining.items()) if q) or "flat"
+            note = o.error or (("skipped: " + ",".join(o.skipped)) if o.skipped else "")
+            wd.add_row(o.slug, exited, remaining, note)
+        console.print(wd)
 
 
 @cli.command(help="Open the HTML tear-sheet for <strategy> in your default browser.")
