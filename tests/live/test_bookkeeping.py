@@ -91,3 +91,20 @@ def test_readers_on_empty_dir_return_empty_frames(tmp_path: Path) -> None:
     assert read_equity(tmp_path / "data").empty
     assert read_trades(tmp_path / "data").empty
     assert last_strategy_positions(tmp_path / "data", "any") == {}
+
+
+def test_last_strategy_positions_returns_latest_same_day_write(tmp_data_dir: Path) -> None:
+    d = date(2026, 5, 26)
+    # Write 1 (manual run) holds GOOGL; an interleaved other-slug write separates the two mf writes.
+    write_strategy_positions(tmp_data_dir, d, "multi-factor", {"BAC": 676, "GOOGL": 91})
+    write_strategy_positions(tmp_data_dir, d, "trend", {"SPY": 70})
+    # Write 2 (scheduled run) on the SAME date drops GOOGL, adds JNJ.
+    write_strategy_positions(tmp_data_dir, d, "multi-factor", {"BAC": 670, "JNJ": 152})
+
+    snap = last_strategy_positions(tmp_data_dir, "multi-factor")
+    assert snap == {"BAC": 670, "JNJ": 152}  # latest write only; phantom GOOGL gone
+
+
+def test_last_strategy_positions_single_write_unchanged(tmp_data_dir: Path) -> None:
+    write_strategy_positions(tmp_data_dir, date(2026, 5, 26), "trend", {"SPY": 70, "DBC": 100})
+    assert last_strategy_positions(tmp_data_dir, "trend") == {"SPY": 70, "DBC": 100}

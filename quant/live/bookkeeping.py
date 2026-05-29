@@ -164,16 +164,28 @@ def last_strategy_positions(
     data_dir: Path,
     strategy_slug: str,
 ) -> dict[str, int]:
-    """Return the most-recent snapshot for ``strategy_slug`` (or {} if none)."""
+    """Return the most-recent snapshot for ``strategy_slug`` (or {} if none).
+
+    ``strategy_positions.parquet`` is append-only and each ``write_strategy_positions``
+    call appends one contiguous block of rows (in file order, since the parquet is
+    written with index=False). The latest snapshot is therefore the LAST contiguous
+    run of this slug's rows — NOT all rows sharing ``max(date)``. Multiple rebalances
+    can occur on the same calendar date (e.g. a manual dispatch plus the scheduled
+    run); unioning same-date rows would wrongly resurrect symbols that a later
+    same-day write dropped.
+    """
     path = _live_dir(data_dir) / "strategy_positions.parquet"
     if not path.exists():
         return {}
     df = pd.read_parquet(path)
     if df.empty or "strategy" not in df.columns:
         return {}
-    df = df[df["strategy"] == strategy_slug]
-    if df.empty:
+    sub = df[df["strategy"] == strategy_slug]
+    if sub.empty:
         return {}
-    latest_date = df["date"].max()
-    snap = df[df["date"] == latest_date]
-    return {str(r.symbol): int(r.qty) for r in snap.itertuples(index=False)}
+    positions = sub.index.to_numpy(dtype=int)
+    start = len(positions) - 1
+    while start > 0 and positions[start] == positions[start - 1] + 1:
+        start -= 1
+    last_block = sub.iloc[start:]
+    return {str(row["symbol"]): int(row["qty"]) for row in last_block.to_dict("records")}
