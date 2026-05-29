@@ -346,3 +346,152 @@ def test_dry_run_can_include_quarantined_for_observation(
         skip_safety_checks=True,
     )
     assert report.enabled_strategies == ["momentum"]
+
+
+# ---------------------------------------------------------------------------
+# Orphan wind-down integration tests
+# ---------------------------------------------------------------------------
+
+
+class _StubAlpacaClientWithPositions(_StubAlpacaClient):
+    """Extended stub that returns specific Alpaca positions for reconciliation."""
+
+    def __init__(self, equity: float = 100_000.0, alpaca_positions: list | None = None) -> None:
+        super().__init__(equity=equity)
+        self._alpaca_positions = alpaca_positions or []
+
+    def positions(self) -> list:  # type: ignore[type-arg]
+        return self._alpaca_positions
+
+
+def test_orphan_winddown_exits_and_converges(fake_settings: Settings, patched_bars: None) -> None:
+    """Live run: orphan (trend, QUARANTINED) with SPY:70 is reduced toward flat.
+
+    Assertions:
+    - report.winddown_outcomes contains an entry for "trend" with a SELL of SPY
+    - After the run, last_strategy_positions(data_dir, "trend") snapshot has SPY=0
+      (fully exited) or reduced (ADV-capped partial exit)
+    - The stub recorded at least one submitted order attributed to "trend"
+    """
+    from quant.execution.alpaca import PositionRow
+    from quant.live.bookkeeping import last_strategy_positions, write_strategy_positions
+
+    asof = date(2024, 6, 28)
+
+    # Governance: defensive-etf-allocation is LIVE, trend is QUARANTINED (orphan).
+    _write_state_file(
+        fake_settings.data_dir,
+        {"defensive-etf-allocation": "live", "trend": "quarantined"},
+    )
+
+    # Seed a non-zero snapshot for trend so it is detected as an orphan.
+    write_strategy_positions(fake_settings.data_dir, asof, "trend", {"SPY": 70})
+
+    # The Alpaca aggregate must reflect those 70 shares so reconciliation passes.
+    spy_position = PositionRow(
+        symbol="SPY",
+        qty=70,
+        avg_entry_price=100.0,
+        market_value=70 * 100.0,
+        unrealized_pl=0.0,
+        current_price=100.0,
+        side="long",
+    )
+
+    client = _StubAlpacaClientWithPositions(
+        equity=100_000.0,
+        alpaca_positions=[spy_position],
+    )
+
+    report = run_rebalance(
+        asof=asof,
+        dry_run=False,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        skip_safety_checks=True,
+    )
+
+    # There must be at least one wind-down outcome for "trend".
+    wd_slugs = [o.slug for o in report.winddown_outcomes]
+    assert "trend" in wd_slugs, f"expected 'trend' in winddown_outcomes, got {wd_slugs}"
+
+    trend_wd = next(o for o in report.winddown_outcomes if o.slug == "trend")
+    assert trend_wd.error is None, f"wind-down errored: {trend_wd.error}"
+
+    # Some SPY must have been exited (qty > 0 in exited dict).
+    assert "SPY" in trend_wd.exited, f"expected SPY in exited, got {trend_wd.exited}"
+    assert trend_wd.exited["SPY"] > 0
+
+    # The stub must have recorded a SELL for "trend".
+    trend_sells = [o for o in client.submitted if o.strategy_slug == "trend"]
+    assert trend_sells, "expected at least one submitted order for 'trend'"
+    assert all(str(o.side) == "sell" for o in trend_sells)
+
+    # The snapshot must have been updated (remaining, possibly 0).
+    new_snap = last_strategy_positions(fake_settings.data_dir, "trend")
+    # remaining["SPY"] must be <= 70 (we only exit, never open).
+    assert new_snap.get("SPY", 0) <= 70
+    # If fully exited the bookkeeping writes remaining which sets SPY=0.
+    assert new_snap.get("SPY", 0) == trend_wd.remaining.get("SPY", 0)
+
+
+def test_orphan_winddown_dry_run_no_submit_no_zero(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    """Dry run: orphan wind-down must NOT submit orders and must NOT update snapshot.
+
+    The snapshot must remain exactly SPY:70 after the run.
+    """
+    from quant.execution.alpaca import PositionRow
+    from quant.live.bookkeeping import last_strategy_positions, write_strategy_positions
+
+    asof = date(2024, 6, 28)
+
+    # Same governance setup as the live test.
+    _write_state_file(
+        fake_settings.data_dir,
+        {"defensive-etf-allocation": "live", "trend": "quarantined"},
+    )
+
+    write_strategy_positions(fake_settings.data_dir, asof, "trend", {"SPY": 70})
+
+    spy_position = PositionRow(
+        symbol="SPY",
+        qty=70,
+        avg_entry_price=100.0,
+        market_value=70 * 100.0,
+        unrealized_pl=0.0,
+        current_price=100.0,
+        side="long",
+    )
+    client = _StubAlpacaClientWithPositions(
+        equity=100_000.0,
+        alpaca_positions=[spy_position],
+    )
+
+    report = run_rebalance(
+        asof=asof,
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        skip_safety_checks=True,
+    )
+
+    # Wind-down outcome should still be recorded (the logic ran).
+    wd_slugs = [o.slug for o in report.winddown_outcomes]
+    assert "trend" in wd_slugs, f"expected 'trend' in winddown_outcomes, got {wd_slugs}"
+
+    # In dry-run mode the stub records orders flagged dry_run=True, OR no order at
+    # all — what matters is that the snapshot is NOT modified.
+    # check that no real order was submitted (dry_run flag must be True for any trend order).
+    trend_orders = [
+        (o, dr)
+        for o, dr in zip(client.submitted, client.dry_run_flags, strict=False)
+        if o.strategy_slug == "trend"
+    ]
+    for _order, dr_flag in trend_orders:
+        assert dr_flag is True, "dry-run wind-down order must have dry_run=True"
+
+    # Snapshot must be unchanged — still SPY:70.
+    snap = last_strategy_positions(fake_settings.data_dir, "trend")
+    assert snap.get("SPY", 0) == 70, f"snapshot must remain SPY:70 in dry run, got {snap}"

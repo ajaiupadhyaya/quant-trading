@@ -55,6 +55,15 @@ class StrategyRebalanceOutcome:
 
 
 @dataclass
+class WindDownOutcome:
+    slug: str
+    exited: dict[str, int] = field(default_factory=dict)
+    remaining: dict[str, int] = field(default_factory=dict)
+    skipped: list[str] = field(default_factory=list)
+    error: str | None = None
+
+
+@dataclass
 class RebalanceReport:
     asof: date
     equity: float
@@ -64,6 +73,7 @@ class RebalanceReport:
     safety_checks: list[Any] = field(default_factory=list)
     halted_strategies: frozenset[str] = frozenset()
     skipped_reason: str | None = None
+    winddown_outcomes: list[WindDownOutcome] = field(default_factory=list)
 
     @property
     def total_orders(self) -> int:
@@ -150,6 +160,7 @@ def run_rebalance(
     risk_budget: object | None = None,
     include_quarantined: bool = False,
     record_bookkeeping: bool = True,
+    winddown_participation: float = 0.10,
 ) -> RebalanceReport:
     """Execute one rebalance pass. Returns a structured report for the CLI to render."""
     from quant.live.safety import (
@@ -240,6 +251,8 @@ def run_rebalance(
     if not enabled:
         reason = "No governance-live strategies; rebalance is fail-closed with no orders."
         logger.warning(reason)
+        # Known limitation: wind-down currently requires >=1 live strategy to run;
+        # if no strategy is live the rebalance returns before wind-down.
         return RebalanceReport(
             asof=asof,
             equity=account.equity,
@@ -250,6 +263,10 @@ def run_rebalance(
             skipped_reason=reason,
         )
 
+    from quant.live.winddown import detect_orphans, winddown_orders
+
+    orphans = detect_orphans(settings.data_dir)
+
     # Guard 2: reconciliation against Alpaca's aggregate position book.
     halted: frozenset[str] = frozenset()
     if not skip_safety_checks:
@@ -257,6 +274,7 @@ def run_rebalance(
             data_dir=settings.data_dir,
             alpaca_positions=client.positions(),
             enabled_slugs=enabled,
+            winddown_slugs=orphans,
         )
         safety_results.append(recon)
         if not recon.ok:
@@ -422,6 +440,66 @@ def run_rebalance(
         # we only commit when dry_run=False.
         if target and not dry_run and record_bookkeeping:
             write_strategy_positions(settings.data_dir, asof, slug, target)
+
+    # Orphan wind-down: exit-only, ADV-capped, fail-closed. Reduces positions of
+    # non-live strategies toward flat; never opens. Runs after the live loop.
+    for slug in orphans:
+        if slug in halted:
+            continue
+        if slug not in REGISTRY:
+            report.winddown_outcomes.append(
+                WindDownOutcome(slug=slug, error="not registered; manual exit required")
+            )
+            continue
+        try:
+            wd_bars = _bars_for(REGISTRY[slug], asof, history_days)
+        except Exception as exc:
+            report.winddown_outcomes.append(
+                WindDownOutcome(slug=slug, error=f"bar fetch failed: {exc!r}")
+            )
+            continue
+        snapshot = last_strategy_positions(settings.data_dir, slug)
+        if not any(q != 0 for q in snapshot.values()):
+            continue
+        result = winddown_orders(
+            slug=slug,
+            snapshot=snapshot,
+            bars=wd_bars,
+            asof=asof,
+            participation_fraction=winddown_participation,
+        )
+        exited: dict[str, int] = {}
+        for order in result.orders:
+            try:
+                coid = client.submit_order(order, dry_run=dry_run)
+            except Exception as exc:
+                logger.exception("winddown submit_order failed for {} {}", slug, order.symbol)
+                report.winddown_outcomes.append(
+                    WindDownOutcome(slug=slug, error=f"submit failed: {exc!r}")
+                )
+                continue
+            exited[order.symbol] = exited.get(order.symbol, 0) + int(order.qty)
+            all_trade_rows.append(
+                {
+                    "date": pd.Timestamp(asof),
+                    "strategy": slug,
+                    "symbol": order.symbol,
+                    "side": str(order.side),
+                    "qty": int(order.qty),
+                    "client_order_id": coid,
+                    "dry_run": bool(dry_run),
+                }
+            )
+        if not dry_run and record_bookkeeping:
+            write_strategy_positions(settings.data_dir, asof, slug, result.remaining)
+        report.winddown_outcomes.append(
+            WindDownOutcome(
+                slug=slug,
+                exited=exited,
+                remaining=result.remaining,
+                skipped=result.skipped,
+            )
+        )
 
     if all_trade_rows and record_bookkeeping:
         append_trades(settings.data_dir, all_trade_rows)
