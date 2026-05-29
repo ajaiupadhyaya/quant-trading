@@ -40,7 +40,7 @@ close.
 | Principle | Status | Where / gap |
 |---|---|---|
 | 1 — No lookahead | ✅ Met | PIT feature matrices, SEC EDGAR PIT fundamentals, Kalman/regime PIT, `atol=0` truncation-invariance property tests. |
-| 2 — Realistic execution | ⚠️ Partial | `backtest/engine.py` models flat `slippage_bps` + `commission_bps` + a 0/5/15/30bps cost-sensitivity sweep; daily **short-borrow + margin-financing** costs now accrue (actual/365, on by default, `backtest/financing.py`). **Still missing: size-scaled market impact (slippage is flat bps, not ADV/√-impact) and the capacity it enables.** |
+| 2 — Realistic execution | ⚠️ Partial | `backtest/engine.py` models flat `slippage_bps` + `commission_bps` + a 0/5/15/30bps cost-sensitivity sweep; daily **short-borrow + margin-financing** costs accrue (actual/365, `backtest/financing.py`); **size-scaled square-root market impact** (ADV-based, `backtest/impact.py`) is charged per fill. All on by default. **Remaining: capacity reporting (slice 2c), which the impact model now enables.** |
 | 3 — Robust validation | ⚠️ Partial | Walk-forward + CPCV + DSR + PSR + bootstrap + regime stress + OOS holdout; `metrics.py` reports Sharpe/Sortino/maxDD/win-rate/CAGR; `activity.py` now reports **annualized turnover** (tear-sheets + `quant backtest`). **Still missing: capacity (deferred to gap #2, needs the market-impact model).** |
 | 4 — Overfitting guard | ✅ Met | Deflated Sharpe (`dsr.py`, Bailey–López de Prado multiple-testing correction), CPCV, walk-forward param grids. |
 | 5 — Reproducibility | ✅ Met | Run registry logs every backtest (params + kind), deterministic governance manifests, git history as audit trail. (RNG seeding audit pending.) |
@@ -49,7 +49,7 @@ close.
 ### Open gaps being closed
 
 1. **Turnover + capacity metrics** (principle 3) — turnover ✅ shipped (`quant/backtest/activity.py`, tear-sheets + CLI). Capacity rides along with gap #2 (needs the market-impact model).
-2. **Borrow + market-impact costs** (principle 2) — borrow/financing ✅ shipped (slice 2a, `backtest/financing.py`, on by default). Remaining: size-scaled market impact (slice 2b) → capacity (slice 2c, lands in `activity.py`).
+2. **Borrow + market-impact costs** (principle 2) — borrow/financing ✅ shipped (slice 2a, `backtest/financing.py`); square-root market impact ✅ shipped (slice 2b, `backtest/impact.py`); both on by default. Remaining: capacity (slice 2c, lands in `activity.py` — model-free ADV proxy + impact-adjusted, now unblocked by the impact model).
 3. **ARIMA/GARCH volatility modeling** (techniques) — feeds vol-targeting / sizing.
 4. **Gradient-boosting signal layer** (techniques) — strict OOS/DSR gating, given overfitting risk.
 
