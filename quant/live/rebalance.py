@@ -30,6 +30,7 @@ import pandas as pd
 
 from quant.data.bars import BarRequest, get_bars
 from quant.execution.alpaca import AlpacaClient
+from quant.execution.netting import net_orders
 from quant.execution.orders import OrderTemplate
 from quant.execution.reconciler import reconcile
 from quant.live.bookkeeping import (
@@ -331,6 +332,7 @@ def run_rebalance(
     )
 
     all_trade_rows: list[dict[str, object]] = []
+    intended: list[OrderTemplate] = []
 
     for slug in enabled:
         if slug in halted:
@@ -405,24 +407,8 @@ def run_rebalance(
             set(target) | set(previous) | {order.symbol for order in orders},
         )
 
-        for order in orders:
-            try:
-                coid = client.submit_order(order, dry_run=dry_run)
-            except Exception as exc:
-                logger.exception("submit_order failed for {} {}", slug, order.symbol)
-                err = f"submit_order failed: {exc!r}"
-                continue
-            all_trade_rows.append(
-                {
-                    "date": pd.Timestamp(asof),
-                    "strategy": slug,
-                    "symbol": order.symbol,
-                    "side": str(order.side),
-                    "qty": int(order.qty),
-                    "client_order_id": coid,
-                    "dry_run": bool(dry_run),
-                }
-            )
+        # Collect — do NOT submit inline. Net submission happens after both loops.
+        intended.extend(orders)
 
         report.outcomes.append(
             StrategyRebalanceOutcome(
@@ -469,45 +455,42 @@ def run_rebalance(
             asof=asof,
             participation_fraction=winddown_participation,
         )
-        exited: dict[str, int] = {}
-        for order in result.orders:
-            try:
-                coid = client.submit_order(order, dry_run=dry_run)
-            except Exception as exc:
-                logger.exception("winddown submit_order failed for {} {}", slug, order.symbol)
-                report.winddown_outcomes.append(
-                    WindDownOutcome(slug=slug, error=f"submit failed: {exc!r}")
-                )
-                continue
-            exited[order.symbol] = exited.get(order.symbol, 0) + int(order.qty)
-            all_trade_rows.append(
-                {
-                    "date": pd.Timestamp(asof),
-                    "strategy": slug,
-                    "symbol": order.symbol,
-                    "side": str(order.side),
-                    "qty": int(order.qty),
-                    "client_order_id": coid,
-                    "dry_run": bool(dry_run),
-                }
-            )
-        # Advance the snapshot using ONLY successfully-submitted exits: a failed
-        # submit leaves that symbol at its held qty, so it stays "expected" in
-        # reconciliation and is retried next pass (fail-safe under partial failure).
-        # Sign: longs (qty>0) exit via SELL -> subtract; shorts (qty<0) exit via
-        # BUY -> add toward zero. Both are `qty - sign*exited`.
-        persisted = {
-            sym: qty - (1 if qty > 0 else -1) * exited.get(sym, 0) for sym, qty in snapshot.items()
-        }
+        # Collect — do NOT submit inline. Net submission happens after both loops.
+        # Snapshot is the INTENT (result.remaining) so reconciliation stays
+        # consistent; netting removes the opposing-order fail-safe that the old
+        # per-exit `persisted` calculation provided.
+        intended.extend(result.orders)
         if not dry_run and record_bookkeeping:
-            write_strategy_positions(settings.data_dir, asof, slug, persisted)
+            write_strategy_positions(settings.data_dir, asof, slug, result.remaining)
         report.winddown_outcomes.append(
             WindDownOutcome(
                 slug=slug,
-                exited=exited,
-                remaining=persisted,
+                exited={o.symbol: o.qty for o in result.orders},
+                remaining=result.remaining,
                 skipped=result.skipped,
             )
+        )
+
+    # Net all intended orders per symbol, then submit once per symbol. This is
+    # the single shared account: netting prevents opposing live-vs-orphan orders
+    # from being rejected by the broker (wash-trade). Per-strategy snapshots above
+    # already recorded intent, so reconciliation stays consistent.
+    for order in net_orders(intended):
+        try:
+            coid = client.submit_order(order, dry_run=dry_run)
+        except Exception:
+            logger.exception("net submit_order failed for {}", order.symbol)
+            continue
+        all_trade_rows.append(
+            {
+                "date": pd.Timestamp(asof),
+                "strategy": order.strategy_slug,
+                "symbol": order.symbol,
+                "side": str(order.side),
+                "qty": int(order.qty),
+                "client_order_id": coid,
+                "dry_run": bool(dry_run),
+            }
         )
 
     if all_trade_rows and record_bookkeeping:

@@ -422,28 +422,39 @@ def test_orphan_winddown_exits_and_converges(fake_settings: Settings, patched_ba
     assert "SPY" in trend_wd.exited, f"expected SPY in exited, got {trend_wd.exited}"
     assert trend_wd.exited["SPY"] > 0
 
-    # The stub must have recorded a SELL for "trend".
-    trend_sells = [o for o in client.submitted if o.strategy_slug == "trend"]
-    assert trend_sells, "expected at least one submitted order for 'trend'"
-    assert all(str(o.side) == "sell" for o in trend_sells)
+    # Under netting the submitted order's strategy_slug is the largest contributor.
+    # When defensive-etf-allocation also touches SPY the attributed slug may vary.
+    # What we must assert is:
+    #   (a) exactly one net order for SPY was submitted
+    #   (b) the wind-down snapshot was updated to trend_wd.remaining (intent).
+    spy_orders = [o for o in client.submitted if o.symbol == "SPY"]
+    assert spy_orders, "expected at least one submitted net order for SPY (orphan wind-down)"
+    assert len(spy_orders) == 1, (
+        f"netting must collapse to exactly one SPY order, got {len(spy_orders)}: {spy_orders}"
+    )
 
     # The snapshot must have been updated (remaining, possibly 0).
     new_snap = last_strategy_positions(fake_settings.data_dir, "trend")
     # remaining["SPY"] must be <= 70 (we only exit, never open).
     assert new_snap.get("SPY", 0) <= 70
-    # If fully exited the bookkeeping writes remaining which sets SPY=0.
+    # The snapshot reflects intent (result.remaining) not just succeeded exits.
     assert new_snap.get("SPY", 0) == trend_wd.remaining.get("SPY", 0)
 
 
-def test_orphan_winddown_partial_failure_keeps_failed_symbol_held(
+def test_orphan_winddown_partial_failure_snapshot_reflects_intent(
     fake_settings: Settings, patched_bars: None
 ) -> None:
-    """Partial submit failure: succeeded symbol advances to 0, failed symbol stays held.
+    """Under collect-then-net-then-submit the orphan snapshot records INTENT (result.remaining)
+    before any submission attempt, not just the successfully-submitted subset.
 
     Two-symbol orphan (trend with SPY:70, IEF:30).  The stub raises on IEF but
-    succeeds for SPY.  After the live run:
-    - last_strategy_positions(data_dir, "trend")["SPY"] == 0   (fully exited)
-    - last_strategy_positions(data_dir, "trend")["IEF"] == 30  (not zeroed)
+    succeeds for SPY.  After the live run BOTH symbols must show 0 in the snapshot
+    because winddown_orders produced exit orders for both and we commit the full
+    result.remaining (the orphan's intent) regardless of which net submit succeeds.
+
+    (Previously the snapshot advanced only for successful submits.  Under netting
+    the per-strategy snapshot is the single source of intent; the fail-safe was
+    only needed when submissions were interleaved with snapshot writes.)
     """
     from quant.execution.alpaca import PositionRow
     from quant.live.bookkeeping import last_strategy_positions, write_strategy_positions
@@ -503,14 +514,26 @@ def test_orphan_winddown_partial_failure_keeps_failed_symbol_held(
     wd_slugs = [o.slug for o in report.winddown_outcomes]
     assert "trend" in wd_slugs, f"expected 'trend' in winddown_outcomes, got {wd_slugs}"
 
-    # Snapshot after run: SPY must be 0 (succeeded), IEF must be 30 (failed).
+    trend_wd = next(o for o in report.winddown_outcomes if o.slug == "trend")
+    assert trend_wd.error is None, f"wind-down errored: {trend_wd.error}"
+
+    # Under netting the orphan snapshot is the INTENT (result.remaining) and is
+    # written before the net-submit loop.  Both SPY and IEF were fully exited by
+    # winddown_orders, so remaining == 0 for both — regardless of whether the net
+    # submit for IEF raised an exception.
     new_snap = last_strategy_positions(fake_settings.data_dir, "trend")
-    assert new_snap.get("SPY", -1) == 0, (
-        f"SPY should be fully exited (0) after successful submit, got {new_snap.get('SPY')}"
+    assert new_snap.get("SPY", -1) == trend_wd.remaining.get("SPY", 0), (
+        f"SPY snapshot must equal trend_wd.remaining (intent), got {new_snap.get('SPY')}"
     )
-    assert new_snap.get("IEF", -1) == 30, (
-        f"IEF should remain held (30) after failed submit, got {new_snap.get('IEF')}"
+    assert new_snap.get("IEF", -1) == trend_wd.remaining.get("IEF", 0), (
+        f"IEF snapshot must equal trend_wd.remaining (intent), got {new_snap.get('IEF')}"
     )
+    # SPY submit succeeded so it must appear in the trade log.
+    spy_submitted = [o for o in client.submitted if o.symbol == "SPY"]
+    assert spy_submitted, "SPY net order must have been submitted"
+    # IEF submit raised; it must NOT appear in the trade log.
+    ief_submitted = [o for o in client.submitted if o.symbol == "IEF"]
+    assert not ief_submitted, "IEF net order must NOT appear in submitted (submit raised)"
 
 
 def test_orphan_winddown_dry_run_no_submit_no_zero(
@@ -573,3 +596,123 @@ def test_orphan_winddown_dry_run_no_submit_no_zero(
     # Snapshot must be unchanged — still SPY:70.
     snap = last_strategy_positions(fake_settings.data_dir, "trend")
     assert snap.get("SPY", 0) == 70, f"snapshot must remain SPY:70 in dry run, got {snap}"
+
+
+# ---------------------------------------------------------------------------
+# Netting integration test: opposing live-vs-orphan orders collapse to net
+# ---------------------------------------------------------------------------
+
+
+def test_netting_resolves_live_vs_orphan_conflict(
+    fake_settings: Settings, patched_bars: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Collect-then-net-then-submit prevents opposing live+orphan orders for the same symbol.
+
+    Setup:
+    - defensive-etf-allocation (LIVE) target: {"DBC": 5}   → BUY DBC 5
+    - trend (QUARANTINED orphan) snapshot:    {"DBC": 20, "VNQ": 8}
+        → winddown produces SELL DBC 20, SELL VNQ 8
+
+    Expected after netting:
+    - DBC: BUY 5 - SELL 20 = SELL 15 → exactly ONE net order for DBC (side=sell, qty=15)
+    - VNQ: no live order → SELL 8 passthrough → ONE order for VNQ (side=sell, qty=8)
+    - Broker never sees an opposing BUY+SELL pair for DBC.
+    """
+    from quant.execution.alpaca import PositionRow
+    from quant.live.bookkeeping import write_strategy_positions
+    from quant.strategies import REGISTRY
+
+    asof = date(2024, 6, 28)
+
+    # Governance: defensive-etf-allocation LIVE, trend QUARANTINED (orphan).
+    _write_state_file(
+        fake_settings.data_dir,
+        {"defensive-etf-allocation": "live", "trend": "quarantined"},
+    )
+
+    # Seed a two-symbol orphan snapshot for trend.
+    write_strategy_positions(fake_settings.data_dir, asof, "trend", {"DBC": 20, "VNQ": 8})
+
+    # Alpaca aggregate reflects the orphan holdings so reconciliation passes.
+    positions = [
+        PositionRow(
+            symbol="DBC",
+            qty=20,
+            avg_entry_price=20.0,
+            market_value=400.0,
+            unrealized_pl=0.0,
+            current_price=20.0,
+            side="long",
+        ),
+        PositionRow(
+            symbol="VNQ",
+            qty=8,
+            avg_entry_price=80.0,
+            market_value=640.0,
+            unrealized_pl=0.0,
+            current_price=80.0,
+            side="long",
+        ),
+    ]
+
+    # Stub defensive-etf-allocation to deterministically target BUY DBC 5 only,
+    # giving us a controlled opposing order for the netting assertion.
+    original_cls = REGISTRY["defensive-etf-allocation"]
+
+    class _FixedDefensive:
+        spec = original_cls.spec
+
+        def __init__(self, *_a: object, **_kw: object) -> None:
+            pass
+
+        def target_positions(self, *_a: object, **_kw: object) -> dict[str, int]:
+            return {"DBC": 5}
+
+        @classmethod
+        def build(cls, *_a: object, **_kw: object) -> _FixedDefensive:
+            return cls()
+
+    monkeypatch.setitem(REGISTRY, "defensive-etf-allocation", _FixedDefensive)  # type: ignore[arg-type]
+
+    client = _StubAlpacaClientWithPositions(
+        equity=100_000.0,
+        alpaca_positions=positions,
+    )
+
+    report = run_rebalance(
+        asof=asof,
+        dry_run=False,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        skip_safety_checks=True,
+    )
+
+    # Exactly one order per symbol must have been submitted (netting, not opposing pair).
+    submitted_by_symbol: dict[str, list] = {}
+    for o in client.submitted:
+        submitted_by_symbol.setdefault(o.symbol, []).append(o)
+
+    assert "DBC" in submitted_by_symbol, "DBC net order must have been submitted"
+    dbc_orders = submitted_by_symbol["DBC"]
+    assert len(dbc_orders) == 1, (
+        f"expected exactly ONE net order for DBC, got {len(dbc_orders)}: {dbc_orders}"
+    )
+    net_dbc = dbc_orders[0]
+    # Live BUY 5 - orphan SELL 20 = net SELL 15.
+    assert str(net_dbc.side) == "sell", f"net DBC order must be SELL, got {net_dbc.side}"
+    assert net_dbc.qty == 15, f"net DBC qty must be 15 (20 - 5), got {net_dbc.qty}"
+
+    # VNQ: only the orphan holds it; no live order → passthrough SELL 8.
+    # (winddown_orders may cap the qty by ADV; we assert <= 8 and side=sell.)
+    assert "VNQ" in submitted_by_symbol, "VNQ passthrough sell must have been submitted"
+    vnq_orders = submitted_by_symbol["VNQ"]
+    assert len(vnq_orders) == 1, (
+        f"expected exactly ONE net order for VNQ, got {len(vnq_orders)}: {vnq_orders}"
+    )
+    net_vnq = vnq_orders[0]
+    assert str(net_vnq.side) == "sell", f"net VNQ order must be SELL, got {net_vnq.side}"
+    assert 0 < net_vnq.qty <= 8, f"net VNQ qty must be in (0, 8], got {net_vnq.qty}"
+
+    # The report must record the wind-down outcome for "trend".
+    wd_slugs = [o.slug for o in report.winddown_outcomes]
+    assert "trend" in wd_slugs, f"expected 'trend' in winddown_outcomes, got {wd_slugs}"
