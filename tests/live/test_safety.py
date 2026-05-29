@@ -161,6 +161,67 @@ def test_bar_freshness_recent_pass(tmp_path: Path) -> None:
     assert res.ok
 
 
+def test_reconciliation_counts_winddown_orphan_as_expected(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    write_strategy_positions(data, date(2026, 5, 26), "defensive-etf-allocation", {"SPY": 10})
+    write_strategy_positions(data, date(2026, 5, 26), "trend", {"DBC": 1000})
+    alpaca = [
+        PositionRow(
+            symbol="SPY",
+            qty=10,
+            avg_entry_price=500.0,
+            market_value=5000.0,
+            unrealized_pl=0.0,
+            current_price=500.0,
+            side="long",
+        ),
+        PositionRow(
+            symbol="DBC",
+            qty=1000,
+            avg_entry_price=20.0,
+            market_value=20000.0,
+            unrealized_pl=0.0,
+            current_price=20.0,
+            side="long",
+        ),
+    ]
+    bad = check_reconciliation(
+        data_dir=data, alpaca_positions=alpaca, enabled_slugs=["defensive-etf-allocation"]
+    )
+    assert not bad.ok  # DBC unexpected without winddown_slugs
+    good = check_reconciliation(
+        data_dir=data,
+        alpaca_positions=alpaca,
+        enabled_slugs=["defensive-etf-allocation"],
+        winddown_slugs=["trend"],
+    )
+    assert good.ok  # DBC now counted as expected
+
+
+def test_reconciliation_passes_when_orphan_flat(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    write_strategy_positions(data, date(2026, 5, 26), "defensive-etf-allocation", {"SPY": 10})
+    write_strategy_positions(data, date(2026, 5, 27), "trend", {"DBC": 0})  # flattened snapshot
+    alpaca = [
+        PositionRow(
+            symbol="SPY",
+            qty=10,
+            avg_entry_price=500.0,
+            market_value=5000.0,
+            unrealized_pl=0.0,
+            current_price=500.0,
+            side="long",
+        ),
+    ]
+    res = check_reconciliation(
+        data_dir=data,
+        alpaca_positions=alpaca,
+        enabled_slugs=["defensive-etf-allocation"],
+        winddown_slugs=["trend"],
+    )
+    assert res.ok
+
+
 def test_bar_freshness_too_old(tmp_path: Path) -> None:
     raw = tmp_path / "data" / "raw"
     raw.mkdir(parents=True)

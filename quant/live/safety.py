@@ -68,6 +68,7 @@ def check_reconciliation(
     data_dir: Path,
     alpaca_positions: list[PositionRow],
     enabled_slugs: list[str],
+    winddown_slugs: list[str] | None = None,
     tolerance_shares: int = 1,
 ) -> CheckResult:
     """Compare ``sum(per-strategy snapshots)`` to Alpaca's aggregate book.
@@ -75,8 +76,12 @@ def check_reconciliation(
     Returns a non-OK result with a per-symbol diff string when the absolute
     difference exceeds ``tolerance_shares`` on any symbol. The first run after
     a fresh deploy has no snapshots → returns OK by design (nothing to compare).
+
+    ``winddown_slugs`` lists orphan strategies currently being wound down; their
+    last snapshot is counted as "expected" during convergence so that positions
+    still held in Alpaca do not trigger a false reconciliation failure.
     """
-    expected = _snapshot_aggregate(data_dir, enabled_slugs)
+    expected = _snapshot_aggregate(data_dir, list(enabled_slugs) + list(winddown_slugs or []))
     if not expected:
         return CheckResult(
             ok=True,
