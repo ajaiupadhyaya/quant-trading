@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 
@@ -100,3 +101,28 @@ def winddown_orders(
         remaining=remaining,
         skipped=skipped,
     )
+
+
+def detect_orphans(data_dir: Path) -> list[str]:
+    """Sorted registered slugs whose governance state is not LIVE and which hold
+    a non-zero latest snapshot. Returns [] if governance state is unavailable
+    (fail-closed: no governance => no wind-down)."""
+    from quant.governance.models import GovernanceError, GovernanceState
+    from quant.governance.store import load_strategy_states, strategy_states_path
+    from quant.live.bookkeeping import last_strategy_positions
+    from quant.strategies import REGISTRY
+
+    try:
+        states = load_strategy_states(strategy_states_path(data_dir))
+    except GovernanceError:
+        return []
+
+    orphans: list[str] = []
+    for slug in REGISTRY:
+        state = states.get(slug)
+        if state is not None and state.state is GovernanceState.LIVE:
+            continue
+        snap = {s: q for s, q in last_strategy_positions(data_dir, slug).items() if q != 0}
+        if snap:
+            orphans.append(slug)
+    return sorted(orphans)

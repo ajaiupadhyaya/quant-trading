@@ -89,3 +89,46 @@ def test_never_opens_a_new_symbol():
     res = winddown_orders("trend", {"SPY": 70}, bars, date(2024, 2, 10), 0.10)
     for sym, q in res.remaining.items():
         assert abs(q) <= abs({"SPY": 70}.get(sym, 0))
+
+
+def test_short_partial_cap_remaining_moves_toward_zero():
+    # ADV = 90*5000 = $450k; 10% => $45k; price 90 => 500 shares max cover.
+    bars = _bars("TLT", 90.0, 5_000)
+    res = winddown_orders("pairs", {"TLT": -1200}, bars, date(2024, 2, 10), 0.10)
+    assert res.orders[0].side == OrderSide.BUY
+    assert res.orders[0].qty == 500
+    assert res.remaining["TLT"] == -700  # -1200 + 500, less negative
+
+
+def test_detect_orphans_filters_live_empty_and_unregistered(tmp_data_dir, monkeypatch):
+    from datetime import date as _date
+
+    import quant.governance.store as store
+    from quant.governance.models import GovernanceState
+    from quant.live.bookkeeping import write_strategy_positions
+    from quant.live.winddown import detect_orphans
+
+    class _S:
+        def __init__(self, state):
+            self.state = state
+
+    monkeypatch.setattr(
+        store,
+        "load_strategy_states",
+        lambda _p: {
+            "defensive-etf-allocation": _S(GovernanceState.LIVE),
+            "trend": _S(GovernanceState.QUARANTINED),
+            "multi-factor": _S(GovernanceState.QUARANTINED),
+            "not-registered-xyz": _S(GovernanceState.QUARANTINED),
+        },
+    )
+    write_strategy_positions(
+        tmp_data_dir, _date(2026, 5, 26), "defensive-etf-allocation", {"SPY": 10}
+    )
+    write_strategy_positions(tmp_data_dir, _date(2026, 5, 26), "trend", {"SPY": 70})
+    write_strategy_positions(
+        tmp_data_dir, _date(2026, 5, 26), "multi-factor", {"BAC": 0}
+    )  # all-zero => flat
+
+    orphans = detect_orphans(tmp_data_dir)
+    assert orphans == ["trend"]  # live excluded, all-zero flat excluded, unregistered excluded
