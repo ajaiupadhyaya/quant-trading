@@ -35,7 +35,8 @@ jobs:
       - name: Install deps
         run: uv sync --all-extras
       - name: Refresh bar caches
-        run: uv run quant data refresh --start 2018-01-01 || echo "non-fatal: refresh partial"
+        run: |
+          uv run quant data refresh --start 2018-01-01 || echo "non-fatal: refresh partial"
       - name: Doctor
         run: uv run quant doctor
       - name: Governance status
