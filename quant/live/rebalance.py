@@ -444,8 +444,9 @@ def run_rebalance(
     # Orphan wind-down: exit-only, ADV-capped, fail-closed. Reduces positions of
     # non-live strategies toward flat; never opens. Runs after the live loop.
     for slug in orphans:
-        if slug in halted:
-            continue
+        # NOTE: wind-down intentionally runs even if the risk circuit breaker
+        # halted live strategies — it is exit-only (reduces exposure), which is
+        # the correct action during a drawdown. Orphans are never in `halted`.
         if slug not in REGISTRY:
             report.winddown_outcomes.append(
                 WindDownOutcome(slug=slug, error="not registered; manual exit required")
@@ -490,13 +491,21 @@ def run_rebalance(
                     "dry_run": bool(dry_run),
                 }
             )
+        # Advance the snapshot using ONLY successfully-submitted exits: a failed
+        # submit leaves that symbol at its held qty, so it stays "expected" in
+        # reconciliation and is retried next pass (fail-safe under partial failure).
+        # Sign: longs (qty>0) exit via SELL -> subtract; shorts (qty<0) exit via
+        # BUY -> add toward zero. Both are `qty - sign*exited`.
+        persisted = {
+            sym: qty - (1 if qty > 0 else -1) * exited.get(sym, 0) for sym, qty in snapshot.items()
+        }
         if not dry_run and record_bookkeeping:
-            write_strategy_positions(settings.data_dir, asof, slug, result.remaining)
+            write_strategy_positions(settings.data_dir, asof, slug, persisted)
         report.winddown_outcomes.append(
             WindDownOutcome(
                 slug=slug,
                 exited=exited,
-                remaining=result.remaining,
+                remaining=persisted,
                 skipped=result.skipped,
             )
         )

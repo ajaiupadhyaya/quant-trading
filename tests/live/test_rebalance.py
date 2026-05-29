@@ -435,6 +435,84 @@ def test_orphan_winddown_exits_and_converges(fake_settings: Settings, patched_ba
     assert new_snap.get("SPY", 0) == trend_wd.remaining.get("SPY", 0)
 
 
+def test_orphan_winddown_partial_failure_keeps_failed_symbol_held(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    """Partial submit failure: succeeded symbol advances to 0, failed symbol stays held.
+
+    Two-symbol orphan (trend with SPY:70, IEF:30).  The stub raises on IEF but
+    succeeds for SPY.  After the live run:
+    - last_strategy_positions(data_dir, "trend")["SPY"] == 0   (fully exited)
+    - last_strategy_positions(data_dir, "trend")["IEF"] == 30  (not zeroed)
+    """
+    from quant.execution.alpaca import PositionRow
+    from quant.live.bookkeeping import last_strategy_positions, write_strategy_positions
+
+    asof = date(2024, 6, 28)
+
+    # Governance: defensive-etf-allocation is LIVE, trend is QUARANTINED (orphan).
+    _write_state_file(
+        fake_settings.data_dir,
+        {"defensive-etf-allocation": "live", "trend": "quarantined"},
+    )
+
+    # Seed a two-symbol non-zero snapshot for trend.
+    write_strategy_positions(fake_settings.data_dir, asof, "trend", {"SPY": 70, "IEF": 30})
+
+    # Alpaca aggregate must reflect those shares so reconciliation passes.
+    positions = [
+        PositionRow(
+            symbol="SPY",
+            qty=70,
+            avg_entry_price=100.0,
+            market_value=70 * 100.0,
+            unrealized_pl=0.0,
+            current_price=100.0,
+            side="long",
+        ),
+        PositionRow(
+            symbol="IEF",
+            qty=30,
+            avg_entry_price=100.0,
+            market_value=30 * 100.0,
+            unrealized_pl=0.0,
+            current_price=100.0,
+            side="long",
+        ),
+    ]
+
+    class _PartialFailClient(_StubAlpacaClientWithPositions):
+        """Raises on submit_order for IEF; succeeds for everything else."""
+
+        def submit_order(self, order: OrderTemplate, *, dry_run: bool = False) -> str:
+            if order.symbol == "IEF":
+                raise RuntimeError("simulated IEF submit failure")
+            return super().submit_order(order, dry_run=dry_run)
+
+    client = _PartialFailClient(equity=100_000.0, alpaca_positions=positions)
+
+    report = run_rebalance(
+        asof=asof,
+        dry_run=False,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        skip_safety_checks=True,
+    )
+
+    # Wind-down outcome for "trend" must exist.
+    wd_slugs = [o.slug for o in report.winddown_outcomes]
+    assert "trend" in wd_slugs, f"expected 'trend' in winddown_outcomes, got {wd_slugs}"
+
+    # Snapshot after run: SPY must be 0 (succeeded), IEF must be 30 (failed).
+    new_snap = last_strategy_positions(fake_settings.data_dir, "trend")
+    assert new_snap.get("SPY", -1) == 0, (
+        f"SPY should be fully exited (0) after successful submit, got {new_snap.get('SPY')}"
+    )
+    assert new_snap.get("IEF", -1) == 30, (
+        f"IEF should remain held (30) after failed submit, got {new_snap.get('IEF')}"
+    )
+
+
 def test_orphan_winddown_dry_run_no_submit_no_zero(
     fake_settings: Settings, patched_bars: None
 ) -> None:
