@@ -32,3 +32,21 @@ def trades_to_minute_bars(trades: pd.DataFrame, symbol: str) -> pd.DataFrame:
         }
     )
     return out.dropna(subset=["open"])[_MINUTE_COLUMNS]
+
+
+_QUOTE_COLUMNS = ["bid", "ask", "bid_size", "ask_size"]
+
+
+def quotes_to_second_bars(quotes: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """Downsample raw NBBO quotes to 1-second bars (last quote in each second).
+
+    Sampling the *last* quote per second gives the prevailing NBBO at second
+    close — the spread a marketable order would face at that instant.
+    """
+    if quotes.empty:
+        return pd.DataFrame(columns=_QUOTE_COLUMNS)
+    df = quotes.sort_index()
+    out = df.resample("1s", label="left", closed="left").last().dropna(subset=["bid", "ask"])
+    out["bid_size"] = out["bid_size"].astype("int64")
+    out["ask_size"] = out["ask_size"].astype("int64")
+    return out[_QUOTE_COLUMNS]
