@@ -7,12 +7,13 @@ adapter over alpaca-py's StockDataStream."""
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 from quant.intraday.data.events import QuoteBar
 from quant.intraday.data.store import MarketDataStore
 
 
-async def ingest_quotes(source: AsyncIterator[dict], store: MarketDataStore) -> int:
+async def ingest_quotes(source: AsyncIterator[dict[str, Any]], store: MarketDataStore) -> int:
     """Consume quote messages, push QuoteBar events to the buffer. Returns count."""
     n = 0
     async for msg in source:

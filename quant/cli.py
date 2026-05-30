@@ -56,6 +56,13 @@ def _can_load_settings() -> bool:
         return False
 
 
+# --- intraday sub-system ----------------------------------------------------
+from quant.intraday.cli import intraday as _intraday_group  # noqa: E402
+
+cli.add_command(_intraday_group)
+# ----------------------------------------------------------------------------
+
+
 def _doctor_governance_live_slugs(data_dir: Path) -> tuple[list[str], str | None]:
     from quant.governance.models import GovernanceError, GovernanceState
     from quant.governance.store import load_strategy_states, strategy_states_path

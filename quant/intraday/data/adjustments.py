@@ -32,11 +32,8 @@ def adjust_prices(df: pd.DataFrame, factors: list[Adjustment], as_of: date) -> p
         return df.copy()
     out = df.copy()
     price_cols = [c for c in out.columns if c in _PRICE_COLUMNS]
-    ex_index = (
-        pd.DatetimeIndex(out.index).tz_convert("UTC")
-        if out.index.tz
-        else pd.DatetimeIndex(out.index)
-    )
+    dt_index = pd.DatetimeIndex(out.index)
+    ex_index = dt_index.tz_convert("UTC") if dt_index.tz is not None else dt_index
     for adj in applicable:
         ex_ts = pd.Timestamp(adj.ex_date, tz="UTC")
         pre = ex_index < ex_ts

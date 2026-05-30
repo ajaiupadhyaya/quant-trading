@@ -1,6 +1,6 @@
 # tests/intraday/data/test_stream.py
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from quant.intraday.data.config import IntradayConfig
 from quant.intraday.data.events import QuoteBar
@@ -9,10 +9,22 @@ from quant.intraday.data.stream import ingest_quotes
 
 
 async def _fake_source():
-    yield {"symbol": "AAPL", "timestamp": datetime(2023, 6, 1, 13, 30, tzinfo=timezone.utc),
-           "bid": 1.0, "ask": 1.1, "bid_size": 1, "ask_size": 1}
-    yield {"symbol": "AAPL", "timestamp": datetime(2023, 6, 1, 13, 30, 1, tzinfo=timezone.utc),
-           "bid": 1.2, "ask": 1.3, "bid_size": 2, "ask_size": 2}
+    yield {
+        "symbol": "AAPL",
+        "timestamp": datetime(2023, 6, 1, 13, 30, tzinfo=UTC),
+        "bid": 1.0,
+        "ask": 1.1,
+        "bid_size": 1,
+        "ask_size": 1,
+    }
+    yield {
+        "symbol": "AAPL",
+        "timestamp": datetime(2023, 6, 1, 13, 30, 1, tzinfo=UTC),
+        "bid": 1.2,
+        "ask": 1.3,
+        "bid_size": 2,
+        "ask_size": 2,
+    }
 
 
 def test_ingest_quotes_pushes_events_to_buffer(tmp_path):

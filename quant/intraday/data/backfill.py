@@ -7,8 +7,8 @@ The Alpaca client is injected (Protocol) so it is fully unit-testable with a fak
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
-from typing import Protocol
+from datetime import UTC, date
+from typing import Any, Protocol
 
 import pandas as pd
 
@@ -34,7 +34,12 @@ class BackfillResult:
 
 
 def backfill_symbol_day(
-    client: HistClient, store: MarketDataStore, symbol: str, day: date, *, skip_existing: bool = False
+    client: HistClient,
+    store: MarketDataStore,
+    symbol: str,
+    day: date,
+    *,
+    skip_existing: bool = False,
 ) -> BackfillResult:
     target = partition_path(store.config.data_root, "minute_bars", symbol, day)
     if skip_existing and target.exists():
@@ -58,19 +63,21 @@ def backfill_symbol_day(
 class AlpacaHistClient:
     """Production HistClient backed by alpaca-py's StockHistoricalDataClient (SIP feed)."""
 
-    def __init__(self, settings: object = None) -> None:
+    def __init__(self, settings: Any = None) -> None:
         from alpaca.data.historical import StockHistoricalDataClient
 
         from quant.util.config import Settings
 
-        s = settings or Settings()  # type: ignore[call-arg]
-        self._client = StockHistoricalDataClient(api_key=s.alpaca_api_key, secret_key=s.alpaca_secret_key)  # type: ignore[union-attr]
+        s: Any = settings or Settings()  # type: ignore[call-arg]
+        self._client: Any = StockHistoricalDataClient(
+            api_key=s.alpaca_api_key, secret_key=s.alpaca_secret_key
+        )
 
-    def _day_bounds(self, day: date) -> tuple:
-        from datetime import datetime, time, timezone
+    def _day_bounds(self, day: date) -> tuple[Any, Any]:
+        from datetime import datetime, time
 
-        start = datetime.combine(day, time(0, 0), tzinfo=timezone.utc)
-        end = datetime.combine(day, time(23, 59, 59), tzinfo=timezone.utc)
+        start = datetime.combine(day, time(0, 0), tzinfo=UTC)
+        end = datetime.combine(day, time(23, 59, 59), tzinfo=UTC)
         return start, end
 
     def get_trades_df(self, symbol: str, day: date) -> pd.DataFrame:
@@ -79,7 +86,8 @@ class AlpacaHistClient:
 
         start, end = self._day_bounds(day)
         req = StockTradesRequest(symbol_or_symbols=symbol, start=start, end=end, feed=DataFeed.SIP)
-        raw = self._client.get_stock_trades(req).df
+        result: Any = self._client.get_stock_trades(req)
+        raw: pd.DataFrame = result.df
         if raw.empty:
             return pd.DataFrame(columns=["price", "size"])
         df = raw.reset_index()
@@ -92,7 +100,8 @@ class AlpacaHistClient:
 
         start, end = self._day_bounds(day)
         req = StockQuotesRequest(symbol_or_symbols=symbol, start=start, end=end, feed=DataFeed.SIP)
-        raw = self._client.get_stock_quotes(req).df
+        result: Any = self._client.get_stock_quotes(req)
+        raw: pd.DataFrame = result.df
         if raw.empty:
             return pd.DataFrame(columns=["bid", "ask", "bid_size", "ask_size"])
         df = raw.reset_index().set_index(pd.DatetimeIndex(raw.reset_index()["timestamp"]))

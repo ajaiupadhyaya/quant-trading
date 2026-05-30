@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 
 
 def regular_session_minutes(day: date) -> int:
-    """Number of 1-minute bars in a regular US equity session (9:30–16:00 ET).
+    """Number of 1-minute bars in a regular US equity session (9:30-16:00 ET).
 
     Half-days return 210; this base implementation returns 390 for any weekday.
     (A half-day calendar can be layered in later from the market calendar.)
@@ -25,7 +26,9 @@ def detect_minute_gaps(bars: pd.DataFrame) -> list[pd.Timestamp]:
     return [ts for ts in full if ts not in bars.index]
 
 
-def filter_bad_trades(trades: pd.DataFrame, ref_price: float, max_deviation: float = 0.2) -> pd.DataFrame:
+def filter_bad_trades(
+    trades: pd.DataFrame, ref_price: float, max_deviation: float = 0.2
+) -> pd.DataFrame:
     """Drop non-positive prices and prints more than `max_deviation` from ref_price."""
     if trades.empty:
         return trades
@@ -34,10 +37,8 @@ def filter_bad_trades(trades: pd.DataFrame, ref_price: float, max_deviation: flo
     return trades.loc[mask]
 
 
-def run_doctor(data_root: object) -> dict[str, int]:
+def run_doctor(data_root: str | Path) -> dict[str, int]:
     """Summarize the intraday store: partition counts per dataset."""
-    from pathlib import Path
-
     counts: dict[str, int] = {}
     for ds in ("trades", "quote_bars_1s", "minute_bars"):
         d = Path(data_root) / ds
