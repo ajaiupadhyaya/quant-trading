@@ -12,9 +12,11 @@ local TZ metadata), so _read calls tz_convert("UTC") rather than tz_localize.
 
 from __future__ import annotations
 
+from collections.abc import Generator, Iterator
 from dataclasses import dataclass as _dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -27,7 +29,7 @@ class MarketDataStore:
     def __init__(self, config: IntradayConfig) -> None:
         self.config = config
         self._adjustments: dict[str, list[Adjustment]] = {}
-        self._buffer: list = []
+        self._buffer: list[Any] = []
 
     # ---- write side -------------------------------------------------------
     def _write(self, dataset: str, symbol: str, day: date, df: pd.DataFrame) -> Path:
@@ -57,7 +59,7 @@ class MarketDataStore:
         con = duckdb.connect()
         try:
             rel = con.execute(
-                'SELECT * FROM read_parquet(?, union_by_name=true) '
+                "SELECT * FROM read_parquet(?, union_by_name=true) "
                 'WHERE "index" >= ? AND "index" < ? ORDER BY "index"',
                 [glob, start, end],
             )
@@ -70,10 +72,11 @@ class MarketDataStore:
             return df
         df = df.set_index("index").sort_index()
         # pyarrow stores UTC but reads back with local TZ metadata; convert to UTC
-        if df.index.tz is None:
-            df.index = pd.DatetimeIndex(df.index, name="timestamp").tz_localize("UTC")
+        dti = pd.DatetimeIndex(df.index)
+        if dti.tz is None:
+            df.index = dti.tz_localize("UTC").rename("timestamp")
         else:
-            df.index = df.index.tz_convert("UTC")
+            df.index = dti.tz_convert("UTC")
         return df
 
     # ---- adjustment wiring -----------------------------------------------
@@ -102,21 +105,24 @@ class MarketDataStore:
         return self._maybe_adjust(symbol, self._read("trades", symbol, start, end), as_of)
 
     # ---- event conversion -----------------------------------------------
-    def _rows_to_events(self, dataset: str, symbol: str, df: pd.DataFrame):  # type: ignore[return]
+    def _rows_to_events(
+        self, dataset: str, symbol: str, df: pd.DataFrame
+    ) -> Generator[Any, None, None]:
         """Convert a DataFrame to typed Event objects matching the dataset schema."""
         from quant.intraday.data.events import Bar, QuoteBar, Trade
 
         for ts, row in df.iterrows():
+            ts_dt = pd.Timestamp(ts).to_pydatetime()  # type: ignore[arg-type]
             if dataset == "trades":
                 yield Trade(
-                    ts=ts.to_pydatetime(),
+                    ts=ts_dt,
                     symbol=symbol,
                     price=float(row["price"]),
                     size=int(row["size"]),
                 )
             elif dataset == "quote_bars_1s":
                 yield QuoteBar(
-                    ts=ts.to_pydatetime(),
+                    ts=ts_dt,
                     symbol=symbol,
                     bid=float(row["bid"]),
                     ask=float(row["ask"]),
@@ -125,7 +131,7 @@ class MarketDataStore:
                 )
             elif dataset == "minute_bars":
                 yield Bar(
-                    ts=ts.to_pydatetime(),
+                    ts=ts_dt,
                     symbol=symbol,
                     open=float(row["open"]),
                     high=float(row["high"]),
@@ -144,7 +150,7 @@ class MarketDataStore:
         *,
         datasets: tuple[str, ...] = ("minute_bars",),
         as_of: date | None = None,
-    ):
+    ) -> Iterator[Any]:
         """Yield all events for symbols/datasets in deterministic timestamp order.
 
         Collects all events then sorts — correct and sufficient for bounded
@@ -158,7 +164,7 @@ class MarketDataStore:
             "quote_bars_1s": self.get_quote_bars,
             "minute_bars": self.get_minute_bars,
         }
-        collected = []
+        collected: list[Any] = []
         for symbol in symbols:
             for ds in datasets:
                 df = getter[ds](symbol, start, end, as_of=as_of)
@@ -167,11 +173,11 @@ class MarketDataStore:
         yield from collected
 
     # ---- live buffer (subscribe / push / freshness) ----------------------
-    def push(self, event) -> None:
+    def push(self, event: Any) -> None:
         """Append a realtime event to the rolling buffer (called by stream.py)."""
         self._buffer.append(event)
 
-    def subscribe(self, symbols: list[str]):
+    def subscribe(self, symbols: list[str]) -> Iterator[Any]:
         """Yield buffered events for symbols in deterministic order.
 
         Uses the same event_sort_key as replay() — the structural guarantee
@@ -184,7 +190,7 @@ class MarketDataStore:
             if ev.symbol in wanted:
                 yield ev
 
-    def freshness(self, now: datetime | None = None) -> "Freshness":
+    def freshness(self, now: datetime | None = None) -> Freshness:
         """Return a Freshness snapshot based on the most recent buffered event."""
         if not self._buffer:
             return Freshness(last_event_ts=None)
