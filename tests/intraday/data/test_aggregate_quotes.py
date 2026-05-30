@@ -35,3 +35,15 @@ def test_quotes_to_second_bars_empty():
     )
     assert out.empty
     assert list(out.columns) == ["bid", "ask", "bid_size", "ask_size"]
+
+
+def test_quotes_to_second_bars_handles_nan_sizes():
+    # NaN bid/ask sizes are real in SIP data; must not crash the int cast (regression).
+    idx = pd.to_datetime(["2023-06-01T13:30:00Z"])
+    df = pd.DataFrame(
+        {"bid": [99.0], "ask": [100.0], "bid_size": [float("nan")], "ask_size": [2.0]},
+        index=idx,
+    )
+    out = quotes_to_second_bars(df, symbol="AAPL")
+    assert len(out) == 1 and out.iloc[0]["bid"] == 99.0
+    assert out.iloc[0]["bid_size"] == 0  # NaN size -> 0, no crash

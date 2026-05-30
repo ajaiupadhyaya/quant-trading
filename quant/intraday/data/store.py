@@ -23,6 +23,7 @@ import pandas as pd
 
 from quant.intraday.data.adjustments import Adjustment, adjust_prices
 from quant.intraday.data.config import IntradayConfig, partition_path
+from quant.util.logging import logger
 
 
 class MarketDataStore:
@@ -65,6 +66,7 @@ class MarketDataStore:
             )
             df = rel.df()
         except duckdb.IOException:
+            logger.warning("intraday _read: no partitions matched {} (returning empty frame)", glob)
             return pd.DataFrame()  # no partitions match the glob
         finally:
             con.close()

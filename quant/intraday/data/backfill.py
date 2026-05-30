@@ -41,6 +41,11 @@ def backfill_symbol_day(
     *,
     skip_existing: bool = False,
 ) -> BackfillResult:
+    """Backfill one symbol-day (trades + 1s quote bars + 1m bars).
+
+    skip_existing checks only the minute_bars partition; the atomic unit is all
+    three datasets for the day (a crash mid-write re-fetches the whole day).
+    """
     target = partition_path(store.config.data_root, "minute_bars", symbol, day)
     if skip_existing and target.exists():
         return BackfillResult(symbol, day, 0, 0, 0, skipped=True)
@@ -92,6 +97,11 @@ class AlpacaHistClient:
             return pd.DataFrame(columns=["price", "size"])
         df = raw.reset_index()
         df = df.set_index(pd.DatetimeIndex(df["timestamp"]))
+        missing = {"price", "size"} - set(df.columns)
+        if missing:
+            raise ValueError(
+                f"Alpaca trades response missing columns {sorted(missing)}; got {list(df.columns)}"
+            )
         return df[["price", "size"]]
 
     def get_quotes_df(self, symbol: str, day: date) -> pd.DataFrame:
@@ -105,6 +115,10 @@ class AlpacaHistClient:
         if raw.empty:
             return pd.DataFrame(columns=["bid", "ask", "bid_size", "ask_size"])
         df = raw.reset_index().set_index(pd.DatetimeIndex(raw.reset_index()["timestamp"]))
-        return df.rename(columns={"bid_price": "bid", "ask_price": "ask"})[
-            ["bid", "ask", "bid_size", "ask_size"]
-        ]
+        df = df.rename(columns={"bid_price": "bid", "ask_price": "ask"})
+        missing = {"bid", "ask", "bid_size", "ask_size"} - set(df.columns)
+        if missing:
+            raise ValueError(
+                f"Alpaca quotes response missing columns {sorted(missing)}; got {list(df.columns)}"
+            )
+        return df[["bid", "ask", "bid_size", "ask_size"]]

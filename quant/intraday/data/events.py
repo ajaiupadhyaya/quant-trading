@@ -58,5 +58,9 @@ _TYPE_RANK = {QuoteBar: 0, Trade: 1, Bar: 2}
 
 def event_sort_key(event: Event) -> tuple[datetime, int, str]:
     """Deterministic total order for merging streams: timestamp, then a stable
-    per-type rank (quote before trade before bar at the same instant), then symbol."""
+    per-type rank (quote before trade before bar at the same instant), then symbol.
+
+    Events with an identical (ts, type, symbol) key fall back to insertion order;
+    making same-timestamp ties fully deterministic across replay() and subscribe()
+    is the live engine's responsibility (sub-project D)."""
     return (event.ts, _TYPE_RANK[type(event)], event.symbol)

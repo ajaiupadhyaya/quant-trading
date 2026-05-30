@@ -15,9 +15,12 @@ _PRICE_COLUMNS = ("open", "high", "low", "close", "bid", "ask", "price", "vwap")
 
 @dataclass(frozen=True)
 class Adjustment:
+    """A corporate action. `cash_dividend` is the POST-split dollar amount per
+    share (subtracted from pre-ex prices after the split ratio is applied)."""
+
     ex_date: date
     split_ratio: float  # e.g. 4.0 means 4-for-1; price divided by 4 before ex-date
-    cash_dividend: float  # absolute $/share, subtracted from pre-ex prices
+    cash_dividend: float  # post-split $/share, subtracted from pre-ex prices
 
 
 def adjust_prices(df: pd.DataFrame, factors: list[Adjustment], as_of: date) -> pd.DataFrame:
@@ -33,9 +36,12 @@ def adjust_prices(df: pd.DataFrame, factors: list[Adjustment], as_of: date) -> p
     out = df.copy()
     price_cols = [c for c in out.columns if c in _PRICE_COLUMNS]
     dt_index = pd.DatetimeIndex(out.index)
-    ex_index = dt_index.tz_convert("UTC") if dt_index.tz is not None else dt_index
+    tz = dt_index.tz
+    ex_index = dt_index.tz_convert("UTC") if tz is not None else dt_index
     for adj in applicable:
-        ex_ts = pd.Timestamp(adj.ex_date, tz="UTC")
+        # Match the index's tz-awareness so the comparison is homogeneous
+        # (a tz-aware ex_ts vs a tz-naive index raises InvalidComparison).
+        ex_ts = pd.Timestamp(adj.ex_date, tz="UTC") if tz is not None else pd.Timestamp(adj.ex_date)
         pre = ex_index < ex_ts
         if adj.split_ratio and adj.split_ratio != 1.0:
             out.loc[pre, price_cols] = out.loc[pre, price_cols] / adj.split_ratio

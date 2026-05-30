@@ -12,8 +12,8 @@ import pandas as pd
 def regular_session_minutes(day: date) -> int:
     """Number of 1-minute bars in a regular US equity session (9:30-16:00 ET).
 
-    Half-days return 210; this base implementation returns 390 for any weekday.
-    (A half-day calendar can be layered in later from the market calendar.)
+    Half-day sessions (210 min) are not yet modeled — always returns 390;
+    refine with a market calendar (e.g. pandas-market-calendars) when needed.
     """
     return 390
 
@@ -23,7 +23,8 @@ def detect_minute_gaps(bars: pd.DataFrame) -> list[pd.Timestamp]:
     if bars.empty:
         return []
     full = pd.date_range(bars.index.min(), bars.index.max(), freq="1min")
-    return [ts for ts in full if ts not in bars.index]
+    have = set(bars.index)
+    return [ts for ts in full if ts not in have]
 
 
 def filter_bad_trades(

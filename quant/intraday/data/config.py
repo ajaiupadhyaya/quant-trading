@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -131,4 +131,3 @@ class IntradayConfig:
     data_root: Path
     universe: tuple[str, ...] = DEFAULT_UNIVERSE
     hot_window_days: int = 5  # rolling lookback the live engine keeps in memory
-    _unused: tuple[()] = field(default=(), repr=False)

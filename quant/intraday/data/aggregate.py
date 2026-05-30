@@ -47,6 +47,8 @@ def quotes_to_second_bars(quotes: pd.DataFrame, symbol: str) -> pd.DataFrame:
         return pd.DataFrame(columns=_QUOTE_COLUMNS)
     df = quotes.sort_index()
     out = df.resample("1s", label="left", closed="left").last().dropna(subset=["bid", "ask"])
-    out["bid_size"] = out["bid_size"].astype("int64")
-    out["ask_size"] = out["ask_size"].astype("int64")
+    # NBBO size can be NaN during auctions/halts/outages even with a valid bid/ask;
+    # keep the spread, treat missing size as 0 rather than crashing the int cast.
+    out["bid_size"] = out["bid_size"].fillna(0).astype("int64")
+    out["ask_size"] = out["ask_size"].fillna(0).astype("int64")
     return out[_QUOTE_COLUMNS]
