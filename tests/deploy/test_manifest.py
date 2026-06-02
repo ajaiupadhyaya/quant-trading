@@ -19,6 +19,7 @@ def test_loads_all_jobs() -> None:
         "daily-rebalance",
         "posttrade-reconciliation",
         "daily-digest",
+        "daily-brief",
         "nightly-backtest",
         "weekly-grid-search",
         "weekly-validation-governance",

@@ -58,6 +58,19 @@ commands = [["analyst", "digest"]]
 commit_paths = ["docs/analyst/"]
 
 [[job]]
+name = "daily-brief"
+trigger_et = "17:50"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "23:30"
+max_runtime_s = 600
+# Read-only Claude decision-maker (Phase A): richer context (regime + validation
+# evidence + allocation + macro + execution) → structured advisory brief → Slack.
+# Runs after the digest; never trades, sets no halt, applies nothing.
+commands = [["analyst", "brief"]]
+commit_paths = ["docs/analyst/"]
+
+[[job]]
 name = "nightly-backtest"
 trigger_et = "22:00"
 days = "TRADING_DAY_EVENING"
