@@ -50,3 +50,6 @@ resources.md
 
 # Local isolated worktrees
 .worktrees/
+
+# E1 scheduler run-state (host-local, not committed)
+data/ops/scheduler/
