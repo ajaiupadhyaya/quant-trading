@@ -275,7 +275,12 @@ def narrate(facts: str, *, settings: Any, client: Any | None = None) -> str | No
         logger.error("analyst: Claude narration failed ({!r}) — template-only digest", exc)
         return None
 
-    text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text").strip()
+    # Duck-typed extraction: works for the real SDK's TextBlock and the injected
+    # test fake alike. getattr keeps mypy happy (the SDK content union doesn't
+    # narrow through a getattr type-check).
+    text = "".join(
+        getattr(b, "text", "") for b in resp.content if getattr(b, "type", None) == "text"
+    ).strip()
     return text or None
 
 
