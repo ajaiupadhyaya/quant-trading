@@ -10,6 +10,7 @@
     <string>quant</string>
     <string>guard</string>
     <string>run</string>
+    <string>--dry-run</string>
   </array>
   <key>WorkingDirectory</key><string>/Users/ajaiupadhyaya/Documents/quant-trading</string>
   <key>EnvironmentVariables</key>

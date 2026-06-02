@@ -28,7 +28,9 @@ commands = [
   ["data", "refresh", "--start", "2018-01-01"],
   ["risk", "pretrade"],
   ["doctor"],
-  ["rebalance"],
+  # SHAKEDOWN DRY-RUN (2026-06-02): places NO live orders. Remove "--dry-run"
+  # at cutover, after the parallel dry-run gates in deploy/README.md pass.
+  ["rebalance", "--dry-run"],
 ]
 commit_paths = ["data/live/", "data/raw/", "data/ops/health/", "data/risk/"]
 
@@ -41,6 +43,18 @@ max_lateness = "23:59"
 max_runtime_s = 600
 commands = [["__script__", "scripts/reconcile_live.py"]]
 commit_paths = ["docs/live-recon/"]
+
+[[job]]
+name = "daily-digest"
+trigger_et = "17:45"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "23:00"
+max_runtime_s = 600
+# Read-only Claude-written digest → Slack (E2). Runs after reconciliation;
+# never trades. Commits the markdown artifact so git history is the digest log.
+commands = [["analyst", "digest"]]
+commit_paths = ["docs/analyst/"]
 
 [[job]]
 name = "nightly-backtest"

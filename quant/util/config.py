@@ -56,6 +56,17 @@ class Settings(BaseSettings):
     pushover_app_token: str | None = Field(default=None, description="Pushover application token")
     pushover_user_key: str | None = Field(default=None, description="Pushover user key")
 
+    # Slack delivery for the daily analyst digest + real-time alerts (E2). Optional.
+    slack_webhook_url: str | None = Field(
+        default=None, description="Slack Incoming Webhook URL for digests + alerts"
+    )
+    # Claude API for the analyst digest narration (E2). Optional so the digest
+    # degrades to a deterministic, template-only summary when unset.
+    anthropic_api_key: str | None = Field(default=None, description="Anthropic API key (analyst)")
+    anthropic_model: str = Field(
+        default="claude-opus-4-8", description="Claude model for the analyst digest"
+    )
+
     log_level: str = Field(default="INFO", description="loguru level")
     data_dir: Path = Field(
         default=Path("./data"),

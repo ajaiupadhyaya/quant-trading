@@ -53,3 +53,4 @@ resources.md
 
 # E1 scheduler run-state (host-local, not committed)
 data/ops/scheduler/
+data/ops/monitor_status.json

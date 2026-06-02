@@ -74,3 +74,49 @@ def test_send_emergency_returns_false_on_network_error() -> None:
     r = _Recorder()
     r.fail = True
     assert AlertClient(_cfg(), get=r.get, post=r.post).send_emergency("x", "y") is False
+
+
+class _JsonRecorder:
+    def __init__(self) -> None:
+        self.posts: list[tuple[str, dict]] = []
+
+    def post_json(self, url: str, payload: dict, timeout: float) -> int:
+        self.posts.append((url, payload))
+        return 200
+
+
+_SLACK = "https://hooks.slack.com/services/T/B/x"
+
+
+def test_send_slack_posts_json_payload() -> None:
+    jr = _JsonRecorder()
+    cfg = AlertConfig(None, None, None, None, slack_webhook_url=_SLACK)
+    ok = AlertClient(cfg, post_json=jr.post_json).send_slack("hello", blocks=[{"type": "section"}])
+    assert ok is True
+    url, payload = jr.posts[0]
+    assert url == _SLACK
+    assert payload["text"] == "hello" and payload["blocks"] == [{"type": "section"}]
+
+
+def test_send_slack_noop_when_unset() -> None:
+    jr = _JsonRecorder()
+    cfg = AlertConfig(None, None, None, None)  # slack_webhook_url defaults to None
+    assert AlertClient(cfg, post_json=jr.post_json).send_slack("x") is False
+    assert jr.posts == []
+
+
+def test_send_emergency_fans_out_to_pushover_and_slack() -> None:
+    r, jr = _Recorder(), _JsonRecorder()
+    cfg = AlertConfig(None, None, "apptok", "userkey", slack_webhook_url=_SLACK)
+    ok = AlertClient(cfg, post=r.post, post_json=jr.post_json).send_emergency("HALT", "drift")
+    assert ok is True
+    assert r.posts and r.posts[0][1]["priority"] == 2  # pushover form-post
+    assert jr.posts and "HALT" in jr.posts[0][1]["text"]  # slack json-post
+
+
+def test_send_emergency_slack_only_still_delivers() -> None:
+    jr = _JsonRecorder()
+    cfg = AlertConfig(None, None, None, None, slack_webhook_url=_SLACK)
+    ok = AlertClient(cfg, post_json=jr.post_json).send_emergency("HALT", "drift")
+    assert ok is True
+    assert jr.posts and "drift" in jr.posts[0][1]["text"]

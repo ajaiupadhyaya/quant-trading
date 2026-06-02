@@ -18,7 +18,9 @@ def test_alert_settings_default_none(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ALPACA_API_KEY", "k")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "s")
     monkeypatch.setenv("FRED_API_KEY", "f")
-    s = Settings()  # type: ignore[call-arg]
+    # _env_file=None ignores any local .env so this tests the true "unset" default
+    # (a local .env with empty `KEY=` lines yields "" via dotenv, not None).
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert s.healthcheck_tick_url is None
     assert s.pushover_app_token is None
 

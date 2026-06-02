@@ -1995,7 +1995,14 @@ def guard_run(interval: float, once: bool, dry_run: bool, max_ticks: int | None)
             healthcheck_guard_url=settings.healthcheck_guard_url,
             pushover_app_token=settings.pushover_app_token,
             pushover_user_key=settings.pushover_user_key,
+            slack_webhook_url=settings.slack_webhook_url,
         )
+    )
+    # Box-recovery signal: the guard is KeepAlive, so it (re)starts on boot/crash.
+    # A one-line Slack ping on start is the positive counterpart to the off-box
+    # dead-man's-switch — "the box is back and the safety daemon is live."
+    _alerts.send_slack(
+        f":white_check_mark: quant guard online ({'dry-run' if dry_run else 'LIVE'}) — monitoring resumed."
     )
     run_loop(
         settings.data_dir,
@@ -2029,6 +2036,7 @@ def ops_tick() -> None:
             healthcheck_guard_url=settings.healthcheck_guard_url,
             pushover_app_token=settings.pushover_app_token,
             pushover_user_key=settings.pushover_user_key,
+            slack_webhook_url=settings.slack_webhook_url,
         )
     )
     manifest_path = Path(__file__).resolve().parent / "deploy" / "jobs.toml"
@@ -2061,6 +2069,73 @@ def ops_run_job(name: str, force: bool) -> None:
         rc = disp.runner(args, Path(__file__).resolve().parents[1])
         if rc != 0:
             raise SystemExit(rc)
+
+
+@cli.group(help="Analyst layer — a daily Claude-written digest delivered to Slack (read-only).")
+def analyst() -> None:
+    pass
+
+
+@analyst.command(
+    "digest", help="Build today's digest and post it to Slack. Read-only — never trades or halts."
+)
+@click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")
+@click.option("--dry-run", is_flag=True, default=False, help="Print the digest; do not post to Slack.")
+def analyst_digest(asof: str | None, dry_run: bool) -> None:
+    from quant.analyst import run_digest
+    from quant.deploy.alerts import AlertClient, AlertConfig
+    from quant.governance.halt import load_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    session_date = date.fromisoformat(asof) if asof else date.today()
+
+    alerts = AlertClient(
+        AlertConfig(
+            healthcheck_tick_url=settings.healthcheck_tick_url,
+            healthcheck_guard_url=settings.healthcheck_guard_url,
+            pushover_app_token=settings.pushover_app_token,
+            pushover_user_key=settings.pushover_user_key,
+            slack_webhook_url=settings.slack_webhook_url,
+        )
+    )
+
+    # Best-effort live snapshot from Alpaca; the digest degrades gracefully without it.
+    account: dict[str, float] | None = None
+    live_positions: list[tuple[str, int]] | None = None
+    try:
+        client = AlpacaClient(settings=settings)
+        acct = client.account()
+        account = {"equity": acct.equity, "last_equity": acct.last_equity, "cash": acct.cash}
+        live_positions = [(p.symbol, int(p.qty)) for p in client.positions()]
+    except Exception as exc:  # digest is best-effort — a broker hiccup must not fail it
+        console.print(f"[yellow]analyst: Alpaca snapshot unavailable — {exc!r}[/yellow]")
+
+    governance_live, _ = _doctor_governance_live_slugs(settings.data_dir)
+    artifact_dir = Path(__file__).resolve().parents[1] / "docs" / "analyst"
+    result = run_digest(
+        data_dir=settings.data_dir,
+        asof=session_date,
+        settings=settings,
+        alerts=alerts,
+        artifact_dir=artifact_dir,
+        dry_run=dry_run,
+        account=account,
+        live_positions=live_positions,
+        governance_live=governance_live,
+        halt_active=load_halt(settings.data_dir).active,
+    )
+
+    console.rule(f"analyst digest — {session_date.isoformat()}")
+    console.print(result.body)
+    console.rule()
+    src = "Claude" if result.used_llm else "template (no ANTHROPIC_API_KEY or call failed)"
+    if dry_run:
+        where = "DRY-RUN (not sent)"
+    elif result.delivered:
+        where = "posted to Slack"
+    else:
+        where = "Slack not configured / post failed"
+    console.print(f"[dim]source: {src} · {where} · artifact: {result.artifact_path}[/dim]")
 
 
 if __name__ == "__main__":  # pragma: no cover
