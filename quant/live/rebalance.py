@@ -522,7 +522,7 @@ def run_rebalance(
     # already recorded intent, so reconciliation stays consistent.
     for order in net_orders(intended):
         try:
-            coid = client.submit_order(order, dry_run=dry_run)
+            coid = client.submit_order(order, asof=asof, dry_run=dry_run)
         except Exception:
             logger.exception("net submit_order failed for {}", order.symbol)
             continue

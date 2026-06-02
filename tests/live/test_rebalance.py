@@ -42,7 +42,9 @@ class _StubAlpacaClient:
     def positions(self) -> list:  # type: ignore[type-arg]
         return []
 
-    def submit_order(self, order: OrderTemplate, *, dry_run: bool = False) -> str:
+    def submit_order(
+        self, order: OrderTemplate, *, asof: date | None = None, dry_run: bool = False
+    ) -> str:
         self.submitted.append(order)
         self.dry_run_flags.append(dry_run)
         return f"{order.strategy_slug}-stub-{order.symbol}"
@@ -495,10 +497,12 @@ def test_orphan_winddown_partial_failure_snapshot_reflects_intent(
     class _PartialFailClient(_StubAlpacaClientWithPositions):
         """Raises on submit_order for IEF; succeeds for everything else."""
 
-        def submit_order(self, order: OrderTemplate, *, dry_run: bool = False) -> str:
+        def submit_order(
+            self, order: OrderTemplate, *, asof: date | None = None, dry_run: bool = False
+        ) -> str:
             if order.symbol == "IEF":
                 raise RuntimeError("simulated IEF submit failure")
-            return super().submit_order(order, dry_run=dry_run)
+            return super().submit_order(order, asof=asof, dry_run=dry_run)
 
     client = _PartialFailClient(equity=100_000.0, alpaca_positions=positions)
 

@@ -151,9 +151,17 @@ class AlpacaClient:
         """
         return self.list_orders(since=asof, until=asof)
 
-    def submit_order(self, order: OrderTemplate, *, dry_run: bool = False) -> str:
-        """Submit a market order. Returns the client_order_id."""
-        coid = make_client_order_id(order.strategy_slug, order.symbol, date.today())
+    def submit_order(
+        self, order: OrderTemplate, *, asof: date | None = None, dry_run: bool = False
+    ) -> str:
+        """Submit a market order. Returns the client_order_id.
+
+        ``asof`` is the rebalance session date stamped into the deterministic
+        client_order_id; it must match the date the idempotency guard
+        (``already_traded_today``) queries, so a same-day retry collides on the
+        COID and the broker rejects the duplicate. Defaults to today.
+        """
+        coid = make_client_order_id(order.strategy_slug, order.symbol, asof or date.today())
         side = AlpacaSide.BUY if order.side is OrderSide.BUY else AlpacaSide.SELL
         req = MarketOrderRequest(
             symbol=order.symbol,
