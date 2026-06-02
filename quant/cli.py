@@ -2010,5 +2010,58 @@ def guard_run(interval: float, once: bool, dry_run: bool, max_ticks: int | None)
     )
 
 
+@cli.group(help="Deployment ops: the local tick scheduler (M4 host).")
+def ops() -> None:
+    pass
+
+
+@ops.command("tick", help="One scheduler tick: run any due jobs. Called by launchd every 60s.")
+def ops_tick() -> None:
+    from quant.deploy.alerts import AlertClient, AlertConfig
+    from quant.deploy.dispatcher import Dispatcher
+    from quant.deploy.manifest import load_manifest
+    from quant.governance.halt import load_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    alerts = AlertClient(
+        AlertConfig(
+            healthcheck_tick_url=settings.healthcheck_tick_url,
+            healthcheck_guard_url=settings.healthcheck_guard_url,
+            pushover_app_token=settings.pushover_app_token,
+            pushover_user_key=settings.pushover_user_key,
+        )
+    )
+    manifest_path = Path(__file__).resolve().parent / "deploy" / "jobs.toml"
+    disp = Dispatcher(
+        data_dir=settings.data_dir,
+        manifest=load_manifest(manifest_path),
+        alerts=alerts,
+        halt_active=lambda: load_halt(settings.data_dir).active,
+        tick_url=settings.healthcheck_tick_url,
+    )
+    raise SystemExit(disp.tick())
+
+
+@ops.command("run-job", help="Manually run one manifest job now (recovery for MISSED_CRITICAL).")
+@click.argument("name")
+@click.option("--force", is_flag=True, help="Run even if outside the window / already marked.")
+def ops_run_job(name: str, force: bool) -> None:
+    from quant.deploy.dispatcher import Dispatcher, _expand
+    from quant.deploy.manifest import load_manifest
+
+    settings = Settings()  # type: ignore[call-arg]
+    manifest = load_manifest(Path(__file__).resolve().parent / "deploy" / "jobs.toml")
+    job = next((j for j in manifest.jobs if j.name == name), None)
+    if job is None:
+        raise click.ClickException(f"unknown job: {name}")
+    if not force:
+        raise click.ClickException("refusing to run off-schedule without --force")
+    disp = Dispatcher(data_dir=settings.data_dir, manifest=manifest)
+    for args in _expand(job):
+        rc = disp.runner(args, Path(__file__).resolve().parents[1])
+        if rc != 0:
+            raise SystemExit(rc)
+
+
 if __name__ == "__main__":  # pragma: no cover
     cli()
