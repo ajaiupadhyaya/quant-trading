@@ -12,6 +12,7 @@ changes NO state; it only reads. It is the INPUT to ``quant.analyst.advisor``.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from dataclasses import dataclass, field
 from datetime import date
@@ -59,6 +60,7 @@ class AnalystContext:
     evidence: list[StrategyEvidence] = field(default_factory=list)
     recon: dict[str, Any] | None = None
     macro: dict[str, float] = field(default_factory=dict)
+    portfolio_risk: Any | None = None  # quant.risk.PortfolioRisk | None (lazy to avoid cycle)
 
 
 # --- best-effort readers (each fail-open) ----------------------------------
@@ -203,13 +205,32 @@ def _opt_float(v: Any) -> float | None:
         return None
 
 
+def _portfolio_risk(
+    positions: dict[str, int] | None, equity: float | None, asof: date
+) -> Any | None:
+    if not positions or not equity or equity <= 0:
+        return None
+    try:
+        from quant.risk.portfolio import live_portfolio_risk
+
+        return live_portfolio_risk(positions, float(equity), asof=asof)
+    except Exception as exc:  # fail-open
+        logger.info("analyst.context: portfolio risk skipped ({!r})", exc)
+        return None
+
+
 def gather_analyst_context(
     data_dir: Path,
     asof: date,
     *,
     include_macro: bool = True,
+    positions: dict[str, int] | None = None,
+    equity: float | None = None,
 ) -> AnalystContext:
-    """Assemble the day's read-only context. Each piece is best-effort/fail-open."""
+    """Assemble the day's read-only context. Each piece is best-effort/fail-open.
+
+    ``positions``/``equity`` (the live Alpaca snapshot, when the caller has it)
+    enable the portfolio-risk view (VaR/CVaR/beta of the current book)."""
     return AnalystContext(
         asof=asof,
         regime=_read_regime(data_dir),
@@ -217,6 +238,7 @@ def gather_analyst_context(
         evidence=_read_evidence(data_dir),
         recon=_read_recon(data_dir),
         macro=_read_macro() if include_macro else {},
+        portfolio_risk=_portfolio_risk(positions, equity, asof),
     )
 
 
@@ -264,6 +286,10 @@ def render_context(ctx: AnalystContext) -> str:
             if e.reason:
                 line += f" — {e.reason}"
             lines.append(line)
+
+    if ctx.portfolio_risk is not None:
+        with contextlib.suppress(Exception):  # render is best-effort
+            lines.append("Portfolio risk: " + ctx.portfolio_risk.render())
 
     if ctx.recon:
         msb = ctx.recon.get("mean_slippage_bps")

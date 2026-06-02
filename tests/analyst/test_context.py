@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from quant.analyst.context import gather_analyst_context, render_context
+from quant.analyst.context import AnalystContext, gather_analyst_context, render_context
 from quant.governance.models import GovernanceState, StrategyState, ValidationEvidence
 from quant.governance.store import (
     allocation_path,
@@ -17,6 +17,7 @@ from quant.governance.store import (
     write_strategy_states,
     write_validation_manifest,
 )
+from quant.risk.portfolio import PortfolioRisk
 
 ASOF = date(2026, 6, 2)
 SLUG = "defensive-etf-allocation"
@@ -111,3 +112,20 @@ def test_gathers_regime_allocation_and_evidence(tmp_path: Path) -> None:
     assert SLUG in text
     assert "gates 5/5" in text
     assert "DSR 0.85" in text
+
+
+def test_render_includes_portfolio_risk() -> None:
+    pr = PortfolioRisk(
+        n_positions=3,
+        gross_exposure=1.0,
+        net_exposure=1.0,
+        ann_vol=0.12,
+        var_95=0.02,
+        cvar_95=0.03,
+        beta_to_benchmark=0.8,
+        top_name_weight=0.4,
+        lookback_days=180,
+    )
+    text = render_context(AnalystContext(asof=ASOF, portfolio_risk=pr))
+    assert "Portfolio risk:" in text
+    assert "VaR95" in text

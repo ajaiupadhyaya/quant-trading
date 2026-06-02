@@ -1529,6 +1529,62 @@ def risk_pretrade() -> None:
     console.print(f"[{color}]Pre-trade risk {status}[/{color}]; wrote {out}")
 
 
+@risk.command(
+    "portfolio",
+    help="Portfolio risk of the LIVE book: VaR/CVaR, vol, beta, exposure. Read-only analysis.",
+)
+@click.option("--lookback", default=180, show_default=True, type=int, help="Trading-day window.")
+def risk_portfolio(lookback: int) -> None:
+    from quant.risk.portfolio import live_portfolio_risk
+
+    settings = Settings()  # type: ignore[call-arg]
+    asof = date.today()
+    positions: dict[str, int] = {}
+    equity = 0.0
+    try:
+        client = AlpacaClient(settings=settings)
+        equity = float(client.account().equity)
+        positions = {p.symbol: int(p.qty) for p in client.positions()}
+    except Exception as exc:
+        raise click.ClickException(f"Alpaca unavailable: {exc!r}") from exc
+
+    if not positions:
+        console.print("[yellow]Book is flat — no portfolio risk to report.[/yellow]")
+        return
+
+    pr = live_portfolio_risk(positions, equity, asof=asof, lookback_days=lookback)
+    if pr is None:
+        console.print("[yellow]Could not compute portfolio risk (no bar history?).[/yellow]")
+        return
+
+    out = settings.data_dir / "risk" / "portfolio_risk.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(
+            {
+                "asof": asof.isoformat(),
+                "equity": equity,
+                "n_positions": pr.n_positions,
+                "gross_exposure": pr.gross_exposure,
+                "net_exposure": pr.net_exposure,
+                "ann_vol": pr.ann_vol,
+                "var_95": pr.var_95,
+                "cvar_95": pr.cvar_95,
+                "beta_to_benchmark": pr.beta_to_benchmark,
+                "top_name_weight": pr.top_name_weight,
+                "lookback_days": pr.lookback_days,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    console.rule(f"portfolio risk — {asof.isoformat()}")
+    console.print(pr.render())
+    console.print(f"[dim]wrote {out}[/dim]")
+
+
 @cli.group(
     help="Position sizing — an observed, comparison-only overlay (vol-target/Kelly/dd/regime)."
 )
@@ -2203,7 +2259,11 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
         halt_active=load_halt(settings.data_dir).active,
     )
     facts = render_facts(data)
-    ctx = gather_analyst_context(settings.data_dir, session_date)
+    positions_dict = dict(live_positions) if live_positions else None
+    equity_val = account.get("equity") if account else None
+    ctx = gather_analyst_context(
+        settings.data_dir, session_date, positions=positions_dict, equity=equity_val
+    )
     context_text = render_context(ctx)
 
     brief = advise(
