@@ -55,6 +55,13 @@ _EG_CV_5PCT = -3.34
 _EG_CV_1PCT = -3.90
 
 
+def _eg_critical_value(adf_p_max: float) -> float:
+    """Map a target ADF p-value cutoff to the Engle-Granger residual critical
+    value (MacKinnon 2010, 2-var + constant). Only the 1% and 5% CVs are
+    tabulated here; anything <= 0.01 uses the stricter 1% gate, else 5%."""
+    return _EG_CV_1PCT if adf_p_max <= 0.01 else _EG_CV_5PCT
+
+
 def engle_granger_adf_stat(residuals: np.ndarray, max_lag: int = 1) -> float:
     """Augmented Dickey-Fuller t-statistic on cointegration residuals.
 
@@ -146,12 +153,15 @@ def pca_candidate_pairs(
     return out
 
 
-def fit_pair(prices_a: pd.Series, prices_b: pd.Series) -> PairCandidate | None:
+def fit_pair(
+    prices_a: pd.Series, prices_b: pd.Series, *, adf_cv: float = _EG_CV_5PCT
+) -> PairCandidate | None:
     """Fit one candidate pair end-to-end. Returns None if the pair degenerates.
 
     Steps: align series, take logs, run OLS for ``beta`` and ``alpha``, compute
     residuals ``ε``, fit AR(1) to compute the mean-reversion coefficient, and
-    derive the OU half-life from the AR(1) slope.
+    derive the OU half-life from the AR(1) slope. ``adf_cv`` is the Engle-Granger
+    residual critical value the ADF gate compares against (default 5%).
     """
     common = prices_a.index.intersection(prices_b.index)
     if len(common) < 30:
@@ -201,7 +211,7 @@ def fit_pair(prices_a: pd.Series, prices_b: pd.Series) -> PairCandidate | None:
     _ = n  # retain sample size in scope for future logging
     # Engle-Granger ADF on the cointegration residuals.
     adf_stat = engle_granger_adf_stat(resid, max_lag=1)
-    adf_passes = bool(np.isfinite(adf_stat) and adf_stat < _EG_CV_5PCT)
+    adf_passes = bool(np.isfinite(adf_stat) and adf_stat < adf_cv)
     return PairCandidate(
         a=str(a.name) if a.name is not None else "A",
         b=str(b.name) if b.name is not None else "B",
@@ -227,15 +237,18 @@ def discover_and_screen_pairs(
     max_ar1_rho: float = 0.95,
     max_kept: int = 20,
     require_adf: bool = True,
+    adf_p_max: float = 0.05,
 ) -> list[PairCandidate]:
     """End-to-end discovery: PCA -> fit -> half-life + AR(1) + ADF filter.
 
     ``prices`` is a wide close-price frame indexed by date; ``returns`` is its
     pct-change. We return up to ``max_kept`` PairCandidate records, sorted by
     half-life ascending (faster reversion first). ``require_adf=True`` adds
-    an Engle-Granger ADF stationarity gate (p < 5%) on top of the AR(1) and
-    half-life screens — spec §2.3 "≥2 cointegration tests pass" lives here.
+    an Engle-Granger ADF stationarity gate on top of the AR(1) and half-life
+    screens — spec §2.3 "≥2 cointegration tests pass" lives here. ``adf_p_max``
+    sets the ADF gate strictness (0.01 = strict 1% gate, 0.05 = 5%, the default).
     """
+    adf_cv = _eg_critical_value(adf_p_max)
     candidates = pca_candidate_pairs(
         returns, n_components=n_components, max_candidates=max_candidates
     )
@@ -249,7 +262,7 @@ def discover_and_screen_pairs(
         # Pass named series so the candidate carries the symbol back.
         series_a = prices[a].rename(a)
         series_b = prices[b].rename(b)
-        fit = fit_pair(series_a, series_b)
+        fit = fit_pair(series_a, series_b, adf_cv=adf_cv)
         if fit is None:
             continue
         if not (min_ar1_rho < fit.ar1_rho < max_ar1_rho):

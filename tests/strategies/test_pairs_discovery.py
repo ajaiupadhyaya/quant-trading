@@ -37,6 +37,25 @@ def _cointegrated_series(
     )
 
 
+def test_eg_critical_value_mapping() -> None:
+    from quant.strategies._pairs_discovery import _EG_CV_1PCT, _EG_CV_5PCT, _eg_critical_value
+
+    assert _eg_critical_value(0.01) == _EG_CV_1PCT
+    assert _eg_critical_value(0.005) == _EG_CV_1PCT
+    assert _eg_critical_value(0.05) == _EG_CV_5PCT
+    assert _eg_critical_value(0.10) == _EG_CV_5PCT
+
+
+def test_fit_pair_respects_adf_cv() -> None:
+    a, b = _cointegrated_series(n=300, beta=1.5, alpha=0.2, half_life=10.0)
+    # An impossible critical value -> the ADF gate can never pass.
+    strict = fit_pair(a, b, adf_cv=-100.0)
+    assert strict is not None and strict.adf_passes is False
+    # A permissive cutoff (any negative stat passes) -> a clean cointegrated pair passes.
+    loose = fit_pair(a, b, adf_cv=0.0)
+    assert loose is not None and loose.adf_passes is True
+
+
 def test_fit_pair_recovers_beta_on_clean_synthetic() -> None:
     a, b = _cointegrated_series(n=300, beta=1.5, alpha=0.2, half_life=10.0)
     fit = fit_pair(a, b)

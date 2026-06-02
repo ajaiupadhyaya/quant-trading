@@ -197,11 +197,8 @@ class PairsTrading(Strategy):
         prices_window = self._close.iloc[start_loc : loc + 1]
         returns_window = self._returns.iloc[start_loc : loc + 1]
 
-        # TODO: ``discover_and_screen_pairs`` does not currently accept an
-        # ``adf_p_max`` kwarg — it uses a hardcoded Engle-Granger 5% critical
-        # value. Plumbing a per-strategy ADF p-value cutoff (default 0.01,
-        # tighter than current 5%) is a separate iteration to keep
-        # ``_pairs_discovery.py`` untouched in this task.
+        # ADF gate strictness is now plumbed through: adf_p_max=0.01 selects the
+        # Engle-Granger 1% residual critical value (tighter than the 5% default).
         pairs = discover_and_screen_pairs(
             prices=prices_window,
             returns=returns_window,
@@ -211,6 +208,7 @@ class PairsTrading(Strategy):
             max_half_life=float(self.params["max_half_life"]),
             max_kept=int(self.params["max_screened_pairs"]),
             require_adf=bool(self.params["require_adf"]),
+            adf_p_max=float(self.params["adf_p_max"]),
         )
 
         if not pairs:
@@ -344,10 +342,16 @@ class PairsTrading(Strategy):
         per_pair_dollars = equity / len(decisions)
         weights: dict[str, float] = {}
         for pair, side in decisions:
-            half = (per_pair_dollars / 2.0) / equity
-            sign_b = float(np.sign(pair.beta) or 1.0)
-            weights[pair.a] = weights.get(pair.a, 0.0) + side * half
-            weights[pair.b] = weights.get(pair.b, 0.0) + (-side) * half * sign_b
+            # Beta-NEUTRAL sizing on the cointegrating spread (log_a = beta*log_b):
+            # leg B notional = |beta| * leg A notional, so the TRADED spread matches
+            # the SCREENED spread (_spread_z uses the full beta). Previously legs
+            # were equal-dollar with only sign(beta), so the position only matched
+            # the signal when |beta|~=1. Normalize by (1+|beta|) to keep each pair's
+            # gross at ~per_pair_dollars; reduces to the old split when |beta|==1.
+            beta = float(pair.beta)
+            w_a = (per_pair_dollars / equity) / (1.0 + abs(beta))
+            weights[pair.a] = weights.get(pair.a, 0.0) + side * w_a
+            weights[pair.b] = weights.get(pair.b, 0.0) - side * beta * w_a
 
         prices = self._close.iloc[loc].dropna()
         return size_to_shares(pd.Series(weights), prices, equity)
