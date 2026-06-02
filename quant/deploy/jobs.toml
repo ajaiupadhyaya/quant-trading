@@ -1,0 +1,76 @@
+# Source of truth for the M4 tick scheduler (replaces .github/workflows/*.yml crons).
+# Times are America/New_York. commands = args appended after `uv run quant`.
+
+[[job]]
+name = "premarket-health"
+trigger_et = "09:00"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "14:00"
+max_runtime_s = 1200
+commands = [
+  ["data", "refresh", "--start", "2018-01-01"],
+  ["doctor"],
+  ["governance", "status"],
+  ["rebalance", "--dry-run"],
+]
+commit_paths = []
+
+[[job]]
+name = "daily-rebalance"
+close_offset_min = 5
+days = "WEEKDAYS_TRADING"
+catch_up = "NONE"
+timing_critical = true
+max_lateness = "16:00"
+max_runtime_s = 600
+commands = [
+  ["data", "refresh", "--start", "2018-01-01"],
+  ["risk", "pretrade"],
+  ["doctor"],
+  ["rebalance"],
+]
+commit_paths = ["data/live/", "data/raw/", "data/ops/health/", "data/risk/"]
+
+[[job]]
+name = "posttrade-reconciliation"
+trigger_et = "17:30"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "23:59"
+max_runtime_s = 600
+commands = [["__script__", "scripts/reconcile_live.py"]]
+commit_paths = ["docs/live-recon/"]
+
+[[job]]
+name = "nightly-backtest"
+trigger_et = "22:00"
+days = "TRADING_DAY_EVENING"
+catch_up = "SAME_DAY"
+max_lateness = "09:00"
+max_lateness_next_day = true
+max_runtime_s = 7200
+commands = [["__backtest_matrix__", "--quick"]]
+commit_paths = ["data/backtests/"]
+
+[[job]]
+name = "weekly-grid-search"
+trigger_et = "02:00"
+days = "SATURDAY"
+catch_up = "SAME_DAY"
+max_lateness = "23:59"
+max_lateness_next_day = true
+max_runtime_s = 28800
+commands = [["__backtest_matrix__", "--full"]]
+commit_paths = ["data/backtests/"]
+
+[[job]]
+name = "weekly-validation-governance"
+trigger_et = "04:00"
+days = "SATURDAY"
+catch_up = "SAME_DAY"
+max_lateness = "23:59"
+max_lateness_next_day = true
+max_runtime_s = 28800
+commands = [["__validate_matrix__"], ["governance", "refresh"], ["governance", "status"]]
+commit_paths = ["data/backtests/", "data/governance/"]
