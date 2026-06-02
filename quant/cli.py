@@ -2155,5 +2155,88 @@ def analyst_digest(asof: str | None, dry_run: bool) -> None:
     console.print(f"[dim]source: {src} · {where} · artifact: {result.artifact_path}[/dim]")
 
 
+@analyst.command(
+    "brief",
+    help="Claude decision-maker (Phase A): richer read-only context → structured brief → Slack. "
+    "Advisory only — places no orders, sets no halt, changes no allocation.",
+)
+@click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")
+@click.option("--dry-run", is_flag=True, default=False, help="Print the brief; do not post to Slack.")
+def analyst_brief(asof: str | None, dry_run: bool) -> None:
+    from quant.analyst import gather_digest_data, render_facts
+    from quant.analyst.advisor import advise
+    from quant.analyst.context import gather_analyst_context, render_context
+    from quant.deploy.alerts import AlertClient, AlertConfig
+    from quant.governance.halt import load_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    session_date = date.fromisoformat(asof) if asof else date.today()
+    alerts = AlertClient(
+        AlertConfig(
+            healthcheck_tick_url=settings.healthcheck_tick_url,
+            healthcheck_guard_url=settings.healthcheck_guard_url,
+            pushover_app_token=settings.pushover_app_token,
+            pushover_user_key=settings.pushover_user_key,
+            slack_webhook_url=settings.slack_webhook_url,
+        )
+    )
+
+    # Best-effort live Alpaca snapshot; everything degrades gracefully without it.
+    account: dict[str, float] | None = None
+    live_positions: list[tuple[str, int]] | None = None
+    try:
+        client = AlpacaClient(settings=settings)
+        acct = client.account()
+        account = {"equity": acct.equity, "last_equity": acct.last_equity, "cash": acct.cash}
+        live_positions = [(p.symbol, int(p.qty)) for p in client.positions()]
+    except Exception as exc:  # best-effort — a broker hiccup must not fail the brief
+        console.print(f"[yellow]analyst: Alpaca snapshot unavailable — {exc!r}[/yellow]")
+
+    governance_live, _ = _doctor_governance_live_slugs(settings.data_dir)
+    data = gather_digest_data(
+        settings.data_dir,
+        session_date,
+        dry_run=dry_run,
+        account=account,
+        live_positions=live_positions,
+        governance_live=governance_live,
+        halt_active=load_halt(settings.data_dir).active,
+    )
+    facts = render_facts(data)
+    ctx = gather_analyst_context(settings.data_dir, session_date)
+    context_text = render_context(ctx)
+
+    brief = advise(
+        facts,
+        context_text,
+        settings=settings,
+        asof=session_date,
+        data_dir=settings.data_dir,
+    )
+    body = brief.render() if brief is not None else facts
+
+    artifact_dir = Path(__file__).resolve().parents[1] / "docs" / "analyst"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact = artifact_dir / f"brief-{session_date.isoformat()}.md"
+    src_label = "Claude (Phase A advisor)" if brief is not None else "context + facts (no LLM)"
+    artifact.write_text(
+        f"# Analyst brief — {session_date.isoformat()}\n\n{body}\n\n"
+        f"---\n\n**Context**\n\n```\n{context_text}\n```\n\n"
+        f"**Facts**\n\n```\n{facts}\n```\n\n_Source: {src_label}. Advisory only — nothing applied._\n",
+        encoding="utf-8",
+    )
+
+    delivered = False
+    if not dry_run:
+        text = f"🧭 quant analyst brief — {session_date.isoformat()}\n\n{body}"
+        delivered = alerts.send_slack(text)
+
+    console.rule(f"analyst brief — {session_date.isoformat()}")
+    console.print(body)
+    console.rule()
+    where = "DRY-RUN (not sent)" if dry_run else ("posted to Slack" if delivered else "not sent")
+    console.print(f"[dim]source: {src_label} · {where} · artifact: {artifact}[/dim]")
+
+
 if __name__ == "__main__":  # pragma: no cover
     cli()
