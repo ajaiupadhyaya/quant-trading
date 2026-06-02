@@ -199,6 +199,7 @@ def run_loop(
     sleep: Callable[[float], None] = time.sleep,
     console_print: Callable[[str], None] | None = None,
     now_fn: Callable[[], datetime] | None = None,
+    heartbeat_ping: Callable[[], None] | None = None,
 ) -> list[TickResult]:
     """Repeatedly run a tick, printing the heartbeat, sleeping between ticks.
 
@@ -231,6 +232,8 @@ def run_loop(
             if console_print is not None:
                 console_print(res.heartbeat)
             results.append(res)
+            if heartbeat_ping is not None:
+                heartbeat_ping()  # best-effort liveness; inside try so a failure is caught
         except Exception as exc:  # fail-safe: never crash the loop
             # Always log so a headless daemon (no console sink) never fails silently.
             logger.warning("monitor tick error (continuing): {!r}", exc)

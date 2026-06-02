@@ -1987,6 +1987,16 @@ def guard_run(interval: float, once: bool, dry_run: bool, max_ticks: int | None)
         f"[bold]Monitor daemon starting (interval={interval}s, dry_run={dry_run}). "
         "Ctrl-C to stop. The daemon can HALT but never resumes.[/bold]"
     )
+    from quant.deploy.alerts import AlertClient, AlertConfig
+
+    _alerts = AlertClient(
+        AlertConfig(
+            healthcheck_tick_url=settings.healthcheck_tick_url,
+            healthcheck_guard_url=settings.healthcheck_guard_url,
+            pushover_app_token=settings.pushover_app_token,
+            pushover_user_key=settings.pushover_user_key,
+        )
+    )
     run_loop(
         settings.data_dir,
         config,
@@ -1996,6 +2006,7 @@ def guard_run(interval: float, once: bool, dry_run: bool, max_ticks: int | None)
         alpaca_positions_fn=positions_fn,
         symbols=symbols,
         console_print=lambda s: console.print(s),
+        heartbeat_ping=lambda: _alerts.ping_success(settings.healthcheck_guard_url),
     )
 
 
