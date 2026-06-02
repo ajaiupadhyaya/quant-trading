@@ -1,12 +1,8 @@
+# SCHEDULE RETIRED 2026-06 — executor migrated to the M4 tick scheduler.
+# Source of truth for timing/commands: quant/deploy/jobs.toml.
+# Kept for manual workflow_dispatch fallback + history.
 name: weekly-validation-governance
-
-# Weekly evidence refresh. Gate failures are expected for research strategies:
-# this workflow records the evidence, refreshes governance, and commits the
-# resulting artifacts so daily rebalance can fail closed or trade only live
-# strategies with fresh validation.
 on:
-  schedule:
-    - cron: "0 8 * * 6"
   workflow_dispatch: {}
 
 concurrency:

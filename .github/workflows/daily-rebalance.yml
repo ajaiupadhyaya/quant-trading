@@ -1,11 +1,8 @@
+# SCHEDULE RETIRED 2026-06 — executor migrated to the M4 tick scheduler.
+# Source of truth for timing/commands: quant/deploy/jobs.toml.
+# Kept for manual workflow_dispatch fallback + history.
 name: daily-rebalance
-
-# 15:55 ET = 19:55 UTC (EST) / 20:55 UTC (EDT). The cron line below is set for
-# 19:55 UTC year-round; the rebalance step explicitly tolerates running a bit
-# early or late, so the DST drift is intentional rather than guarded against.
 on:
-  schedule:
-    - cron: "55 19 * * 1-5"
   workflow_dispatch:
     inputs:
       dry_run:
