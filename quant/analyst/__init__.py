@@ -6,7 +6,7 @@ Claude API, and delivers the result to Slack. It NEVER submits orders and never
 resumes a halt — it only reads.
 """
 
-from quant.analyst.advisor import AdvisorBrief, advise
+from quant.analyst.advisor import AdvisorBrief, Proposals, advise, propose
 from quant.analyst.context import (
     AnalystContext,
     RegimeSnapshot,
@@ -28,12 +28,14 @@ __all__ = [
     "AnalystContext",
     "DigestData",
     "DigestResult",
+    "Proposals",
     "RegimeSnapshot",
     "StrategyEvidence",
     "advise",
     "gather_analyst_context",
     "gather_digest_data",
     "narrate",
+    "propose",
     "render_context",
     "render_facts",
     "run_digest",

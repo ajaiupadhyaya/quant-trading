@@ -2298,5 +2298,66 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
     console.print(f"[dim]source: {src_label} · {where} · artifact: {artifact}[/dim]")
 
 
+@analyst.command(
+    "propose",
+    help="Claude decision-maker Phase B: structured advisory proposals (de-risk throttle, "
+    "allocation tilts, halt recommendation), governance-clamped and logged. Applies NOTHING.",
+)
+@click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")
+def analyst_propose(asof: str | None) -> None:
+    from quant.analyst import gather_digest_data, render_facts
+    from quant.analyst.advisor import propose
+    from quant.analyst.context import gather_analyst_context, render_context
+    from quant.governance.halt import load_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    session_date = date.fromisoformat(asof) if asof else date.today()
+
+    account: dict[str, float] | None = None
+    live_positions: list[tuple[str, int]] | None = None
+    try:
+        client = AlpacaClient(settings=settings)
+        acct = client.account()
+        account = {"equity": acct.equity, "last_equity": acct.last_equity, "cash": acct.cash}
+        live_positions = [(p.symbol, int(p.qty)) for p in client.positions()]
+    except Exception as exc:  # best-effort
+        console.print(f"[yellow]analyst: Alpaca snapshot unavailable — {exc!r}[/yellow]")
+
+    governance_live, _ = _doctor_governance_live_slugs(settings.data_dir)
+    data = gather_digest_data(
+        settings.data_dir,
+        session_date,
+        account=account,
+        live_positions=live_positions,
+        governance_live=governance_live,
+        halt_active=load_halt(settings.data_dir).active,
+    )
+    facts = render_facts(data)
+    positions_dict = dict(live_positions) if live_positions else None
+    equity_val = account.get("equity") if account else None
+    ctx = gather_analyst_context(
+        settings.data_dir, session_date, positions=positions_dict, equity=equity_val
+    )
+    context_text = render_context(ctx)
+
+    proposals = propose(
+        facts,
+        context_text,
+        settings=settings,
+        asof=session_date,
+        live_slugs=governance_live,
+        data_dir=settings.data_dir,
+    )
+    console.rule(f"analyst proposals (advise-and-log) — {session_date.isoformat()}")
+    if proposals is not None:
+        console.print(proposals.render())
+        console.print(
+            "[dim]Phase B: clamped by governance, logged to data/analyst/decisions.jsonl, "
+            "applied to NOTHING.[/dim]"
+        )
+    else:
+        console.print("[yellow](no proposals — no ANTHROPIC_API_KEY or the call failed)[/yellow]")
+
+
 if __name__ == "__main__":  # pragma: no cover
     cli()

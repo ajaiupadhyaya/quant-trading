@@ -244,3 +244,236 @@ def advise(
             },
         )
     return brief
+
+
+# --------------------------------------------------------------------------
+# Phase B: advise-and-log structured PROPOSALS.
+#
+# Phase A produces a narrative brief with one advisory posture. Phase B asks for
+# concrete, structured DECISIONS — a one-way de-risk throttle, per-strategy
+# allocation tilts, and a halt recommendation — then runs them through the
+# DETERMINISTIC governance clamp before logging. Crucially it still APPLIES
+# NOTHING: the point of Phase B is to prove, over many days of shadow logging,
+# that Claude's proposals are sane AND that the clamp reliably neuters anything
+# that would violate governance (tilting a non-LIVE strategy, raising risk,
+# out-of-range throttle). Promotion to "actually apply the de-risk" is Phase C.
+# --------------------------------------------------------------------------
+
+_PROPOSAL_TOOL: dict[str, Any] = {
+    "name": "submit_proposals",
+    "description": (
+        "Submit structured, advisory trading proposals. These are LOGGED and "
+        "clamped by governance; none are applied. This is the only allowed output."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "risk_throttle": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": (
+                    "One-way DE-RISK multiplier in [0,1]. 1.0 = no change; <1.0 = "
+                    "recommend scaling exposure down. You may NEVER recommend >1.0."
+                ),
+            },
+            "allocation_tilt": {
+                "type": "array",
+                "description": "Per-LIVE-strategy weight deltas (advisory). Only name LIVE strategies.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "slug": {"type": "string"},
+                        "delta": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+                    },
+                    "required": ["slug", "delta"],
+                },
+            },
+            "should_halt": {"type": "boolean", "description": "Recommend a trading halt?"},
+            "halt_reason": {"type": "string"},
+            "anomaly": {"type": "string", "description": "Any anomaly to triage, else empty."},
+            "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+            "rationale": {"type": "string"},
+        },
+        "required": [
+            "risk_throttle",
+            "allocation_tilt",
+            "should_halt",
+            "halt_reason",
+            "anomaly",
+            "confidence",
+            "rationale",
+        ],
+    },
+}
+
+_PROPOSAL_SYSTEM = """\
+You are the risk officer for a personal systematic PAPER-trading system. Given the \
+day's facts + context, you submit STRUCTURED, ADVISORY proposals via submit_proposals.
+
+Authority is ASYMMETRIC and you must respect it precisely:
+- You may only ever recommend REDUCING risk: risk_throttle in [0,1] (never >1.0).
+- allocation_tilt may reference ONLY strategies that are currently governance-LIVE \
+(shown in context). Tilts naming non-LIVE strategies are discarded by governance.
+- You may RECOMMEND a halt; you can never recommend resuming one.
+- Nothing you propose is applied automatically — it is clamped by governance and logged.
+
+Be conservative. Default to risk_throttle=1.0 and no halt unless the regime, drawdown, \
+guardrails, or evidence give a concrete reason. Ground everything in the input."""
+
+
+@dataclass(frozen=True)
+class Proposals:
+    risk_throttle: float  # clamped to [0,1]
+    allocation_tilt: dict[str, float]  # LIVE slugs only, after the governance clamp
+    dropped_tilts: list[str]  # slugs Claude named that are NOT live (discarded)
+    should_halt: bool
+    halt_reason: str
+    anomaly: str
+    confidence: str
+    rationale: str
+
+    def render(self) -> str:
+        bits = ["*Risk officer (advisory — nothing applied)*"]
+        posture = "no de-risk" if self.risk_throttle >= 0.999 else "DE-RISK"
+        bits.append(f"- *Throttle:* {self.risk_throttle:.2f} ({posture})")
+        if self.allocation_tilt:
+            tilt = ", ".join(f"{k} {v:+.0%}" for k, v in sorted(self.allocation_tilt.items()))
+            bits.append(f"- *Tilt (live only):* {tilt}")
+        if self.dropped_tilts:
+            bits.append(f"- *Discarded (not live):* {', '.join(sorted(self.dropped_tilts))}")
+        if self.should_halt:
+            bits.append(f"- *⚠️ Halt recommended:* {self.halt_reason}")
+        if self.anomaly:
+            bits.append(f"- *Anomaly:* {self.anomaly}")
+        bits.append(f"_{self.rationale}_ (confidence: {self.confidence})")
+        return "\n".join(bits)
+
+
+def _clamp_proposals(data: dict[str, Any], live_slugs: list[str]) -> Proposals:
+    """Apply the deterministic governance clamp to Claude's raw proposal.
+
+    This is the safety boundary: out-of-range throttle is bounded one-way, and
+    tilts naming non-LIVE strategies are DISCARDED no matter what Claude said.
+    """
+    live = set(live_slugs)
+    try:
+        throttle = float(data.get("risk_throttle", 1.0))
+    except (TypeError, ValueError):
+        throttle = 1.0
+    throttle = max(0.0, min(1.0, throttle))  # one-way de-risk only
+
+    tilt: dict[str, float] = {}
+    dropped: list[str] = []
+    for entry in data.get("allocation_tilt", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        slug = str(entry.get("slug", "")).strip()
+        if not slug:
+            continue
+        try:
+            delta = float(entry.get("delta", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if slug in live:
+            tilt[slug] = max(-1.0, min(1.0, delta))
+        else:
+            dropped.append(slug)  # governance discards non-live tilts
+
+    return Proposals(
+        risk_throttle=throttle,
+        allocation_tilt=tilt,
+        dropped_tilts=dropped,
+        should_halt=bool(data.get("should_halt", False)),
+        halt_reason=str(data.get("halt_reason", "")).strip(),
+        anomaly=str(data.get("anomaly", "")).strip(),
+        confidence=str(data.get("confidence", "low")).strip(),
+        rationale=str(data.get("rationale", "")).strip(),
+    )
+
+
+def _extract_proposals(resp: Any, live_slugs: list[str]) -> Proposals | None:
+    for block in getattr(resp, "content", []) or []:
+        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == (
+            "submit_proposals"
+        ):
+            data = getattr(block, "input", None)
+            if not isinstance(data, dict):
+                return None
+            return _clamp_proposals(data, live_slugs)
+    return None
+
+
+def propose(
+    facts: str,
+    context_text: str,
+    *,
+    settings: Any,
+    asof: date,
+    live_slugs: list[str],
+    client: Any | None = None,
+    data_dir: Path | None = None,
+) -> Proposals | None:
+    """Phase B: structured advisory proposals, governance-clamped and logged.
+
+    Applies NOTHING. Returns ``None`` with no key / on any error.
+    """
+    model = getattr(settings, "anthropic_model", "claude-opus-4-8")
+    user_content = (
+        "TODAY'S FACTS\n"
+        f"{facts}\n\n"
+        "RICHER CONTEXT\n"
+        f"{context_text}\n\n"
+        f"GOVERNANCE-LIVE STRATEGIES (only these may be tilted): {live_slugs or '(none)'}\n\n"
+        "Call submit_proposals with your structured, conservative proposals."
+    )
+    input_hash = hashlib.sha256(user_content.encode("utf-8")).hexdigest()[:16]
+
+    if client is None:
+        if not getattr(settings, "anthropic_api_key", None):
+            logger.info("advisor.propose: no ANTHROPIC_API_KEY — skipping")
+            return None
+        try:
+            import anthropic
+        except ImportError:
+            logger.warning("advisor.propose: anthropic SDK not installed — skipping")
+            return None
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+    proposals: Proposals | None = None
+    error: str | None = None
+    api: Any = client
+    try:
+        resp = api.messages.create(
+            model=model,
+            max_tokens=_MAX_TOKENS,
+            system=[
+                {"type": "text", "text": _PROPOSAL_SYSTEM, "cache_control": {"type": "ephemeral"}}
+            ],
+            tools=[_PROPOSAL_TOOL],
+            tool_choice={"type": "tool", "name": "submit_proposals"},
+            messages=[{"role": "user", "content": user_content}],
+        )
+        proposals = _extract_proposals(resp, live_slugs)
+        if proposals is None:
+            error = "no submit_proposals tool call in response"
+    except Exception as exc:
+        error = repr(exc)
+        logger.error("advisor.propose: Claude proposal failed ({!r})", exc)
+
+    if data_dir is not None:
+        _append_decision_log(
+            data_dir,
+            {
+                "at": datetime.now(UTC).isoformat(),
+                "asof": asof.isoformat(),
+                "model": model,
+                "input_hash": input_hash,
+                "phase": "B-advise-and-log",
+                "applied": False,  # Phase B NEVER applies anything
+                "live_slugs": list(live_slugs),
+                "proposals": asdict(proposals) if proposals is not None else None,
+                "error": error,
+            },
+        )
+    return proposals
