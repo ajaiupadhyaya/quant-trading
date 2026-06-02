@@ -149,6 +149,21 @@ def _latest_chosen_params(data_dir: Path, slug: str) -> dict[str, Any]:
     return latest
 
 
+def already_traded_today(client: object, asof: date) -> bool:
+    """True iff the broker already has orders dated ``asof`` (idempotency guard).
+
+    Uses a duck-typed ``list_orders_for_date(asof) -> list`` so tests can inject a
+    fake. Defaults to False (fail-open to allow the trade) only if the client does
+    not expose the method — but logs a warning, because without it the deterministic
+    client_order_id (Task 9) is the sole double-submit backstop.
+    """
+    lister = getattr(client, "list_orders_for_date", None)
+    if lister is None:
+        logger.warning("client has no list_orders_for_date; relying on deterministic COID only")
+        return False
+    return len(lister(asof)) > 0
+
+
 def run_rebalance(
     *,
     asof: date | None = None,
@@ -183,6 +198,19 @@ def run_rebalance(
     if halt.active and not dry_run:
         reason = f"Emergency halt active: {halt.reason}"
         logger.error(reason)
+        return RebalanceReport(
+            asof=asof,
+            equity=0.0,
+            enabled_strategies=[],
+            outcomes=[],
+            dry_run=dry_run,
+            safety_checks=safety_results,
+            skipped_reason=reason,
+        )
+
+    if not dry_run and already_traded_today(client, asof):
+        reason = f"orders already exist for {asof}; refusing to re-submit (idempotency)"
+        logger.warning(reason)
         return RebalanceReport(
             asof=asof,
             equity=0.0,
@@ -469,6 +497,23 @@ def run_rebalance(
                 remaining=result.remaining,
                 skipped=result.skipped,
             )
+        )
+
+    if not dry_run and intended and record_bookkeeping:
+        from datetime import UTC, datetime
+
+        from quant.deploy.markers import write_marker
+
+        # Pre-submit marker: written the instant submission begins, BEFORE the
+        # commit/push steps, so a post-submit crash blocks a re-fire next tick.
+        write_marker(
+            settings.data_dir,
+            "daily-rebalance",
+            asof,
+            kind="SUBMITTED",
+            fired_at_utc=datetime.now(UTC),
+            exit_code=0,
+            duration_s=0.0,
         )
 
     # Net all intended orders per symbol, then submit once per symbol. This is

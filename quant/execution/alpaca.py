@@ -141,6 +141,16 @@ class AlpacaClient:
             )
         return rows
 
+    def list_orders_for_date(self, asof: date) -> list[OrderRow]:
+        """Orders submitted on the single calendar day ``asof`` (00:00..23:59 UTC).
+
+        The idempotency guard (``quant.live.rebalance.already_traded_today``)
+        duck-types this method off the client; it must exist on the real client
+        so reconcile-then-refuse actually queries Alpaca in production, not only
+        when a test injects a fake.
+        """
+        return self.list_orders(since=asof, until=asof)
+
     def submit_order(self, order: OrderTemplate, *, dry_run: bool = False) -> str:
         """Submit a market order. Returns the client_order_id."""
         coid = make_client_order_id(order.strategy_slug, order.symbol, date.today())
