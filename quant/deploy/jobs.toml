@@ -28,9 +28,10 @@ commands = [
   ["data", "refresh", "--start", "2018-01-01"],
   ["risk", "pretrade"],
   ["doctor"],
-  # SHAKEDOWN DRY-RUN (2026-06-02): places NO live orders. Remove "--dry-run"
-  # at cutover, after the parallel dry-run gates in deploy/README.md pass.
-  ["rebalance", "--dry-run"],
+  # PAPER-LIVE as of cutover 2026-06-02: places REAL paper orders (fake money).
+  # The premarket-health job above still runs `rebalance --dry-run` as a preview.
+  # Re-add "--dry-run" here to return to a no-orders shakedown.
+  ["rebalance"],
 ]
 commit_paths = ["data/live/", "data/raw/", "data/ops/health/", "data/risk/"]
 
