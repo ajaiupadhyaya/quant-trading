@@ -45,14 +45,21 @@ class Alerts(Protocol):
 Runner = Callable[[list[str], Path], int]
 
 
+def _build_command(args: list[str]) -> list[str]:
+    """Build the shell command for one expanded step.
+
+    Normal steps run `uv run quant <args>` (the `quant` console entrypoint — a
+    bare `uv run data refresh` would try to spawn an executable named `data`).
+    The `__python__` sentinel runs a raw script: `uv run python <path...>`.
+    """
+    if args[:1] == ["__python__"]:
+        return [UV_BIN, "run", "python", *args[1:]]
+    return [UV_BIN, "run", "quant", *args]
+
+
 def default_runner(args: list[str], cwd: Path) -> int:
-    """Run `uv run quant <args>` (or a raw python script) and return the exit code."""
-    cmd = (
-        [UV_BIN, "run", *args]
-        if args[:1] != ["__python__"]
-        else [UV_BIN, "run", "python", *args[1:]]
-    )
-    return subprocess.run(cmd, cwd=cwd, check=False).returncode
+    """Run an expanded step via `uv` and return its exit code."""
+    return subprocess.run(_build_command(args), cwd=cwd, check=False).returncode
 
 
 def _expand(job: Job) -> list[list[str]]:

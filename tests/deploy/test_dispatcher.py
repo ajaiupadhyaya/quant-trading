@@ -101,3 +101,30 @@ def test_halt_active_fires_emergency_and_runs_no_trade(tmp_path: Path) -> None:
     d.tick(now_utc=datetime(2026, 6, 2, 19, 56, tzinfo=UTC))
     assert ["rebalance"] not in runner.calls
     assert alerts.emergencies  # fresh halt pushed
+
+
+def test_build_command_prepends_quant_entrypoint() -> None:
+    """Regression: normal manifest steps must run `uv run quant <args>` — the
+    `quant` entrypoint was missing, so `uv run data refresh` failed to spawn."""
+    from quant.deploy.dispatcher import UV_BIN, _build_command
+
+    assert _build_command(["data", "refresh", "--start", "2018-01-01"]) == [
+        UV_BIN,
+        "run",
+        "quant",
+        "data",
+        "refresh",
+        "--start",
+        "2018-01-01",
+    ]
+
+
+def test_build_command_python_script_branch() -> None:
+    from quant.deploy.dispatcher import UV_BIN, _build_command
+
+    assert _build_command(["__python__", "scripts/reconcile_live.py"]) == [
+        UV_BIN,
+        "run",
+        "python",
+        "scripts/reconcile_live.py",
+    ]
