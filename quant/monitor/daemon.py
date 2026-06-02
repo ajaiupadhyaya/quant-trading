@@ -2,9 +2,12 @@
 
 The daemon can HALT but NEVER resumes — resume is always a manual
 `quant governance resume`. Its only side effects are ``set_halt`` (the
-kill-switch) and the status artifact; it never touches orders. Fail-safe:
-on missing/empty equity the inputs evaluate to ``ok`` so a monitoring gap
-cannot trigger a false halt.
+kill-switch) and the status artifact; it never touches orders. Fail-open on a
+pure monitoring GAP: a missing/empty local equity source evaluates to ``warn``
+(surfaced, never auto-halting). But the broker's live equity is read each tick
+when available, and a live account reporting <=0 — or a local series that was
+positive and has collapsed to <=0 — escalates to ``halt`` rather than being
+silently scored ``ok``.
 """
 
 from __future__ import annotations
@@ -76,6 +79,12 @@ def _latest_equity(equity_df: pd.DataFrame) -> float:
     return float(equity_df["equity"].astype(float).iloc[-1])
 
 
+def _had_positive_history(equity_df: pd.DataFrame) -> bool:
+    if equity_df.empty or "equity" not in equity_df.columns:
+        return False
+    return bool((equity_df["equity"].astype(float) > 0).any())
+
+
 def gather_inputs(
     data_dir: Path,
     *,
@@ -83,15 +92,32 @@ def gather_inputs(
     config: GuardrailConfig,
     alpaca_positions: list[PositionRow] | None = None,
     symbols: list[str] | None = None,
+    live_equity: float | None = None,
 ) -> GuardrailInputs:
     """Read local state into a GuardrailInputs. I/O side of the daemon.
 
     Reconciliation is included only when ``alpaca_positions`` is provided;
     bar-freshness only when ``symbols`` is non-empty. Both default to skipped.
+
+    ``live_equity`` (when supplied) is the broker's authoritative equity for this
+    tick; it takes precedence over the local parquet for the equity-health
+    guardrail and the heartbeat, so a healthy flat book is no longer
+    indistinguishable from a dead local equity feed.
     """
     equity_df = read_equity(data_dir)
     drift_rows = _drift_rows(equity_df, config)
     dd = _account_drawdown(equity_df, config.risk.drawdown_lookback_days)
+
+    had_positive = _had_positive_history(equity_df)
+    if live_equity is not None:
+        latest_equity = float(live_equity)
+        equity_source = "live"
+    elif not equity_df.empty and "equity" in equity_df.columns:
+        latest_equity = _latest_equity(equity_df)
+        equity_source = "local"
+    else:
+        latest_equity = 0.0
+        equity_source = "none"
 
     reconciliation: CheckResult | None = None
     if alpaca_positions is not None:
@@ -108,9 +134,11 @@ def gather_inputs(
     return GuardrailInputs(
         drift_rows=drift_rows,
         account_drawdown_pct=dd,
-        latest_equity=_latest_equity(equity_df),
+        latest_equity=latest_equity,
         reconciliation=reconciliation,
         bar_freshness=freshness,
+        equity_source=equity_source,
+        had_positive_equity_history=had_positive,
     )
 
 
@@ -139,6 +167,7 @@ def run_once(
     inputs: GuardrailInputs | None = None,
     alpaca_positions: list[PositionRow] | None = None,
     symbols: list[str] | None = None,
+    live_equity: float | None = None,
     dry_run: bool = False,
     now: datetime | None = None,
 ) -> TickResult:
@@ -153,6 +182,7 @@ def run_once(
             config=config,
             alpaca_positions=alpaca_positions,
             symbols=symbols,
+            live_equity=live_equity,
         )
 
     report = evaluate_guardrails(inputs, config)
@@ -195,6 +225,7 @@ def run_loop(
     max_ticks: int | None = None,
     inputs_fn: Callable[[], GuardrailInputs] | None = None,
     alpaca_positions_fn: Callable[[], list[PositionRow] | None] | None = None,
+    live_equity_fn: Callable[[], float | None] | None = None,
     symbols: list[str] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     console_print: Callable[[str], None] | None = None,
@@ -219,12 +250,18 @@ def run_loop(
                 if (tick_inputs is None and alpaca_positions_fn is not None)
                 else None
             )
+            live_equity = (
+                live_equity_fn()
+                if (tick_inputs is None and live_equity_fn is not None)
+                else None
+            )
             now = now_fn() if now_fn is not None else None
             res = run_once(
                 data_dir,
                 config,
                 inputs=tick_inputs,
                 alpaca_positions=positions,
+                live_equity=live_equity,
                 symbols=symbols,
                 dry_run=dry_run,
                 now=now,

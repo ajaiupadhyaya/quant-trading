@@ -248,6 +248,12 @@ def run_rebalance(
             )
 
     account = client.account()
+    # NOTE: this records the REAL account equity series and is intentionally
+    # written on dry-run too (see test_dry_run_does_not_persist_strategy_positions)
+    # so the drawdown/drift guardrails have continuous history during the
+    # shakedown. It is observability, not a faked trade — trades/positions below
+    # are correctly gated on `not dry_run`. The guard's equity-health guardrail
+    # (not this write) is what distinguishes a dead feed from a flat book.
     if record_bookkeeping:
         append_equity_row(
             settings.data_dir,

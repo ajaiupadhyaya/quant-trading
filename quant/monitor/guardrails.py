@@ -40,6 +40,12 @@ class GuardrailInputs:
     latest_equity: float
     reconciliation: CheckResult | None  # None => skipped (no live account)
     bar_freshness: CheckResult | None  # None => skipped
+    # Equity-health provenance (defaulted so existing constructors keep working).
+    # "live" => latest_equity came from the broker this tick; "local" => from the
+    # equity parquet; "none" => no source at all. had_positive_equity_history is
+    # True iff the local equity series ever recorded a positive value.
+    equity_source: str = "local"  # "live" | "local" | "none"
+    had_positive_equity_history: bool = False
 
 
 @dataclass(frozen=True)
@@ -80,6 +86,40 @@ def evaluate_account_drawdown(dd_pct: float, budget: StrategyRiskBudget) -> Guar
     return GuardrailOutcome("account_drawdown", "ok", f"drawdown {dd_pct:.2%} within -{cap:.2%}")
 
 
+def evaluate_equity_health(
+    latest_equity: float,
+    *,
+    source: str,
+    had_positive_history: bool,
+) -> GuardrailOutcome:
+    """Tell a real wipeout / dead equity feed apart from a benign monitoring gap.
+
+    Fail-open philosophy preserved: a pure DATA GAP (no source, or a local series
+    that never held a positive value) is ``warn`` — surfaced, never auto-halting.
+    But a live account reporting <=0, or a local series that was positive and has
+    collapsed to <=0, is a real event and escalates to ``halt`` — it must never be
+    silently scored ``ok`` the way a $0 reading was before.
+    """
+    name = "equity_health"
+    if latest_equity > 0:
+        return GuardrailOutcome(name, "ok", f"equity ${latest_equity:,.0f} ({source})")
+    if source == "live":
+        return GuardrailOutcome(
+            name,
+            "halt",
+            f"live account reports ${latest_equity:,.0f} — possible wipeout or dead feed",
+        )
+    if had_positive_history:
+        return GuardrailOutcome(
+            name,
+            "halt",
+            f"equity collapsed to ${latest_equity:,.0f} after positive history",
+        )
+    return GuardrailOutcome(
+        name, "warn", "no positive equity recorded — monitoring degraded (no halt)"
+    )
+
+
 def evaluate_reconciliation(recon: CheckResult | None, *, halt_on_breach: bool) -> GuardrailOutcome:
     if recon is None:
         return GuardrailOutcome("reconciliation", "ok", "skipped: no account")
@@ -101,6 +141,11 @@ def evaluate_guardrails(inputs: GuardrailInputs, config: GuardrailConfig) -> Gua
     outcomes = [
         evaluate_drift(inputs.drift_rows),
         evaluate_account_drawdown(inputs.account_drawdown_pct, config.risk),
+        evaluate_equity_health(
+            inputs.latest_equity,
+            source=inputs.equity_source,
+            had_positive_history=inputs.had_positive_equity_history,
+        ),
         evaluate_reconciliation(
             inputs.reconciliation, halt_on_breach=config.reconciliation_is_halt
         ),

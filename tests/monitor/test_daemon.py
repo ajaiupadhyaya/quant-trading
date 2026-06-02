@@ -109,13 +109,40 @@ def test_run_once_warn_only_does_not_halt(tmp_path: Path) -> None:
     assert load_halt(tmp_path).active is False
 
 
-def test_gather_inputs_missing_equity_is_failsafe(tmp_path: Path) -> None:
-    # No equity.parquet -> all-ok inputs, never a false halt.
+def test_gather_inputs_missing_equity_warns_but_never_false_halts(tmp_path: Path) -> None:
+    # No equity.parquet and no live feed -> a pure monitoring GAP: surfaced as
+    # equity_health=warn (no longer silently "ok"), but never a false halt.
     inputs = gather_inputs(tmp_path, asof=date(2026, 5, 28), config=GuardrailConfig())
     assert inputs.drift_rows == []
     assert inputs.account_drawdown_pct == 0.0
+    assert inputs.equity_source == "none"
     report = evaluate_guardrails(inputs, GuardrailConfig())
     assert report.halting is False
+    equity_health = next(o for o in report.outcomes if o.name == "equity_health")
+    assert equity_health.severity == "warn"
+
+
+def test_gather_inputs_live_equity_takes_precedence(tmp_path: Path) -> None:
+    live = tmp_path / "live"
+    live.mkdir(parents=True)
+    df = pd.DataFrame(
+        {"date": pd.bdate_range("2026-01-01", periods=3), "equity": [100.0, 100.0, 100.0]}
+    )
+    df.to_parquet(live / "equity.parquet")
+    inputs = gather_inputs(
+        tmp_path, asof=date(2026, 5, 28), config=GuardrailConfig(), live_equity=2_000_000.0
+    )
+    assert inputs.latest_equity == 2_000_000.0
+    assert inputs.equity_source == "live"
+    report = evaluate_guardrails(inputs, GuardrailConfig())
+    assert report.halting is False
+
+
+def test_run_once_live_zero_equity_halts(tmp_path: Path) -> None:
+    # A live account reporting $0 is a wipeout / dead feed -> must HALT, not "ok".
+    res = run_once(tmp_path, GuardrailConfig(), live_equity=0.0, now=NOW)
+    assert res.halt_triggered is True
+    assert "equity_health" in load_halt(tmp_path).reason
 
 
 def test_gather_inputs_reads_equity_and_computes_drawdown(tmp_path: Path) -> None:

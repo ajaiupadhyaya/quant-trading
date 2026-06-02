@@ -1901,6 +1901,17 @@ def _best_effort_positions(settings: Settings) -> tuple[list[Any] | None, str]:
         return None, f"alpaca unavailable: {exc!r}"
 
 
+def _best_effort_equity(settings: Settings) -> float | None:
+    """Fetch the broker's authoritative account equity; None on any failure.
+
+    Feeds the guard's equity-health guardrail so a healthy flat book ($1M, no
+    positions) is distinguishable from a dead local equity feed."""
+    try:
+        return float(AlpacaClient(settings=settings).account().equity)
+    except Exception:  # equity read is best-effort; the guardrail handles None
+        return None
+
+
 def _render_guardrail_table(report: Any) -> Table:
     table = Table(title="Guardrails", show_header=True)
     table.add_column("Guardrail")
@@ -1930,6 +1941,7 @@ def guard_check() -> None:
         asof=date.today(),
         config=config,
         alpaca_positions=positions,
+        live_equity=_best_effort_equity(settings),
         symbols=_enabled_universe_symbols(),
     )
     report = evaluate_guardrails(inputs, config)
@@ -1967,11 +1979,15 @@ def guard_run(interval: float, once: bool, dry_run: bool, max_ticks: int | None)
         pos, _ = _best_effort_positions(settings)
         return pos
 
+    def live_equity_fn() -> float | None:
+        return _best_effort_equity(settings)
+
     if once:
         res = run_once(
             settings.data_dir,
             config,
             alpaca_positions=positions_fn(),
+            live_equity=live_equity_fn(),
             symbols=symbols,
             dry_run=dry_run,
         )
@@ -2011,6 +2027,7 @@ def guard_run(interval: float, once: bool, dry_run: bool, max_ticks: int | None)
         dry_run=dry_run,
         max_ticks=max_ticks,
         alpaca_positions_fn=positions_fn,
+        live_equity_fn=live_equity_fn,
         symbols=symbols,
         console_print=lambda s: console.print(s),
         heartbeat_ping=lambda: _alerts.ping_success(settings.healthcheck_guard_url),
