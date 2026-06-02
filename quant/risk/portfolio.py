@@ -16,7 +16,7 @@ is trivially unit-testable with no data/network.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 import numpy as np
@@ -25,6 +25,26 @@ import pandas as pd
 from quant.util.logging import logger
 
 _TRADING_DAYS = 252
+
+# Asset-class buckets for the live ETF universe, so a gate/brief can see
+# concentration by asset class (not just per-symbol). Unknown symbols (e.g. the
+# multi-factor single-stock universe) bucket to "other".
+_SECTOR_MAP: dict[str, str] = {
+    "SPY": "equity", "EFA": "equity", "EEM": "equity", "QQQ": "equity", "IWM": "equity",
+    "VNQ": "real_estate",
+    "TLT": "bond", "IEF": "bond", "SHY": "bond", "LQD": "bond", "HYG": "bond", "AGG": "bond",
+    "GLD": "gold", "IAU": "gold",
+    "DBC": "commodity", "USO": "commodity", "SLV": "commodity",
+}
+
+
+def _sector_exposure(weights: dict[str, float]) -> dict[str, float]:
+    """Group |weight| into asset-class buckets via ``_SECTOR_MAP`` (unknown -> 'other')."""
+    out: dict[str, float] = {}
+    for sym, w in weights.items():
+        bucket = _SECTOR_MAP.get(sym.upper(), "other")
+        out[bucket] = out.get(bucket, 0.0) + abs(float(w))
+    return {k: v for k, v in sorted(out.items(), key=lambda kv: -kv[1])}
 
 
 @dataclass(frozen=True)
@@ -40,6 +60,11 @@ class PortfolioRisk:
     beta_to_benchmark: float | None  # OLS beta of portfolio vs benchmark
     top_name_weight: float | None  # largest single-name |weight|
     lookback_days: int
+    # Asset-class concentration (bucket -> sum |weight|), and a fail-state flag so a
+    # future fail-closed gate can tell "within limits" from "could not compute".
+    sector_exposure: dict[str, float] = field(default_factory=dict)
+    computable: bool = True  # False => the distributional metrics could not be computed
+    degraded_metrics: tuple[str, ...] = ()  # names of metrics that came back None
 
     def render(self) -> str:
         """Compact one-block summary for Slack/CLI/the analyst brief."""
@@ -50,12 +75,16 @@ class PortfolioRisk:
         def _num(x: float | None) -> str:
             return "n/a" if x is None else f"{x:.2f}"
 
-        return (
+        line = (
             f"positions {self.n_positions} | gross {self.gross_exposure:.0%} "
             f"net {self.net_exposure:+.0%} | ann vol {_pct(self.ann_vol)} | "
             f"1d VaR95 {_pct(self.var_95)} CVaR95 {_pct(self.cvar_95)} | "
             f"beta {_num(self.beta_to_benchmark)} | top {_pct(self.top_name_weight)}"
         )
+        if self.sector_exposure:
+            buckets = ", ".join(f"{k} {v:.0%}" for k, v in self.sector_exposure.items())
+            line += f" | by class: {buckets}"
+        return line
 
 
 def compute_portfolio_risk(
@@ -77,6 +106,7 @@ def compute_portfolio_risk(
     gross = float(sum(abs(v) for v in nonzero.values()))
     net = float(sum(nonzero.values()))
     top = max((abs(v) for v in nonzero.values()), default=None)
+    sector = _sector_exposure(nonzero)
 
     base = PortfolioRisk(
         n_positions=len(nonzero),
@@ -88,6 +118,9 @@ def compute_portfolio_risk(
         beta_to_benchmark=None,
         top_name_weight=top,
         lookback_days=0,
+        sector_exposure=sector,
+        computable=False,  # no usable returns panel => distributional metrics absent
+        degraded_metrics=("ann_vol", "var_95", "cvar_95", "beta_to_benchmark"),
     )
 
     if returns is None or returns.empty or not nonzero:
@@ -130,6 +163,9 @@ def compute_portfolio_risk(
         beta_to_benchmark=beta,
         top_name_weight=top,
         lookback_days=len(port),
+        sector_exposure=sector,
+        computable=True,
+        degraded_metrics=() if beta is not None else ("beta_to_benchmark",),
     )
 
 

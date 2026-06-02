@@ -47,6 +47,27 @@ def test_beta_unit_when_portfolio_equals_benchmark() -> None:
     assert res.beta_to_benchmark == pytest.approx(1.0, abs=1e-6)
 
 
+def test_sector_exposure_and_computable_flag() -> None:
+    weights = {"DBC": 0.33, "EEM": 0.34, "GLD": 0.33}  # commodity / equity / gold
+    r = pd.DataFrame(
+        {s: [0.01, -0.01, 0.02, -0.02, 0.0, 0.01] for s in weights},
+        index=pd.bdate_range("2024-01-01", periods=6),
+    )
+    res = compute_portfolio_risk(weights, r)  # no benchmark
+    assert res.computable is True
+    assert set(res.sector_exposure) == {"commodity", "equity", "gold"}
+    assert res.sector_exposure["equity"] == pytest.approx(0.34)
+    assert "beta_to_benchmark" in res.degraded_metrics  # no benchmark -> degraded
+    assert "by class:" in res.render()
+
+
+def test_uncomputable_flag_when_no_returns() -> None:
+    res = compute_portfolio_risk({"SPY": 1.0}, pd.DataFrame())
+    assert res.computable is False
+    assert res.sector_exposure == {"equity": pytest.approx(1.0)}
+    assert "var_95" in res.degraded_metrics  # a fail-closed gate must see this
+
+
 def test_degenerate_inputs_failopen() -> None:
     # Empty returns: exposures still computed from weights, tail metrics None.
     res = compute_portfolio_risk({"A": 1.0}, pd.DataFrame())
