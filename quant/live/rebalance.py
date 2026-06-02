@@ -180,6 +180,7 @@ def run_rebalance(
 ) -> RebalanceReport:
     """Execute one rebalance pass. Returns a structured report for the CLI to render."""
     from quant.live.safety import (
+        CheckResult,
         StrategyRiskBudget,
         check_market_open,
         check_reconciliation,
@@ -526,11 +527,53 @@ def run_rebalance(
     # the single shared account: netting prevents opposing live-vs-orphan orders
     # from being rejected by the broker (wash-trade). Per-strategy snapshots above
     # already recorded intent, so reconciliation stays consistent.
-    for order in net_orders(intended):
+    netted = net_orders(intended)
+
+    # Guard 4: pre-trade portfolio risk gate on the NETTED orders, evaluated
+    # against authoritative account equity (gross-exposure + per-symbol
+    # concentration). Computed always for observability; a violation REFUSES the
+    # entire live batch (fail-closed), while a dry-run records it without blocking.
+    # Mandatory hard gate before the live cutover.
+    from quant.risk.pretrade import build_pretrade_report
+
+    combined_reference_prices: dict[str, float] = {}
+    for outcome in report.outcomes:
+        combined_reference_prices.update(outcome.reference_prices)
+    pretrade = build_pretrade_report(
+        equity=account.equity, orders=netted, reference_prices=combined_reference_prices
+    )
+    if pretrade.passed:
+        safety_results.append(
+            CheckResult(
+                ok=True,
+                name="pretrade_risk",
+                detail=f"gross {pretrade.gross_exposure:.2%}, {len(netted)} net orders",
+            )
+        )
+    else:
+        violation_detail = "; ".join(v.detail for v in pretrade.violations)
+        safety_results.append(
+            CheckResult(ok=False, name="pretrade_risk", detail=violation_detail)
+        )
+        if not dry_run:
+            logger.error(
+                "safety: pre-trade risk violation — refusing to submit. {}", violation_detail
+            )
+            report.skipped_reason = report.skipped_reason or f"pretrade_risk: {violation_detail}"
+            netted = []  # fail-closed: refuse the entire batch
+        else:
+            logger.warning("pre-trade risk violation (dry-run, not blocking): {}", violation_detail)
+
+    submit_failures: list[str] = []
+    for order in netted:
         try:
             coid = client.submit_order(order, asof=asof, dry_run=dry_run)
         except Exception:
+            # Never silent: log AND record the dropped order so the failure is
+            # visible to the report (and the next reconciliation) instead of
+            # quietly leaving the book under-positioned.
             logger.exception("net submit_order failed for {}", order.symbol)
+            submit_failures.append(order.symbol)
             continue
         all_trade_rows.append(
             {
@@ -542,6 +585,18 @@ def run_rebalance(
                 "client_order_id": coid,
                 "dry_run": bool(dry_run),
             }
+        )
+
+    if submit_failures:
+        safety_results.append(
+            CheckResult(
+                ok=False,
+                name="submit_failures",
+                detail=(
+                    f"{len(submit_failures)} order(s) failed to submit: "
+                    f"{', '.join(submit_failures)}"
+                ),
+            )
         )
 
     if all_trade_rows and record_bookkeeping:
