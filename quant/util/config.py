@@ -40,6 +40,22 @@ class Settings(BaseSettings):
 
     fred_api_key: str = Field(..., description="FRED API key")
 
+    # Off-box alerting (E1). Optional so CI's dummy env still constructs Settings.
+    # Field names use the singular "healthcheck_" prefix (per the E1 design's shared
+    # types) but the env vars use the plural "HEALTHCHECKS_" prefix, so alias them.
+    healthcheck_tick_url: str | None = Field(
+        default=None,
+        description="healthchecks.io tick ping URL",
+        validation_alias=AliasChoices("healthcheck_tick_url", "healthchecks_tick_url"),
+    )
+    healthcheck_guard_url: str | None = Field(
+        default=None,
+        description="healthchecks.io guard ping URL",
+        validation_alias=AliasChoices("healthcheck_guard_url", "healthchecks_guard_url"),
+    )
+    pushover_app_token: str | None = Field(default=None, description="Pushover application token")
+    pushover_user_key: str | None = Field(default=None, description="Pushover user key")
+
     log_level: str = Field(default="INFO", description="loguru level")
     data_dir: Path = Field(
         default=Path("./data"),
