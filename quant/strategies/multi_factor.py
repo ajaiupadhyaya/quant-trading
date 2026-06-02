@@ -191,7 +191,12 @@ class MultiFactor(Strategy):
         contributes NaN for the affected factor — the cross-sectional z-score
         elsewhere handles this gracefully.
         """
-        from quant.data.edgar import asset_growth_yoy, book_to_market, gross_profitability
+        from quant.data.edgar import (
+            asset_growth_yoy,
+            book_to_market,
+            gross_profitability,
+            market_cap_asof,
+        )
         from quant.util.config import Settings
 
         try:
@@ -199,11 +204,11 @@ class MultiFactor(Strategy):
         except Exception:
             return pd.DataFrame()
 
-        # market cap proxy: use the *price* on `asof` times the share count
-        # implied by total_assets / equity. We don't have shares-outstanding
-        # directly here so we approximate market cap as price * 1.0 — this
-        # makes book_to_market relative across the cross-section (which is
-        # what matters for ranking).
+        # Market cap = price * PIT shares-outstanding (from SEC EDGAR's dei
+        # namespace). Using raw price as a market-cap proxy is WRONG across the
+        # cross-section: share counts differ by orders of magnitude (AAPL ~15B
+        # vs BRK-B ~1.5B), so book/price ≠ book/market-cap in rank order. Names
+        # without a PIT shares-outstanding fact contribute NaN (skipped).
         btm_vals: dict[str, float] = {}
         gp_vals: dict[str, float] = {}
         inv_vals: dict[str, float] = {}
@@ -214,10 +219,10 @@ class MultiFactor(Strategy):
                 continue
             if not np.isfinite(p) or p <= 0:
                 continue
-            # Use price as a market-cap proxy. The cross-sectional zscore is
-            # invariant to a constant multiplicative offset (shares outstanding),
-            # so this preserves relative ordering across names.
-            btm = book_to_market(sym, asof, market_cap=p, data_dir=data_dir)
+            mcap = market_cap_asof(sym, asof, price=p, data_dir=data_dir)
+            if mcap is None or not np.isfinite(mcap) or mcap <= 0:
+                continue
+            btm = book_to_market(sym, asof, market_cap=mcap, data_dir=data_dir)
             if btm is not None and np.isfinite(btm):
                 btm_vals[sym] = btm
             gp = gross_profitability(sym, asof, data_dir=data_dir)

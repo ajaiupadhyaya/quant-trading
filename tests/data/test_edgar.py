@@ -16,6 +16,7 @@ from quant.data.edgar import (
     fetch_company_facts,
     get_facts_asof,
     gross_profitability,
+    market_cap_asof,
 )
 
 
@@ -55,7 +56,17 @@ def _mock_companyfacts() -> dict[str, object]:
                         ]
                     }
                 },
-            }
+            },
+            "dei": {
+                "EntityCommonStockSharesOutstanding": {
+                    "units": {
+                        "shares": [
+                            {"val": 15_550_000_000, "end": "2023-09-30", "filed": "2023-11-03"},
+                            {"val": 15_000_000_000, "end": "2024-09-28", "filed": "2024-11-01"},
+                        ]
+                    }
+                },
+            },
         }
     }
 
@@ -174,6 +185,67 @@ def test_book_to_market_and_profitability(monkeypatch, tmp_path: Path) -> None:
     gp = gross_profitability("AAPL", date(2024, 1, 1), data_dir=tmp_path)
     assert gp is not None
     assert abs(gp - (170_000_000_000 / 350_000_000_000)) < 1e-12
+
+
+def test_shares_outstanding_extracted_from_dei_namespace(monkeypatch, tmp_path: Path) -> None:
+    """Shares outstanding lives in the `dei` namespace under the `shares` unit,
+    not us-gaap/USD. fetch_company_facts must surface it as its own concept."""
+    _patch_http(monkeypatch)
+    df = fetch_company_facts("AAPL", data_dir=tmp_path)
+    assert "shares_outstanding" in set(df["concept"])
+    pit = get_facts_asof("AAPL", date(2024, 1, 1), data_dir=tmp_path)
+    assert "shares_outstanding" in pit
+    # 2024-11-01 filing invisible at asof 2024-01-01 → latest visible = 2023-11-03.
+    assert pit["shares_outstanding"].value == 15_550_000_000
+    assert pit["shares_outstanding"].unit == "shares"
+
+
+def test_market_cap_asof_is_price_times_shares(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    mcap = market_cap_asof("AAPL", date(2024, 1, 1), price=190.0, data_dir=tmp_path)
+    assert mcap is not None
+    assert abs(mcap - 190.0 * 15_550_000_000) < 1.0
+
+
+def test_market_cap_asof_none_when_shares_missing(monkeypatch, tmp_path: Path) -> None:
+    # A payload without any shares-outstanding fact → market cap unavailable.
+    facts = _mock_companyfacts()
+    del facts["facts"]["dei"]  # type: ignore[index]
+    _patch_http(monkeypatch, facts=facts)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    assert market_cap_asof("AAPL", date(2024, 1, 1), price=190.0, data_dir=tmp_path) is None
+
+
+def test_shares_outstanding_falls_back_to_weighted_average(monkeypatch, tmp_path: Path) -> None:
+    """Some filers (e.g. META) omit dei:EntityCommonStockSharesOutstanding and
+    only report us-gaap weighted-average share counts. Fall back to those so the
+    name keeps a market cap rather than silently dropping its value factor."""
+    facts = {
+        "facts": {
+            "us-gaap": {
+                "StockholdersEquity": {
+                    "units": {"USD": [{"val": 50e9, "end": "2023-09-30", "filed": "2023-11-03"}]}
+                },
+                "WeightedAverageNumberOfDilutedSharesOutstanding": {
+                    "units": {
+                        "shares": [{"val": 2.5e9, "end": "2023-09-30", "filed": "2023-11-03"}]
+                    }
+                },
+            }
+        }
+    }
+    _patch_http(monkeypatch, facts=facts)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    mcap = market_cap_asof("AAPL", date(2024, 1, 1), price=300.0, data_dir=tmp_path)
+    assert mcap is not None
+    assert abs(mcap - 300.0 * 2.5e9) < 1.0
+
+
+def test_market_cap_asof_none_for_nonpositive_price(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    assert market_cap_asof("AAPL", date(2024, 1, 1), price=0.0, data_dir=tmp_path) is None
 
 
 def test_asset_growth_yoy(monkeypatch, tmp_path: Path) -> None:

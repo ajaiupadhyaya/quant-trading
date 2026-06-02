@@ -63,7 +63,28 @@ _CONCEPT_TAGS: dict[str, tuple[str, ...]] = {
     ),
     "gross_profit": ("GrossProfit",),
     "net_income": ("NetIncomeLoss",),
+    # Shares outstanding is reported in the `dei` namespace under the `shares`
+    # unit (and occasionally in us-gaap). We need it to turn a share PRICE into
+    # a market CAP — without it, cross-sectional value/size factors degrade to
+    # ranking on raw price, which is meaningless across names with wildly
+    # different float (e.g. AAPL ~15B shares vs BRK-B ~1.5B).
+    "shares_outstanding": (
+        "EntityCommonStockSharesOutstanding",
+        "CommonStockSharesOutstanding",
+        # Fallbacks for filers that omit a point-in-time share count (e.g. META):
+        # weighted-average diluted/basic shares are a close proxy for a mega-cap
+        # and keep the name's value/size factor alive rather than dropping it.
+        "WeightedAverageNumberOfDilutedSharesOutstanding",
+        "WeightedAverageNumberOfSharesOutstandingBasic",
+    ),
 }
+
+# Namespaces searched per concept, in order. Most concepts live in us-gaap;
+# shares-outstanding lives in dei. Searching both is harmless for the rest.
+_NAMESPACES: tuple[str, ...] = ("us-gaap", "dei")
+# Units tried in order. USD covers the dollar concepts; `shares` covers the
+# share-count concepts. USD/shares retained for any per-share fallback.
+_UNITS: tuple[str, ...] = ("USD", "shares", "USD/shares")
 
 
 @dataclass(frozen=True)
@@ -150,35 +171,42 @@ def _facts_path(ticker: str, data_dir: Path) -> Path:
 
 
 def _extract_concept(facts: dict[str, Any], concept: str) -> list[FactRow]:
-    """Pull one concept out of the /companyfacts payload. Returns sorted rows."""
-    us_gaap = facts.get("facts", {}).get("us-gaap", {})
+    """Pull one concept out of the /companyfacts payload. Returns sorted rows.
+
+    Searches each candidate tag across both the us-gaap and dei namespaces, and
+    each namespace's units in preference order (USD, then shares). The first
+    (tag, namespace, unit) triple with rows wins — this lets dollar concepts
+    resolve from us-gaap/USD while shares-outstanding resolves from dei/shares.
+    """
+    facts_root = facts.get("facts", {})
     tags = _CONCEPT_TAGS.get(concept, (concept,))
     for tag in tags:
-        if tag not in us_gaap:
-            continue
-        unit_map = us_gaap[tag].get("units", {})
-        # Prefer USD; fall back to USD/shares for per-share concepts (unused here).
-        for unit_name in ("USD", "USD/shares"):
-            rows = unit_map.get(unit_name, [])
-            if not rows:
+        for ns_name in _NAMESPACES:
+            ns = facts_root.get(ns_name, {})
+            if tag not in ns:
                 continue
-            out: list[FactRow] = []
-            for r in rows:
-                try:
-                    out.append(
-                        FactRow(
-                            concept=concept,
-                            value=float(r["val"]),
-                            period_end=date.fromisoformat(str(r["end"])[:10]),
-                            filed=date.fromisoformat(str(r["filed"])[:10]),
-                            unit=unit_name,
-                        )
-                    )
-                except Exception:  # malformed row; skip
+            unit_map = ns[tag].get("units", {})
+            for unit_name in _UNITS:
+                rows = unit_map.get(unit_name, [])
+                if not rows:
                     continue
-            out.sort(key=lambda f: (f.filed, f.period_end))
-            return out
-        # Otherwise try the next tag
+                out: list[FactRow] = []
+                for r in rows:
+                    try:
+                        out.append(
+                            FactRow(
+                                concept=concept,
+                                value=float(r["val"]),
+                                period_end=date.fromisoformat(str(r["end"])[:10]),
+                                filed=date.fromisoformat(str(r["filed"])[:10]),
+                                unit=unit_name,
+                            )
+                        )
+                    except Exception:  # malformed row; skip
+                        continue
+                out.sort(key=lambda f: (f.filed, f.period_end))
+                return out
+            # Otherwise try the next namespace / tag
     return []
 
 
@@ -256,6 +284,25 @@ def get_facts_asof(
             unit=str(latest["unit"]),
         )
     return out
+
+
+def market_cap_asof(
+    ticker: str, asof: date, price: float, data_dir: Path | None = None
+) -> float | None:
+    """PIT market capitalisation = ``price`` * shares-outstanding (filed ≤ asof).
+
+    Returns None when the price is non-positive or no PIT shares-outstanding
+    fact is available. This is the correct input for book-to-market and size
+    factors — using raw ``price`` as a market-cap proxy is wrong across names
+    because share counts differ by orders of magnitude.
+    """
+    if price <= 0:
+        return None
+    facts = get_facts_asof(ticker, asof, data_dir)
+    shares = facts.get("shares_outstanding")
+    if shares is None or shares.value <= 0:
+        return None
+    return float(price) * float(shares.value)
 
 
 def book_to_market(
