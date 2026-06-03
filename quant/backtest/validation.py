@@ -53,6 +53,13 @@ class _Thresholds:
 THRESHOLDS = _Thresholds()
 
 
+# Version of the evidence/gate computation. Bump this IN THE SAME COMMIT that
+# changes how any gate (e.g. the Deflated Sharpe trial count) is computed, so the
+# evidence-schema shield can recognise a genuine methodology change vs ordinary
+# alpha decay. See docs/superpowers/specs/2026-06-02-evidence-schema-shield-design.md.
+EVIDENCE_SCHEMA_VERSION: int = 1
+
+
 @dataclass(frozen=True)
 class HoldoutResult:
     """Backtest run on the post-walk-forward holdout window."""

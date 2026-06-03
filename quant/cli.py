@@ -309,8 +309,11 @@ def _write_validation_report_json(
 ) -> Path:
     import json
 
+    from quant.backtest.validation import EVIDENCE_SCHEMA_VERSION
+
     n_tested = sum(1 for r in report.regime_breakdown if r.n_days >= 30)
     payload = {
+        "evidence_schema_version": int(EVIDENCE_SCHEMA_VERSION),
         "slug": slug,
         "run_date": run_date.isoformat(),
         "data_start": data_start.isoformat(),
@@ -950,11 +953,21 @@ def governance_status() -> None:
             )
             continue
         age = "" if state.validation_age_days is None else f"{state.validation_age_days}d"
-        why_no_trade = "eligible" if state.state is GovernanceState.LIVE else state.reason
+        # A shielded LIVE incumbent is loud: it is trading on retained authority
+        # across a methodology bump and needs human review, not "eligible".
+        if state.shielded:
+            governance_cell = f"{state.state.value} ⚠SHIELDED ({state.shield_consecutive})"
+            why_no_trade = state.reason
+        elif state.state is GovernanceState.LIVE:
+            governance_cell = state.state.value
+            why_no_trade = "eligible"
+        else:
+            governance_cell = state.state.value
+            why_no_trade = state.reason
         table.add_row(
             spec.slug,
             "yes" if spec.enabled_live else "no",
-            state.state.value,
+            governance_cell,
             age,
             f"{allocation.get(spec.slug, 0.0) * 100:.1f}%",
             drift_flags.get(spec.slug, "unknown"),
