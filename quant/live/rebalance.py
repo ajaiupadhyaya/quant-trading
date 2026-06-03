@@ -31,7 +31,7 @@ import pandas as pd
 from quant.data.bars import BarRequest, get_bars
 from quant.execution.alpaca import AlpacaClient
 from quant.execution.netting import net_orders
-from quant.execution.orders import OrderTemplate
+from quant.execution.orders import OrderSide, OrderTemplate
 from quant.execution.reconciler import reconcile
 from quant.live.bookkeeping import (
     append_equity_row,
@@ -162,6 +162,40 @@ def already_traded_today(client: object, asof: date) -> bool:
         logger.warning("client has no list_orders_for_date; relying on deterministic COID only")
         return False
     return len(lister(asof)) > 0
+
+
+def _write_portfolio_risk_gate_artifact(data_dir: Path, *, asof: date, gate: Any) -> None:
+    """Write a per-run portfolio-risk-gate artifact (atomic JSON). Best-effort —
+    called from inside Guard 5's try/except so a write failure cannot escape."""
+    from quant.util.atomic import write_json_atomic
+
+    r = gate.risk
+    payload = {
+        "asof": asof.isoformat(),
+        "mode": str(gate.mode),
+        "ok": gate.ok,
+        "severity": gate.severity,
+        "violations": [
+            {"code": v.code, "detail": v.detail, "bucket": v.bucket} for v in gate.violations
+        ],
+        "risk": {
+            "n_positions": r.n_positions,
+            "gross_exposure": r.gross_exposure,
+            "net_exposure": r.net_exposure,
+            "ann_vol": r.ann_vol,
+            "var_95": r.var_95,
+            "cvar_95": r.cvar_95,
+            "beta_to_benchmark": r.beta_to_benchmark,
+            "top_name_weight": r.top_name_weight,
+            "lookback_days": r.lookback_days,
+            "sector_exposure": dict(r.sector_exposure),
+            "computable": r.computable,
+            "degraded_metrics": list(r.degraded_metrics),
+        },
+    }
+    path = data_dir / "risk" / f"portfolio_risk_gate.{asof.isoformat()}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(path, payload)
 
 
 def run_rebalance(
@@ -305,10 +339,12 @@ def run_rebalance(
 
     # Guard 2: reconciliation against Alpaca's aggregate position book.
     halted: frozenset[str] = frozenset()
+    alpaca_positions: list[Any] = []  # captured once for Guard 5 post-trade reconstruction
     if not skip_safety_checks:
+        alpaca_positions = client.positions()
         recon = check_reconciliation(
             data_dir=settings.data_dir,
-            alpaca_positions=client.positions(),
+            alpaca_positions=alpaca_positions,
             enabled_slugs=enabled,
             winddown_slugs=orphans,
         )
@@ -563,6 +599,70 @@ def run_rebalance(
             netted = []  # fail-closed: refuse the entire batch
         else:
             logger.warning("pre-trade risk violation (dry-run, not blocking): {}", violation_detail)
+
+    # Guard 5: portfolio-level distributional risk gate (WARN-only, fail-OPEN).
+    # An independent SECOND guard alongside fail-closed Guard 4. It reconstructs
+    # post-trade holdings (broker book + signed netted deltas), characterizes their
+    # risk (VaR/CVaR/vol/beta/asset-class), and records a CheckResult + a per-run
+    # artifact. In WARN mode (the default) it mutates NOTHING and never blocks — the
+    # submit loop below sees byte-identical `netted`. The whole body is wrapped so
+    # any failure logs and continues: a bug here can NEVER clear `netted` or abort.
+    try:
+        from quant.risk.portfolio import (
+            PortfolioRisk,
+            PortfolioRiskLimits,
+            RiskGateMode,
+            build_portfolio_risk_gate,
+            live_portfolio_risk,
+        )
+
+        try:
+            gate_mode = RiskGateMode(str(settings.portfolio_risk_gate_mode).strip().lower())
+        except ValueError:
+            gate_mode = RiskGateMode.WARN  # unknown value -> safe default
+
+        # Post-trade shares = current broker book + signed netted deltas. `netted`
+        # is read-only here.
+        post_trade: dict[str, int] = {}
+        for pos in alpaca_positions:
+            qty = int(pos.qty)
+            post_trade[pos.symbol] = -qty if str(pos.side) == "short" else qty
+        for order in netted:
+            delta = order.qty if order.side is OrderSide.BUY else -order.qty
+            post_trade[order.symbol] = post_trade.get(order.symbol, 0) + delta
+        post_trade = {sym: qty for sym, qty in post_trade.items() if qty != 0}
+
+        port_risk = live_portfolio_risk(post_trade, account.equity, asof=asof)
+        if port_risk is None:  # degraded placeholder so the gate still records
+            port_risk = PortfolioRisk(
+                n_positions=len(post_trade),
+                gross_exposure=0.0,
+                net_exposure=0.0,
+                ann_vol=None,
+                var_95=None,
+                cvar_95=None,
+                beta_to_benchmark=None,
+                top_name_weight=None,
+                lookback_days=0,
+                computable=False,
+                degraded_metrics=("ann_vol", "var_95", "cvar_95", "beta_to_benchmark"),
+            )
+        gate = build_portfolio_risk_gate(port_risk, limits=PortfolioRiskLimits(), mode=gate_mode)
+        safety_results.append(
+            CheckResult(ok=gate.ok, name="portfolio_risk_gate", detail=gate.detail)
+        )
+        _write_portfolio_risk_gate_artifact(settings.data_dir, asof=asof, gate=gate)
+
+        if gate_mode is RiskGateMode.BLOCK and not gate.ok and not dry_run:
+            # Human-gated BLOCK flip (NOT the default). Mirrors Guard 4: skip the
+            # batch only, never halt/de-authorize.
+            logger.error("safety: portfolio_risk_gate BLOCK — refusing batch. {}", gate.detail)
+            report.skipped_reason = report.skipped_reason or f"portfolio_risk_gate: {gate.detail}"
+            netted = []
+        elif not gate.ok:
+            logger.warning("portfolio_risk_gate WARN (not blocking): {}", gate.detail)
+    except Exception:
+        logger.exception("Guard 5 (portfolio_risk_gate) failed — continuing (fail-open)")
 
     submit_failures: list[str] = []
     for order in netted:

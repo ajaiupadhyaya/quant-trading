@@ -798,3 +798,55 @@ def test_submit_failure_is_recorded_not_silent(
     assert str(len(client.submitted)) in failures.detail or any(
         o.symbol in failures.detail for o in client.submitted
     )
+
+
+def test_guard5_records_portfolio_risk_gate_check(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    """Guard 5 (WARN) records a portfolio_risk_gate CheckResult + a per-run artifact,
+    and never aborts the batch even when it finds a violation."""
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+    )
+    gate = _check(report, "portfolio_risk_gate")
+    assert gate is not None  # the gate ran and recorded a check
+    # WARN mode never aborts — even if the (synthetic) book violates a limit.
+    assert not (report.skipped_reason or "").startswith("portfolio_risk_gate")
+    artifact = fake_settings.data_dir / "risk" / "portfolio_risk_gate.2024-06-28.json"
+    assert artifact.exists()
+    import json as _json
+
+    payload = _json.loads(artifact.read_text())
+    assert payload["mode"] == "warn"
+    assert {"asof", "ok", "severity", "violations", "risk"} <= set(payload)
+
+
+def test_guard5_is_fail_open_and_never_aborts_the_batch(
+    fake_settings: Settings, patched_bars: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Guard 5 bug must never clear `netted` or abort the rebalance (fail-open)."""
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("guard5 boom")
+
+    # Guard 5 imports build_portfolio_risk_gate lazily at call time, so patching the
+    # module attribute makes the gate raise mid-run.
+    monkeypatch.setattr("quant.risk.portfolio.build_portfolio_risk_gate", _boom)
+
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+    )
+    # The run completed normally and Guard 5 neither recorded a check nor aborted.
+    assert report.dry_run is True
+    assert _check(report, "portfolio_risk_gate") is None  # it raised before appending
+    assert not (report.skipped_reason or "").startswith("portfolio_risk_gate")

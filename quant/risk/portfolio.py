@@ -15,6 +15,7 @@ is trivially unit-testable with no data/network.
 
 from __future__ import annotations
 
+import enum
 import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -221,3 +222,109 @@ def live_portfolio_risk(
     except Exception as exc:  # analysis convenience — never raise
         logger.info("live_portfolio_risk skipped ({!r})", exc)
         return None
+
+
+# --------------------------------------------------------------------------
+# Portfolio-risk GATE (roadmap Phase 2). A pure evaluator that turns a
+# PortfolioRisk + limits into a pass/warn/block verdict. It does NOT recompute
+# any risk math and it APPLIES NOTHING — the caller (run_rebalance Guard 5) maps
+# the result to a CheckResult and, in WARN mode (the default), only records it.
+# Gross-exposure + single-name concentration are deliberately OUT of scope here:
+# the fail-closed pretrade gate (Guard 4, pretrade.py) owns those. This gate owns
+# the distributional + asset-class dimensions.
+# --------------------------------------------------------------------------
+
+
+class RiskGateMode(enum.StrEnum):
+    WARN = "warn"  # record a CheckResult + artifact only; never blocks (default)
+    BLOCK = "block"  # refuse the batch on violation (human-gated future flip)
+
+
+@dataclass(frozen=True)
+class PortfolioRiskLimits:
+    """Distributional + asset-class caps for the portfolio risk gate.
+
+    Defaults are calibrated to the live defensive sleeve (measured ~17% ann vol,
+    1.83% 1d VaR95, 2.64% CVaR95, beta 0.59, each asset class ~33%) with headroom,
+    so defensive-etf records OK every run. A per-asset-class cap MUST stay >= 1.0
+    because a risk-off book is 100% defensive by design. A ``None`` metric (a
+    degraded/uncomputable run) never trips a numeric cap.
+    """
+
+    max_ann_vol: float = 0.35
+    max_var_95: float = 0.05
+    max_cvar_95: float = 0.07
+    max_abs_beta: float = 1.50
+    max_asset_class_weight: float = 1.00
+    max_other_bucket_weight: float = 1.00
+    fail_closed_on_uncomputable: bool = False
+
+
+@dataclass(frozen=True)
+class RiskViolation:
+    code: str  # 'ann_vol' | 'var_95' | 'cvar_95' | 'beta' | 'asset_class' | 'uncomputable'
+    detail: str
+    bucket: str | None = None
+
+
+@dataclass(frozen=True)
+class RiskGateResult:
+    mode: RiskGateMode
+    ok: bool  # True iff no violations
+    severity: str  # 'ok' | 'warn' | 'block' (block only when mode is BLOCK and violating)
+    violations: tuple[RiskViolation, ...]
+    risk: PortfolioRisk
+
+    @property
+    def detail(self) -> str:
+        if self.ok:
+            return f"ok — {self.risk.render()}"
+        return "; ".join(v.detail for v in self.violations)
+
+
+def build_portfolio_risk_gate(
+    risk: PortfolioRisk,
+    *,
+    limits: PortfolioRiskLimits,
+    mode: RiskGateMode = RiskGateMode.WARN,
+) -> RiskGateResult:
+    """Evaluate an already-computed ``PortfolioRisk`` against ``limits``. Pure.
+
+    Each numeric cap is checked ``metric > limit`` and SKIPPED when the metric is
+    ``None`` (degraded). In WARN mode a violation yields severity ``'warn'`` and
+    the caller does not block; in BLOCK mode it yields ``'block'`` and the caller
+    refuses the batch. This function itself never mutates or blocks anything.
+    """
+    violations: list[RiskViolation] = []
+    if risk.ann_vol is not None and risk.ann_vol > limits.max_ann_vol:
+        violations.append(
+            RiskViolation("ann_vol", f"ann vol {risk.ann_vol:.2%} > {limits.max_ann_vol:.2%}")
+        )
+    if risk.var_95 is not None and risk.var_95 > limits.max_var_95:
+        violations.append(
+            RiskViolation("var_95", f"1d VaR95 {risk.var_95:.2%} > {limits.max_var_95:.2%}")
+        )
+    if risk.cvar_95 is not None and risk.cvar_95 > limits.max_cvar_95:
+        violations.append(
+            RiskViolation("cvar_95", f"1d CVaR95 {risk.cvar_95:.2%} > {limits.max_cvar_95:.2%}")
+        )
+    if risk.beta_to_benchmark is not None and abs(risk.beta_to_benchmark) > limits.max_abs_beta:
+        violations.append(
+            RiskViolation(
+                "beta", f"|beta| {abs(risk.beta_to_benchmark):.2f} > {limits.max_abs_beta:.2f}"
+            )
+        )
+    for bucket, weight in risk.sector_exposure.items():
+        cap = limits.max_other_bucket_weight if bucket == "other" else limits.max_asset_class_weight
+        if weight > cap:
+            violations.append(
+                RiskViolation("asset_class", f"{bucket} {weight:.0%} > {cap:.0%}", bucket=bucket)
+            )
+    if not risk.computable and limits.fail_closed_on_uncomputable:
+        violations.append(
+            RiskViolation("uncomputable", "portfolio risk not computable (fail-closed)")
+        )
+
+    ok = not violations
+    severity = "ok" if ok else ("block" if mode is RiskGateMode.BLOCK else "warn")
+    return RiskGateResult(mode=mode, ok=ok, severity=severity, violations=tuple(violations), risk=risk)

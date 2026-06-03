@@ -72,6 +72,16 @@ class Settings(BaseSettings):
         "daily digest) — keeps cost low; Opus is reserved for the brief/weekly synthesis",
     )
 
+    # Portfolio risk gate (Guard 5) mode. 'warn' (default) records would-be
+    # VaR/CVaR/vol/beta/asset-class violations without ever blocking the live
+    # batch; 'block' refuses the batch on violation (a deliberate, human-gated
+    # flip — never enabled without a clean WARN bake-in). A bad value fails open.
+    portfolio_risk_gate_mode: str = Field(
+        default="warn",
+        description="Portfolio risk Guard 5 mode: 'warn' (record only) or 'block'",
+        validation_alias="QUANT_PORTFOLIO_RISK_GATE_MODE",
+    )
+
     log_level: str = Field(default="INFO", description="loguru level")
     data_dir: Path = Field(
         default=Path("./data"),
