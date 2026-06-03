@@ -49,6 +49,12 @@ class MarketState:
     # rates
     curve_label: str | None
     term_spread: float | None
+    # intraday (live within-session read; Phase 7A)
+    intraday_spy_ret: float | None
+    intraday_breadth: float | None
+    intraday_range_vol: float | None
+    intraday_dispersion: float | None
+    intraday_asof: str | None
     # live book / portfolio risk
     equity: float | None
     n_positions: int | None
@@ -116,6 +122,7 @@ def build_market_state(
     now_utc: datetime | None = None,
     positions: dict[str, int] | None = None,
     equity: float | None = None,
+    intraday: Any | None = None,
 ) -> MarketState:
     """Compose one read-only MarketState. Best-effort end to end; never raises."""
     now = now_utc or datetime.now(UTC)
@@ -178,6 +185,11 @@ def build_market_state(
         vol_regime=getattr(vol, "vol_regime", None),
         curve_label=getattr(rates, "curve_label", None),
         term_spread=_f(getattr(rates, "term_spread", None)),
+        intraday_spy_ret=_f(getattr(intraday, "spy_ret", None)),
+        intraday_breadth=_f(getattr(intraday, "breadth", None)),
+        intraday_range_vol=_f(getattr(intraday, "range_vol", None)),
+        intraday_dispersion=_f(getattr(intraday, "dispersion", None)),
+        intraday_asof=getattr(intraday, "asof_minute", None),
         equity=_f(equity),
         n_positions=(len(positions) if positions is not None else None),
         port_ann_vol=_f(getattr(prisk, "ann_vol", None)),
@@ -219,6 +231,12 @@ def render_state(state: MarketState) -> str:
         bits.append(f"vix={state.vix:.1f}")
     if state.vol_regime:
         bits.append(f"vol={state.vol_regime}")
+    if state.intraday_spy_ret is not None:
+        bits.append(f"SPYday={state.intraday_spy_ret:+.2%}")
+    if state.intraday_breadth is not None:
+        bits.append(f"day_breadth={state.intraday_breadth:.0%}")
+    if state.intraday_range_vol is not None:
+        bits.append(f"range_vol={state.intraday_range_vol:.0%}")
     if state.equity is not None:
         bits.append(f"equity=${state.equity:,.0f}")
     if state.port_var_95 is not None:

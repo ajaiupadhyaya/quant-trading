@@ -21,10 +21,12 @@ from typing import Any
 
 from quant.deploy.calendar_clock import to_et
 from quant.engine.events import EngineEvent, EventConfig, detect_events, severity_at_least
+from quant.engine.intraday import live_intraday_signals
 from quant.engine.state import (
     MarketState,
     build_market_state,
     render_state,
+    session_phase,
     to_json_dict,
 )
 from quant.util.atomic import write_json_atomic
@@ -159,6 +161,7 @@ def run_engine(
     now_fn: Callable[[], datetime] | None = None,
     positions_fn: Callable[[], dict[str, int] | None] | None = None,
     equity_fn: Callable[[], float | None] | None = None,
+    intraday_fn: Callable[[], Any] | None = None,
     slack: Any | None = None,
     claude_fn: Callable[[MarketState, list[EngineEvent], Any], str] | None = None,
     console_print: Callable[[str], None] | None = None,
@@ -173,6 +176,7 @@ def run_engine(
     now_fn = now_fn or (lambda: datetime.now(UTC))
     pos_fn = positions_fn or (lambda: _default_positions(settings))
     eq_fn = equity_fn or (lambda: _default_equity(settings))
+    intra_fn = intraday_fn or (lambda: live_intraday_signals(settings))
     claude = claude_fn or summarize_events
     if slack is None and not dry_run:
         from quant.deploy.alerts import AlertClient, AlertConfig
@@ -201,12 +205,19 @@ def run_engine(
         try:
             now = now_fn()
             asof = to_et(now).date()
+            phase = session_phase(now, asof)
             positions = pos_fn()
             equity = eq_fn()
+            # Intraday snapshot only while the tape is active (skip overnight calls).
+            intraday = intra_fn() if phase != "closed" else None
             state = build_market_state(
-                data_dir, asof=asof, now_utc=now, positions=positions, equity=equity
+                data_dir,
+                asof=asof,
+                now_utc=now,
+                positions=positions,
+                equity=equity,
+                intraday=intraday,
             )
-            phase = state.session_phase
 
             # Session anchor (resets each ET trading date) for intraday drawdown.
             if state.asof != session_date:

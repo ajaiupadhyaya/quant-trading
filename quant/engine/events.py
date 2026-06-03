@@ -43,6 +43,12 @@ class EventConfig:
     port_cvar_limit: float = 0.07
     port_vol_limit: float = 0.35
     port_beta_limit: float = 1.50
+    # intraday (Phase 7A): live within-session moves
+    intraday_selloff_warn: float = -0.015  # SPY down on the day
+    intraday_selloff_crit: float = -0.03
+    intraday_breadth_break: float = 0.20  # share of the universe up — a real washout
+    intraday_range_warn: float = 0.30  # SPY Parkinson range-vol (annualized)
+    intraday_range_crit: float = 0.50
 
 
 def _regime_flip(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
@@ -135,6 +141,45 @@ def _risk_breach(prev: MarketState, curr: MarketState, cfg: EventConfig) -> Engi
     )
 
 
+def _intraday_selloff(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
+    if curr.intraday_spy_ret is None or curr.intraday_spy_ret > cfg.intraday_selloff_warn:
+        return None
+    sev = "critical" if curr.intraday_spy_ret <= cfg.intraday_selloff_crit else "warn"
+    return EngineEvent(
+        code="intraday_selloff",
+        severity=sev,
+        detail=f"SPY {curr.intraday_spy_ret:+.2%} on the day",
+        at=curr.at,
+    )
+
+
+def _intraday_breadth_break(
+    prev: MarketState, curr: MarketState, cfg: EventConfig
+) -> EngineEvent | None:
+    if curr.intraday_breadth is None or curr.intraday_breadth > cfg.intraday_breadth_break:
+        return None
+    return EngineEvent(
+        code="intraday_breadth_break",
+        severity="warn",
+        detail=f"only {curr.intraday_breadth:.0%} of the universe up today (broad selloff)",
+        at=curr.at,
+    )
+
+
+def _intraday_range_spike(
+    prev: MarketState, curr: MarketState, cfg: EventConfig
+) -> EngineEvent | None:
+    if curr.intraday_range_vol is None or curr.intraday_range_vol < cfg.intraday_range_warn:
+        return None
+    sev = "critical" if curr.intraday_range_vol >= cfg.intraday_range_crit else "warn"
+    return EngineEvent(
+        code="intraday_range_spike",
+        severity=sev,
+        detail=f"SPY intraday range-vol {curr.intraday_range_vol:.0%} annualized",
+        at=curr.at,
+    )
+
+
 def _halt(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
     if curr.halt_active and not prev.halt_active:
         return EngineEvent(
@@ -160,7 +205,8 @@ def _drawdown(
     )
 
 
-# State-to-state detectors (each needs a non-None prev to fire on a *transition*).
+# State-to-state detectors (each needs a non-None prev to fire on a *transition*;
+# the intraday + risk detectors are ABSOLUTE — they evaluate `curr` only).
 _PAIR_DETECTORS = (
     _regime_flip,
     _posture_cross,
@@ -168,6 +214,9 @@ _PAIR_DETECTORS = (
     _breadth_collapse,
     _corr_spike,
     _risk_breach,
+    _intraday_selloff,
+    _intraday_breadth_break,
+    _intraday_range_spike,
     _halt,
 )
 
