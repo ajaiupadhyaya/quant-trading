@@ -264,7 +264,11 @@ def narrate(facts: str, *, settings: Any, client: Any | None = None) -> str | No
 
     try:
         resp = client.messages.create(
-            model=getattr(settings, "anthropic_model", "claude-opus-4-8"),
+            # Routine daily narration runs on the cheaper "fast" model when set.
+            model=str(
+                getattr(settings, "anthropic_model_fast", None)
+                or getattr(settings, "anthropic_model", "claude-opus-4-8")
+            ),
             max_tokens=_MAX_TOKENS,
             system=[
                 {"type": "text", "text": _SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}

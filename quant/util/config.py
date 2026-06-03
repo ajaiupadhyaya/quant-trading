@@ -64,7 +64,12 @@ class Settings(BaseSettings):
     # degrades to a deterministic, template-only summary when unset.
     anthropic_api_key: str | None = Field(default=None, description="Anthropic API key (analyst)")
     anthropic_model: str = Field(
-        default="claude-opus-4-8", description="Claude model for the analyst digest"
+        default="claude-opus-4-8", description="Claude model for high-stakes judgment (daily brief)"
+    )
+    anthropic_model_fast: str = Field(
+        default="claude-haiku-4-5",
+        description="Cheaper Claude model for routine/high-frequency calls (intraday watch, "
+        "daily digest) — keeps cost low; Opus is reserved for the brief/weekly synthesis",
     )
 
     log_level: str = Field(default="INFO", description="loguru level")

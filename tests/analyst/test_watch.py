@@ -156,8 +156,21 @@ def test_comment_writes_audit_log_on_success(tmp_path: Path) -> None:
     assert rec["applied"] is False
     assert rec["phase"] == "watch-intraday"
     assert rec["slot"] == "power-hour"
-    assert rec["model"] == "claude-opus-4-8"
+    assert rec["model"] == "claude-opus-4-8"  # no fast model set -> falls back to the default
     assert rec["comment"]["headline"].startswith("Midday")
+
+
+def test_comment_uses_fast_model_when_set(tmp_path: Path) -> None:
+    """Cost control: routine intraday calls use the cheaper 'fast' model when set,
+    leaving Opus for the high-stakes brief."""
+    client = _FakeClient()
+    settings = SimpleNamespace(
+        anthropic_api_key="sk-test",
+        anthropic_model="claude-opus-4-8",
+        anthropic_model_fast="claude-haiku-4-5",
+    )
+    comment("f", "c", settings=settings, asof=ASOF, slot="midday", client=client, data_dir=tmp_path)
+    assert client.messages.calls[0]["model"] == "claude-haiku-4-5"
 
 
 def test_comment_posture_note_is_sanitized(tmp_path: Path) -> None:

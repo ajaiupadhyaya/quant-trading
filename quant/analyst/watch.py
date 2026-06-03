@@ -242,7 +242,11 @@ def comment(
 
     Read-only: nothing here is ever applied to the live book.
     """
-    model = getattr(settings, "anthropic_model", "claude-opus-4-8")
+    # Routine intraday summarization runs on the cheaper "fast" model when set
+    # (Opus is reserved for the daily brief / weekly synthesis) to keep cost low.
+    model = getattr(settings, "anthropic_model_fast", None) or getattr(
+        settings, "anthropic_model", "claude-opus-4-8"
+    )
     user_content = (
         f"SLOT: {slot}\n\n"
         "TODAY'S FACTS\n"
