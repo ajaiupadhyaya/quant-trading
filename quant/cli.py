@@ -1385,6 +1385,63 @@ def research_signals_show() -> None:
     console.print_json(json.dumps(to_json_dict(rec), sort_keys=True))
 
 
+@cli.group(help="Continuous market-state engine — always-on, READ-ONLY; never trades or halts.")
+def engine() -> None:
+    pass
+
+
+@engine.command(
+    "run",
+    help="Run the continuous engine loop: maintain live MarketState + emit events. "
+    "Read-only/advisory — places no orders, sets no halt. --once/--max-cycles bound it.",
+)
+@click.option("--once", is_flag=True, default=False, help="Run a single cycle and exit.")
+@click.option("--max-cycles", type=int, default=None, help="Stop after N cycles (default: forever).")
+@click.option("--dry-run", is_flag=True, default=False, help="Compute + log, post nothing, no Claude.")
+def engine_run(once: bool, max_cycles: int | None, dry_run: bool) -> None:
+    from quant.engine import run_engine
+
+    settings = Settings()  # type: ignore[call-arg]
+    run_engine(
+        settings,
+        once=once,
+        max_cycles=max_cycles,
+        dry_run=dry_run,
+        console_print=lambda s: console.print(f"[dim]{s}[/dim]"),
+    )
+
+
+@engine.command("state", help="Print the latest persisted MarketState snapshot.")
+def engine_state() -> None:
+    from quant.engine.loop import engine_dir
+
+    settings = Settings()  # type: ignore[call-arg]
+    path = engine_dir(settings.data_dir) / "state.json"
+    if not path.exists():
+        raise click.ClickException("No engine state yet — run `quant engine run --once`.")
+    console.print_json(path.read_text(encoding="utf-8"))
+
+
+@engine.command("status", help="Print the engine heartbeat + the most recent events.")
+def engine_status() -> None:
+    from quant.engine.loop import engine_dir
+
+    settings = Settings()  # type: ignore[call-arg]
+    edir = engine_dir(settings.data_dir)
+    hb = edir / "heartbeat.json"
+    if hb.exists():
+        console.print("[bold]heartbeat[/bold]")
+        console.print_json(hb.read_text(encoding="utf-8"))
+    else:
+        console.print("[yellow]no heartbeat yet[/yellow]")
+    events = edir / "events.jsonl"
+    if events.exists():
+        lines = [ln for ln in events.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        console.print(f"[bold]recent events[/bold] ({len(lines)} total)")
+        for ln in lines[-10:]:
+            console.print(f"  {ln}")
+
+
 @cli.group(help="Market-wide regime detection (HMM/Kalman) — an observed, gated signal.")
 def regime() -> None:
     pass

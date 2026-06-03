@@ -64,3 +64,6 @@ data/analyst/watch_state.json
 # snapshot (advisory; grows unbounded, like decisions.jsonl).
 data/research/signals.jsonl
 data/research/signals_latest.json
+# Continuous engine (Phase 6) run-state: hot MarketState snapshot + append-only
+# state/event audit logs + heartbeat (host-local, advisory, grows unbounded).
+data/engine/
