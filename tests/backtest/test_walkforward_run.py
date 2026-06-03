@@ -100,3 +100,48 @@ def test_no_windows_returns_empty_result(make_bars: Callable[..., pd.DataFrame])
     )
     assert len(result.oos_equity_curve) == 0
     assert len(result.per_window_params) == 0
+
+
+def test_grid_trial_sharpes_captures_every_window_combo(
+    make_bars: Callable[..., pd.DataFrame],
+) -> None:
+    """Walk-forward records one trial Sharpe per (contributing window, grid combo).
+
+    These are the true model-selection trials the Deflated Sharpe must deflate
+    against (not the CPCV resample paths).
+    """
+    import numpy as np
+
+    bars = make_bars(["AAA", "BBB"], _WF_START, _WF_END, seed=0)
+    grid = {"_dummy": [1, 2, 3]}  # 3 combos
+    result = run_walkforward(
+        strategy_factory=_factory,
+        param_grid=grid,
+        bars=bars,
+        start=_WF_START,
+        end=_WF_END,
+        config=BacktestConfig(),
+    )
+    n_windows = len(result.per_window_params)
+    assert n_windows > 0
+    assert isinstance(result.grid_trial_sharpes, np.ndarray)
+    assert len(result.grid_trial_sharpes) == n_windows * 3
+
+
+def test_grid_trial_sharpes_empty_when_no_windows(
+    make_bars: Callable[..., pd.DataFrame],
+) -> None:
+    import numpy as np
+
+    bars = make_bars(["AAA", "BBB"], date(2010, 1, 1), date(2011, 1, 1), seed=0)
+    result = run_walkforward(
+        strategy_factory=_factory,
+        param_grid={"_dummy": [1]},
+        bars=bars,
+        start=date(2010, 1, 1),
+        end=date(2011, 1, 1),  # < train_years -> no windows
+        config=BacktestConfig(),
+    )
+    assert len(result.per_window_params) == 0
+    assert isinstance(result.grid_trial_sharpes, np.ndarray)
+    assert len(result.grid_trial_sharpes) == 0

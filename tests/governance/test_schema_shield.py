@@ -81,7 +81,8 @@ def _provisional(
 
 def test_evidence_schema_version_constant_is_int() -> None:
     assert isinstance(EVIDENCE_SCHEMA_VERSION, int)
-    assert EVIDENCE_SCHEMA_VERSION == 1
+    # Bumped to 2 when the DSR trial-count correction landed.
+    assert EVIDENCE_SCHEMA_VERSION == 2
 
 
 def test_strategy_state_new_fields_default() -> None:

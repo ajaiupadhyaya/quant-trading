@@ -57,7 +57,9 @@ THRESHOLDS = _Thresholds()
 # changes how any gate (e.g. the Deflated Sharpe trial count) is computed, so the
 # evidence-schema shield can recognise a genuine methodology change vs ordinary
 # alpha decay. See docs/superpowers/specs/2026-06-02-evidence-schema-shield-design.md.
-EVIDENCE_SCHEMA_VERSION: int = 1
+# v2 (2026-06-02): DSR now deflates against the walk-forward grid trial set
+# (windows x combos) instead of the CPCV resample paths.
+EVIDENCE_SCHEMA_VERSION: int = 2
 
 
 @dataclass(frozen=True)
@@ -111,15 +113,20 @@ class ValidationReport:
         )
 
 
-def _trial_sharpes_from_cpcv(cpcv_paths: np.ndarray) -> np.ndarray:
-    """Convert CPCV per-path Sharpes from annualized to per-period scale.
+def _trial_sharpes_per_period(annualized_sharpes: np.ndarray) -> np.ndarray:
+    """Convert annualized trial Sharpes to per-period scale.
 
-    walk-forward Sharpes are annualized (multiplied by sqrt(252)). DSR's
-    formula expects per-period Sharpes, so we divide back out.
+    Backtest Sharpes are annualized (multiplied by sqrt(252)). The Deflated
+    Sharpe formula expects per-period Sharpes, so we divide back out.
     """
-    if len(cpcv_paths) == 0:
-        return cpcv_paths
-    return np.asarray(cpcv_paths / np.sqrt(252.0))
+    if len(annualized_sharpes) == 0:
+        return annualized_sharpes
+    return np.asarray(annualized_sharpes / np.sqrt(252.0))
+
+
+def _trial_sharpes_from_cpcv(cpcv_paths: np.ndarray) -> np.ndarray:
+    """Deprecated: CPCV paths are no longer the DSR trial set. Kept for callers."""
+    return _trial_sharpes_per_period(cpcv_paths)
 
 
 def _holdout_result(
@@ -195,7 +202,8 @@ def run_validation(
         cpcv_config = CPCVConfig()
     oos_returns = wf_result.oos_returns
 
-    # CPCV path Sharpes feed DSR's trial count + variance.
+    # CPCV is retained for robustness REPORTING only (the tear-sheet path-Sharpe
+    # distribution) — it is NOT the Deflated-Sharpe trial set.
     if len(oos_returns) > 0:
         cpcv = run_cpcv(
             strategy_factory=strategy_factory,
@@ -210,7 +218,11 @@ def run_validation(
     else:
         cpcv_paths = np.array([], dtype=float)
 
-    trial_sharpes = _trial_sharpes_from_cpcv(cpcv_paths)
+    # DSR deflates against the TRUE model-selection trial set: every
+    # (walk-forward window x grid combo) evaluated during selection, converted
+    # to per-period scale. (Previously this incorrectly used the CPCV resample
+    # paths, which understated the trial count and inflated the DSR.)
+    trial_sharpes = _trial_sharpes_per_period(wf_result.grid_trial_sharpes)
 
     psr = probabilistic_sharpe(oos_returns, sr_benchmark=0.0)
     dsr = deflated_sharpe(oos_returns, trial_sharpes=trial_sharpes)
