@@ -30,6 +30,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from quant.analyst.advisor import propose
 from quant.analyst.digest import DigestData, gather_digest_data, render_facts
 from quant.util.atomic import write_json_atomic
 from quant.util.logging import logger
@@ -363,6 +364,7 @@ def run_watch(
     governance_live: list[str] | None = None,
     halt_active: bool = False,
     context_text: str | None = None,
+    shadow_proposals: bool = True,
     max_posts: int = _DEFAULT_MAX_POSTS,
     min_gap_min: int = _DEFAULT_MIN_GAP_MIN,
 ) -> WatchResult:
@@ -413,6 +415,29 @@ def run_watch(
         data_dir=data_dir,
     )
     used_llm = cmt is not None
+
+    # Shadow-log a governance-clamped one-way de-risk PROPOSAL (Phase B) on the
+    # cheap model — it APPLIES NOTHING and posts nothing, it only appends to the
+    # decisions.jsonl audit trail. This builds the multi-week bake-in evidence the
+    # roadmap requires before any (human-gated) one-way de-risk actuator (Phase C).
+    if shadow_proposals and governance_live:
+        try:
+            fast_model = getattr(settings, "anthropic_model_fast", None) or getattr(
+                settings, "anthropic_model", "claude-opus-4-8"
+            )
+            propose(
+                facts,
+                context_text or "(no additional context)",
+                settings=settings,
+                asof=asof,
+                live_slugs=list(governance_live),
+                client=client,
+                data_dir=data_dir,
+                model=fast_model,
+            )
+        except Exception as exc:  # fail-open: shadow logging must never break the watch
+            logger.warning("watch: shadow proposal failed ({!r})", exc)
+
     body = cmt.render(slot) if cmt is not None else render_watch(facts_data, slot)
     body_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
 

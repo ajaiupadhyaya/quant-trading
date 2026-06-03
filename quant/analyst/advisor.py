@@ -200,7 +200,11 @@ def advise(
         except ImportError:
             logger.warning("advisor: anthropic SDK not installed — skipping")
             return None
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        # Bounded: short timeout + no retries so a hung call can never hold the
+        # shared scheduler 'batch' lock (the dispatcher enforces no timeout).
+        client = anthropic.Anthropic(
+            api_key=settings.anthropic_api_key, timeout=20.0, max_retries=0
+        )
 
     brief: AdvisorBrief | None = None
     error: str | None = None
@@ -413,12 +417,14 @@ def propose(
     live_slugs: list[str],
     client: Any | None = None,
     data_dir: Path | None = None,
+    model: str | None = None,
 ) -> Proposals | None:
     """Phase B: structured advisory proposals, governance-clamped and logged.
 
-    Applies NOTHING. Returns ``None`` with no key / on any error.
+    Applies NOTHING. Returns ``None`` with no key / on any error. ``model`` lets a
+    caller (e.g. the intraday shadow log) override the default with a cheaper one.
     """
-    model = getattr(settings, "anthropic_model", "claude-opus-4-8")
+    model = model or getattr(settings, "anthropic_model", "claude-opus-4-8")
     user_content = (
         "TODAY'S FACTS\n"
         f"{facts}\n\n"
@@ -438,7 +444,11 @@ def propose(
         except ImportError:
             logger.warning("advisor.propose: anthropic SDK not installed — skipping")
             return None
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        # Bounded: short timeout + no retries so a hung call can never hold the
+        # shared scheduler 'batch' lock (the dispatcher enforces no timeout).
+        client = anthropic.Anthropic(
+            api_key=settings.anthropic_api_key, timeout=20.0, max_retries=0
+        )
 
     proposals: Proposals | None = None
     error: str | None = None

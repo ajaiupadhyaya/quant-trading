@@ -30,6 +30,16 @@ COMMENT_INPUT = {
     "confidence": "medium",
 }
 
+PROPOSAL_INPUT = {
+    "risk_throttle": 1.0,
+    "allocation_tilt": [],
+    "should_halt": False,
+    "halt_reason": "",
+    "anomaly": "",
+    "confidence": "medium",
+    "rationale": "Calm regime; full size warranted.",
+}
+
 
 # --- fakes -----------------------------------------------------------------
 
@@ -60,6 +70,25 @@ class _FakeMessages:
 class _FakeClient:
     def __init__(self, name: str = "submit_commentary", data: dict | None = None) -> None:
         self.messages = _FakeMessages(name, data if data is not None else COMMENT_INPUT)
+
+
+class _RoutingMessages:
+    """Returns the tool block matching whichever tool the caller forced — so one
+    fake client serves both the commentary call and the shadow-proposal call."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def create(self, **kwargs: object) -> _Resp:
+        self.calls.append(kwargs)
+        name = kwargs["tool_choice"]["name"]  # type: ignore[index]
+        data = PROPOSAL_INPUT if name == "submit_proposals" else COMMENT_INPUT
+        return _Resp(str(name), data)
+
+
+class _RoutingFakeClient:
+    def __init__(self) -> None:
+        self.messages = _RoutingMessages()
 
 
 class _RaisingClient:
@@ -231,6 +260,38 @@ def test_run_watch_posts_when_new_and_writes_state(tmp_path: Path) -> None:
     state = json.loads((tmp_path / "analyst" / "watch_state.json").read_text())
     assert state["posts_today"] == 1
     assert state["last_hash"]
+
+
+def test_run_watch_shadow_logs_phase_b_proposal(tmp_path: Path) -> None:
+    """With governance-live strategies, the watch ALSO shadow-logs a Phase-B de-risk
+    proposal (applied=False) — never posted, never applied — for the Phase-C bake-in."""
+    client = _RoutingFakeClient()
+    res = run_watch(
+        data_dir=tmp_path, asof=ASOF, settings=_settings(), alerts=_FakeAlerts(), slot="midday",
+        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC), client=client,
+        governance_live=["defensive-etf-allocation"], shadow_proposals=True,
+    )
+    assert res.posted is True
+    recs = _decisions(tmp_path)
+    phases = {r.get("phase") for r in recs}
+    assert "watch-intraday" in phases  # the commentary
+    assert "B-advise-and-log" in phases  # the shadow proposal
+    prop = next(r for r in recs if r.get("phase") == "B-advise-and-log")
+    assert prop["applied"] is False  # never applied — strictly shadow
+    # two Claude calls were made (commentary + proposal)
+    assert len(client.messages.calls) == 2
+
+
+def test_run_watch_shadow_proposals_off_skips_proposal(tmp_path: Path) -> None:
+    client = _RoutingFakeClient()
+    run_watch(
+        data_dir=tmp_path, asof=ASOF, settings=_settings(), alerts=_FakeAlerts(), slot="midday",
+        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC), client=client,
+        governance_live=["defensive-etf-allocation"], shadow_proposals=False,
+    )
+    phases = {r.get("phase") for r in _decisions(tmp_path)}
+    assert "B-advise-and-log" not in phases  # disabled -> only the commentary call
+    assert len(client.messages.calls) == 1
 
 
 def test_run_watch_respects_daily_cap_before_calling_claude(tmp_path: Path) -> None:

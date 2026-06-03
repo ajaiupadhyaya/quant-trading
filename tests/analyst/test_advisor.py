@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -180,3 +182,32 @@ def test_propose_logs_phase_b_applies_nothing(tmp_path: Path) -> None:
     assert rec["applied"] is False
     assert rec["proposals"]["risk_throttle"] == 0.8
     assert rec["live_slugs"] == LIVE
+
+
+def test_advise_builds_bounded_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """SAFETY: a hung Claude call must never hold the shared 'batch' lock — the
+    constructed client uses a short timeout + zero retries (not the SDK defaults)."""
+    captured: dict[str, object] = {}
+
+    class _Anthropic:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+            self.messages = _FakeMessages("submit_brief", BRIEF_INPUT)
+
+    fake_mod = types.ModuleType("anthropic")
+    fake_mod.Anthropic = _Anthropic  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "anthropic", fake_mod)
+
+    advise("f", "c", settings=_settings(), asof=ASOF, data_dir=tmp_path)
+    assert captured.get("max_retries") == 0
+    assert captured.get("timeout") == 20.0
+
+
+def test_propose_uses_model_override(tmp_path: Path) -> None:
+    """The intraday shadow log overrides the model with a cheaper one."""
+    client = _FakeClient(name="submit_proposals", data=PROPOSAL_INPUT)
+    propose(
+        "f", "c", settings=_settings(), asof=ASOF, live_slugs=LIVE,
+        client=client, data_dir=tmp_path, model="claude-haiku-4-5",
+    )
+    assert client.messages.calls[0]["model"] == "claude-haiku-4-5"

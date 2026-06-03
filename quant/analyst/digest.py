@@ -260,7 +260,11 @@ def narrate(facts: str, *, settings: Any, client: Any | None = None) -> str | No
         except ImportError:
             logger.warning("analyst: anthropic SDK not installed — template-only digest")
             return None
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        # Bounded: short timeout + no retries so a hung call can never hold the
+        # shared scheduler 'batch' lock (the dispatcher enforces no timeout).
+        client = anthropic.Anthropic(
+            api_key=settings.anthropic_api_key, timeout=20.0, max_retries=0
+        )
 
     try:
         resp = client.messages.create(
