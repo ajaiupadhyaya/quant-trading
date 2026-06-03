@@ -183,6 +183,7 @@ def backtest(strategy: str, quick: bool, start: str, end: str | None) -> None:
         slug=strategy,
         strategy_name=strategy_cls.spec.name,
         out_dir=out_dir,
+        write_chosen_params=not quick,
     )
     console.print(f"[green]Wrote {html_path}[/green]")
 
@@ -457,6 +458,7 @@ def validate(
         strategy_name=strategy_cls.spec.name,
         out_dir=out_dir,
         validation=report,
+        write_chosen_params=not quick,
     )
     validation_json = _write_validation_report_json(
         out_dir=out_dir,

@@ -49,6 +49,26 @@ def test_tearsheet_writes_three_files(tmp_path: Path, populated_wf: WalkforwardR
     assert (out_dir / "chosen_params.json").exists()
 
 
+def test_tearsheet_write_chosen_params_false_preserves_existing(
+    tmp_path: Path, populated_wf: WalkforwardResult
+) -> None:
+    """write_chosen_params=False refreshes html/parquet but leaves the sidecar."""
+    out_dir = tmp_path / "backtests" / "equal-weight-test"
+    out_dir.mkdir(parents=True)
+    blessed = '{"latest": {"spy_ma_days": 150}, "windows": []}'
+    (out_dir / "chosen_params.json").write_text(blessed)
+    write_tearsheet(
+        result=populated_wf,
+        slug="equal-weight-test",
+        strategy_name="Equal Weight (test)",
+        out_dir=out_dir,
+        write_chosen_params=False,
+    )
+    assert (out_dir / "tearsheet.html").exists()  # html still refreshed
+    assert (out_dir / "walkforward.parquet").exists()  # parquet still refreshed
+    assert (out_dir / "chosen_params.json").read_text() == blessed  # sidecar untouched
+
+
 def test_tearsheet_html_contains_strategy_name(
     tmp_path: Path, populated_wf: WalkforwardResult
 ) -> None:

@@ -266,8 +266,16 @@ def write_tearsheet(
     strategy_name: str,
     out_dir: Path,
     validation: ValidationReport | None = None,
+    write_chosen_params: bool = True,
 ) -> Path:
-    """Render the HTML tear-sheet + sidecar parquet + JSON. Return the HTML path."""
+    """Render the HTML tear-sheet + sidecar parquet + JSON. Return the HTML path.
+
+    When ``write_chosen_params`` is False the ``chosen_params.json`` sidecar is
+    left untouched. ``--quick`` runs skip the grid search, so their ``latest`` is
+    always empty; writing it would clobber the blessed tuned params that live
+    trading reads (rebalance._latest_chosen_params). Quick refreshes therefore
+    update the HTML + walk-forward parquet but preserve chosen_params.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
 
     n_windows = len(result.per_window_params)
@@ -340,20 +348,25 @@ def write_tearsheet(
 
     # Sidecar JSON. ``latest`` is the most-recent window's chosen params — i.e.
     # what live trading should use. Live rebalance can read this directly
-    # instead of re-running a full walk-forward each day.
-    latest_params = (
-        {k: _json_safe(v) for k, v in dict(result.per_window_params[-1][1]).items()}
-        if result.per_window_params
-        else {}
-    )
-    payload: dict[str, Any] = {
-        "slug": slug,
-        "strategy_name": strategy_name,
-        "n_windows": n_windows,
-        "latest": latest_params,
-        "windows": windows_payload,
-    }
-    (out_dir / "chosen_params.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    # instead of re-running a full walk-forward each day. Skipped for --quick
+    # runs (write_chosen_params=False) so the nightly refresh never blanks the
+    # blessed tuned params with an empty grid result.
+    if write_chosen_params:
+        latest_params = (
+            {k: _json_safe(v) for k, v in dict(result.per_window_params[-1][1]).items()}
+            if result.per_window_params
+            else {}
+        )
+        payload: dict[str, Any] = {
+            "slug": slug,
+            "strategy_name": strategy_name,
+            "n_windows": n_windows,
+            "latest": latest_params,
+            "windows": windows_payload,
+        }
+        (out_dir / "chosen_params.json").write_text(
+            json.dumps(payload, indent=2), encoding="utf-8"
+        )
 
     return html_path
 

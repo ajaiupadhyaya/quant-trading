@@ -341,17 +341,52 @@ def test_backtest_command_runs_registered_strategy(
             mock_alpaca.return_value = {"AAA": df, "BBB": df}
             result = runner.invoke(cli, ["backtest", "cli-toy", "--quick"])
         assert result.exit_code == 0, result.output
-        # Check the tear-sheet AND chosen_params.json were written:
+        # The tear-sheet is refreshed, but a --quick run (empty grid) must NOT
+        # write chosen_params.json — doing so would blank the blessed tuned
+        # params that live trading reads. See test_quick_backtest_* below.
         out_dir = tmp_data_dir / "backtests" / "cli-toy"
         assert (out_dir / "tearsheet.html").exists()
-        params_path = out_dir / "chosen_params.json"
-        assert params_path.exists()
-        import json
+        assert not (out_dir / "chosen_params.json").exists()
+    finally:
+        REGISTRY.pop("cli-toy", None)
 
-        payload = json.loads(params_path.read_text())
-        assert "latest" in payload
-        assert "windows" in payload
-        assert isinstance(payload["windows"], list)
+
+def test_quick_backtest_preserves_blessed_chosen_params(
+    tmp_data_dir: Path,
+    fake_env: None,
+) -> None:
+    """Regression: the nightly ``backtest --quick`` refresh must never clobber a
+    blessed chosen_params.json — live rebalance reads its ``latest`` field."""
+    import json
+
+    REGISTRY["cli-toy"] = _CLIToyStrategy
+    try:
+        out_dir = tmp_data_dir / "backtests" / "cli-toy"
+        out_dir.mkdir(parents=True)
+        blessed = {
+            "slug": "cli-toy",
+            "strategy_name": "CLI Toy",
+            "n_windows": 19,
+            "latest": {"risk_on_count": 3, "risk_on_cap": 0.4, "spy_ma_days": 150},
+            "windows": [],
+        }
+        params_path = out_dir / "chosen_params.json"
+        params_path.write_text(json.dumps(blessed, indent=2))
+
+        runner = CliRunner()
+        with patch("quant.data.bars._fetch_alpaca") as mock_alpaca:
+            dates = pd.bdate_range("2010-01-01", "2024-12-31")
+            df = pd.DataFrame(
+                {"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0, "volume": 1},
+                index=pd.DatetimeIndex(dates, name="timestamp"),
+            )
+            mock_alpaca.return_value = {"AAA": df, "BBB": df}
+            result = runner.invoke(cli, ["backtest", "cli-toy", "--quick"])
+
+        assert result.exit_code == 0, result.output
+        assert (out_dir / "tearsheet.html").exists()  # tear-sheet still refreshed
+        # The blessed params survive untouched (NOT blanked to {}).
+        assert json.loads(params_path.read_text()) == blessed
     finally:
         REGISTRY.pop("cli-toy", None)
 
