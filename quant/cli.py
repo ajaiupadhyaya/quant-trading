@@ -1339,6 +1339,52 @@ def research_leaderboard(metric: str) -> None:
     console.print(table)
 
 
+@research.command(
+    "signals",
+    help="Compute today's trailing-only quant signal battery and append it to "
+    "data/research/signals.jsonl. Read-only/advisory; always exits 0.",
+)
+@click.option("--asof", default=None, help="ISO date; default today.")
+@click.option("--dry-run", is_flag=True, default=False, help="Compute + print, do not log.")
+def research_signals(asof: str | None, dry_run: bool) -> None:
+    # Whole body guarded: this runs as an unattended job, so it MUST NOT raise
+    # (a non-zero exit pages off-box and suppresses the tick heartbeat).
+    try:
+        from quant.research.signals import (
+            append_signals,
+            load_market_signals,
+            render_signals,
+            signals_path,
+            to_json_dict,
+        )
+        from quant.util.atomic import write_json_atomic
+
+        settings = Settings()  # type: ignore[call-arg]
+        d = date.fromisoformat(asof) if asof else date.today()
+        rec = load_market_signals(settings.data_dir, d)
+        console.print(render_signals(rec))
+        if not dry_run and rec.computable:
+            append_signals(signals_path(settings.data_dir), rec)
+            write_json_atomic(
+                settings.data_dir / "research" / "signals_latest.json", to_json_dict(rec)
+            )
+            console.print(f"[dim]appended {signals_path(settings.data_dir)}[/dim]")
+    except Exception as exc:  # advisory job: degrade, never page
+        console.print("Research signals: unavailable")
+        logger.info("research signals CLI failed ({!r})", exc)
+
+
+@research.command("signals-show", help="Print the latest logged signal record as JSON.")
+def research_signals_show() -> None:
+    from quant.research.signals import read_latest_signals, signals_path, to_json_dict
+
+    settings = Settings()  # type: ignore[call-arg]
+    rec = read_latest_signals(signals_path(settings.data_dir))
+    if rec is None:
+        raise click.ClickException("No signals logged yet.")
+    console.print_json(json.dumps(to_json_dict(rec), sort_keys=True))
+
+
 @cli.group(help="Market-wide regime detection (HMM/Kalman) — an observed, gated signal.")
 def regime() -> None:
     pass

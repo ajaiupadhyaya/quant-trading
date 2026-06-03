@@ -61,6 +61,7 @@ class AnalystContext:
     recon: dict[str, Any] | None = None
     macro: dict[str, float] = field(default_factory=dict)
     portfolio_risk: Any | None = None  # quant.risk.PortfolioRisk | None (lazy to avoid cycle)
+    signals: Any | None = None  # quant.research.signals.MarketSignals | None (latest logged)
 
 
 # --- best-effort readers (each fail-open) ----------------------------------
@@ -219,6 +220,17 @@ def _portfolio_risk(
         return None
 
 
+def _read_signals(data_dir: Path, asof: date) -> Any | None:
+    """Latest logged quant signal battery (no recompute/network). Fail-open."""
+    try:
+        from quant.research.signals import read_latest_signals, signals_path
+
+        return read_latest_signals(signals_path(data_dir))
+    except Exception as exc:  # fail-open
+        logger.info("analyst.context: signals read skipped ({!r})", exc)
+        return None
+
+
 def gather_analyst_context(
     data_dir: Path,
     asof: date,
@@ -239,6 +251,7 @@ def gather_analyst_context(
         recon=_read_recon(data_dir),
         macro=_read_macro() if include_macro else {},
         portfolio_risk=_portfolio_risk(positions, equity, asof),
+        signals=_read_signals(data_dir, asof),
     )
 
 
@@ -290,6 +303,12 @@ def render_context(ctx: AnalystContext) -> str:
     if ctx.portfolio_risk is not None:
         with contextlib.suppress(Exception):  # render is best-effort
             lines.append("Portfolio risk: " + ctx.portfolio_risk.render())
+
+    if ctx.signals is not None:
+        with contextlib.suppress(Exception):  # render is best-effort
+            from quant.research.signals import render_signals
+
+            lines.append(render_signals(ctx.signals))
 
     if ctx.recon:
         msb = ctx.recon.get("mean_slippage_bps")

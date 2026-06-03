@@ -142,3 +142,24 @@ max_lateness = "15:30"
 max_runtime_s = 120
 commands = [["analyst", "watch", "--slot", "power-hour"]]
 commit_paths = []
+
+# Pre-open READ-ONLY quant signals battery (the autonomous quant-engine half).
+# `research signals` computes a trailing-only stats battery (trend/vol/correlation/
+# mean-reversion/rates + a composite risk-posture score) over the ETF universe and
+# appends it to the host-local data/research/signals.jsonl, feeding the Claude
+# analyst better context. It is CACHE-ONLY and hard time-bounded in-loader (20s
+# bars / 10s per macro series via _with_timeout — NOT reliant on max_runtime_s),
+# places NO orders, changes no allocation/governance, commits nothing, and the CLI
+# always exits 0 (degrades to "unavailable"). Runs at 09:15, strictly after
+# premarket-health (09:00) so the bar cache is warm. catch_up=SAME_DAY (NOT NONE)
+# so a missed slot is a soft ping, never the MISSED_CRITICAL emergency page. NOT
+# timing_critical: shares the 'batch' lock, never the rebalance path.
+[[job]]
+name = "premarket-signals"
+trigger_et = "09:15"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "14:00"
+max_runtime_s = 120
+commands = [["research", "signals"]]
+commit_paths = []

@@ -26,6 +26,7 @@ def test_loads_all_jobs() -> None:
         "intraday-watch-open",
         "intraday-watch-midday",
         "intraday-watch-power-hour",
+        "premarket-signals",
     }
 
 
