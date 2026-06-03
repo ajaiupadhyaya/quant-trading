@@ -12,12 +12,17 @@ from quant.util.logging import logger
 
 FRED_SERIES: dict[str, str] = {
     "vix": "VIXCLS",
+    "vix3m": "VXVCLS",  # 3-month VIX (term-structure numerator)
     "tenyear": "DGS10",
     "twoyear": "DGS2",
     "unemployment": "UNRATE",
     "cpi": "CPIAUCSL",
     "fedfunds": "DFF",
     "gdp": "GDPC1",
+    # policy / macro-risk environment (Phase 7C)
+    "epu": "USEPUINDXD",  # US Economic Policy Uncertainty (daily)
+    "nfci": "NFCI",  # Chicago Fed financial conditions (neg=loose, pos=tight)
+    "finstress": "STLFSI4",  # St Louis Fed financial stress index
 }
 
 

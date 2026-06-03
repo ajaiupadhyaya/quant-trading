@@ -63,6 +63,7 @@ class AnalystContext:
     portfolio_risk: Any | None = None  # quant.risk.PortfolioRisk | None (lazy to avoid cycle)
     signals: Any | None = None  # quant.research.signals.MarketSignals | None (latest logged)
     news: Any | None = None  # quant.nlp.NewsSentiment | None (caller-supplied; fetched at CLI)
+    event_risk: Any | None = None  # quant.macro.EventRisk | None (caller-supplied)
 
 
 # --- best-effort readers (each fail-open) ----------------------------------
@@ -240,6 +241,7 @@ def gather_analyst_context(
     positions: dict[str, int] | None = None,
     equity: float | None = None,
     news: Any | None = None,
+    event_risk: Any | None = None,
 ) -> AnalystContext:
     """Assemble the day's read-only context. Each piece is best-effort/fail-open.
 
@@ -257,6 +259,7 @@ def gather_analyst_context(
         portfolio_risk=_portfolio_risk(positions, equity, asof),
         signals=_read_signals(data_dir, asof),
         news=news,
+        event_risk=event_risk,
     )
 
 
@@ -320,6 +323,12 @@ def render_context(ctx: AnalystContext) -> str:
             from quant.nlp.sentiment import render_sentiment
 
             lines.append(render_sentiment(ctx.news))
+
+    if ctx.event_risk is not None:
+        with contextlib.suppress(Exception):  # render is best-effort
+            from quant.macro.events import render_event_risk
+
+            lines.append(render_event_risk(ctx.event_risk))
 
     if ctx.recon:
         msb = ctx.recon.get("mean_slippage_bps")

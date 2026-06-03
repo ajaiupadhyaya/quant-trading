@@ -53,6 +53,9 @@ class EventConfig:
     news_negative_warn: float = -0.30
     news_negative_crit: float = -0.50
     news_min_items: int = 3  # need a real batch before flagging
+    # macro / event risk (Phase 7C) — transition-based to avoid multi-day spam
+    nfci_tight: float = 0.0  # NFCI crossing above 0 = conditions tightening
+    vix_backwardation: float = 1.0  # VXV/VIX crossing below 1 = near-term stress
 
 
 def _regime_flip(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
@@ -196,6 +199,53 @@ def _negative_news(prev: MarketState, curr: MarketState, cfg: EventConfig) -> En
     return EngineEvent(code="negative_news", severity=sev, detail=detail, at=curr.at)
 
 
+def _event_window(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
+    # Fires once on ENTERING a high-impact event window (FOMC / jobs / quad-witching).
+    if curr.in_event_window and not prev.in_event_window:
+        d = f" ({curr.days_to_event}d)" if curr.days_to_event is not None else ""
+        return EngineEvent(
+            code="event_window",
+            severity="warn",
+            detail=f"entering {curr.next_event or 'event'} risk window{d} — binary event ahead",
+            at=curr.at,
+        )
+    return None
+
+
+def _financial_conditions_tighten(
+    prev: MarketState, curr: MarketState, cfg: EventConfig
+) -> EngineEvent | None:
+    if curr.financial_conditions is None or prev.financial_conditions is None:
+        return None
+    if prev.financial_conditions <= cfg.nfci_tight < curr.financial_conditions:
+        return EngineEvent(
+            code="financial_conditions_tighten",
+            severity="warn",
+            detail=(
+                f"NFCI {prev.financial_conditions:+.2f} -> {curr.financial_conditions:+.2f} "
+                "(financial conditions tightening)"
+            ),
+            at=curr.at,
+        )
+    return None
+
+
+def _vix_backwardation(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
+    if curr.vix_term_structure is None or prev.vix_term_structure is None:
+        return None
+    if prev.vix_term_structure >= cfg.vix_backwardation > curr.vix_term_structure:
+        return EngineEvent(
+            code="vix_backwardation",
+            severity="critical",
+            detail=(
+                f"VIX term structure inverted ({curr.vix_term_structure:.2f}) — "
+                "acute near-term stress"
+            ),
+            at=curr.at,
+        )
+    return None
+
+
 def _halt(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
     if curr.halt_active and not prev.halt_active:
         return EngineEvent(
@@ -234,6 +284,9 @@ _PAIR_DETECTORS = (
     _intraday_breadth_break,
     _intraday_range_spike,
     _negative_news,
+    _event_window,
+    _financial_conditions_tighten,
+    _vix_backwardation,
     _halt,
 )
 

@@ -1462,6 +1462,23 @@ def news_sentiment(hours: int, limit: int) -> None:
         console.print(f"  [{score_text(it.headline):+.2f}] {it.headline[:100]}")
 
 
+@cli.group(help="Macro / policy / event-risk (scheduled events + FRED uncertainty).")
+def macro() -> None:
+    pass
+
+
+@macro.command("eventrisk", help="Print the current macro/policy/event-risk read + upcoming events.")
+def macro_eventrisk() -> None:
+    from quant.macro.events import live_event_risk, render_event_risk, upcoming_events
+
+    settings = Settings()  # type: ignore[call-arg]
+    today = date.today()
+    console.print(render_event_risk(live_event_risk(settings, today)))
+    console.print("[bold]upcoming events[/bold]")
+    for ev in upcoming_events(today, horizon_days=30):
+        console.print(f"  {ev.date}  [{ev.impact}]  {ev.name}")
+
+
 @cli.group(help="Market-wide regime detection (HMM/Kalman) — an observed, gated signal.")
 def regime() -> None:
     pass
@@ -2116,6 +2133,16 @@ def _best_effort_news(settings: Settings) -> Any:
         return None
 
 
+def _best_effort_event_risk(settings: Settings, asof: date) -> Any:
+    """Macro/policy/event-risk read for the analyst context; None on any failure."""
+    try:
+        from quant.macro.events import live_event_risk
+
+        return live_event_risk(settings, asof)
+    except Exception:  # event risk is optional context
+        return None
+
+
 def _render_guardrail_table(report: Any) -> Table:
     table = Table(title="Guardrails", show_header=True)
     table.add_column("Guardrail")
@@ -2415,6 +2442,7 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
         positions=positions_dict,
         equity=equity_val,
         news=_best_effort_news(settings),
+        event_risk=_best_effort_event_risk(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -2497,6 +2525,7 @@ def analyst_watch(asof: str | None, dry_run: bool, slot: str) -> None:
         positions=positions_dict,
         equity=equity_val,
         news=_best_effort_news(settings),
+        event_risk=_best_effort_event_risk(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -2570,6 +2599,7 @@ def analyst_propose(asof: str | None) -> None:
         positions=positions_dict,
         equity=equity_val,
         news=_best_effort_news(settings),
+        event_risk=_best_effort_event_risk(settings, session_date),
     )
     context_text = render_context(ctx)
 

@@ -15,7 +15,7 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,7 @@ from quant.engine.state import (
     session_phase,
     to_json_dict,
 )
+from quant.macro.events import live_event_risk
 from quant.nlp.sentiment import live_news_sentiment
 from quant.util.atomic import write_json_atomic
 from quant.util.logging import logger
@@ -52,6 +53,8 @@ class EngineConfig:
     # (headlines arrive sporadically) and is reused between refreshes.
     news_refresh_s: float = 180.0
     news_lookback_minutes: int = 240
+    # Event-risk (FRED uncertainty + calendar) moves daily at most — refresh slowly.
+    eventrisk_refresh_s: float = 1800.0
     events: EventConfig = field(default_factory=EventConfig)
 
 
@@ -168,6 +171,7 @@ def run_engine(
     equity_fn: Callable[[], float | None] | None = None,
     intraday_fn: Callable[[], Any] | None = None,
     news_fn: Callable[[], Any] | None = None,
+    eventrisk_fn: Callable[[date], Any] | None = None,
     slack: Any | None = None,
     claude_fn: Callable[[MarketState, list[EngineEvent], Any], str] | None = None,
     console_print: Callable[[str], None] | None = None,
@@ -186,6 +190,7 @@ def run_engine(
     news_fn_ = news_fn or (
         lambda: live_news_sentiment(settings, lookback_minutes=cfg.news_lookback_minutes)
     )
+    er_fn = eventrisk_fn or (lambda d: live_event_risk(settings, d))
     claude = claude_fn or summarize_events
     if slack is None and not dry_run:
         from quant.deploy.alerts import AlertClient, AlertConfig
@@ -209,6 +214,8 @@ def run_engine(
     claude_session_count = 0
     last_news_at: datetime | None = None
     cached_news: Any = None
+    last_er_at: datetime | None = None
+    cached_er: Any = None
     cycle = 0
 
     while True:
@@ -229,6 +236,14 @@ def run_engine(
             ):
                 cached_news = news_fn_()
                 last_news_at = now
+            # Event risk (FRED uncertainty + scheduled-event calendar): slow cadence.
+            if (
+                cached_er is None
+                or last_er_at is None
+                or (now - last_er_at).total_seconds() >= cfg.eventrisk_refresh_s
+            ):
+                cached_er = er_fn(asof)
+                last_er_at = now
             state = build_market_state(
                 data_dir,
                 asof=asof,
@@ -237,6 +252,7 @@ def run_engine(
                 equity=equity,
                 intraday=intraday,
                 news=cached_news,
+                event_risk=cached_er,
             )
 
             # Session anchor (resets each ET trading date) for intraday drawdown.

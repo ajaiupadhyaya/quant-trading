@@ -60,6 +60,14 @@ class MarketState:
     news_n_items: int | None
     news_negative_frac: float | None
     news_top_negative: str | None
+    # macro / policy / event risk (Phase 7C)
+    next_event: str | None
+    days_to_event: int | None
+    in_event_window: bool
+    policy_uncertainty: float | None
+    financial_conditions: float | None
+    vix_term_structure: float | None
+    macro_risk_label: str | None
     # live book / portfolio risk
     equity: float | None
     n_positions: int | None
@@ -129,6 +137,7 @@ def build_market_state(
     equity: float | None = None,
     intraday: Any | None = None,
     news: Any | None = None,
+    event_risk: Any | None = None,
 ) -> MarketState:
     """Compose one read-only MarketState. Best-effort end to end; never raises."""
     now = now_utc or datetime.now(UTC)
@@ -200,6 +209,13 @@ def build_market_state(
         news_n_items=getattr(news, "n_items", None),
         news_negative_frac=_f(getattr(news, "negative_frac", None)),
         news_top_negative=getattr(news, "top_negative_headline", None),
+        next_event=getattr(event_risk, "next_event", None),
+        days_to_event=getattr(event_risk, "days_to_event", None),
+        in_event_window=bool(getattr(event_risk, "in_event_window", False)),
+        policy_uncertainty=_f(getattr(event_risk, "policy_uncertainty", None)),
+        financial_conditions=_f(getattr(event_risk, "financial_conditions", None)),
+        vix_term_structure=_f(getattr(event_risk, "vix_term_structure", None)),
+        macro_risk_label=getattr(event_risk, "risk_label", None),
         equity=_f(equity),
         n_positions=(len(positions) if positions is not None else None),
         port_ann_vol=_f(getattr(prisk, "ann_vol", None)),
@@ -249,6 +265,11 @@ def render_state(state: MarketState) -> str:
         bits.append(f"range_vol={state.intraday_range_vol:.0%}")
     if state.news_sentiment is not None and state.news_n_items:
         bits.append(f"news={state.news_sentiment:+.2f}({state.news_n_items})")
+    if state.macro_risk_label:
+        bits.append(f"macro={state.macro_risk_label}")
+    if state.next_event and state.days_to_event is not None:
+        win = "!" if state.in_event_window else ""
+        bits.append(f"next={state.next_event}/{state.days_to_event}d{win}")
     if state.equity is not None:
         bits.append(f"equity=${state.equity:,.0f}")
     if state.port_var_95 is not None:
