@@ -58,3 +58,5 @@ data/ops/monitor_status.json
 # E2 analyst decision audit log (host-local JSONL; committed brief-*.md is the
 # human-readable trail). Append-only machine log, grows unbounded.
 data/analyst/decisions.jsonl
+# Intraday watch per-session post counter/fingerprint (host-local run state).
+data/analyst/watch_state.json

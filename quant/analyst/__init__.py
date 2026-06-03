@@ -22,6 +22,13 @@ from quant.analyst.digest import (
     render_facts,
     run_digest,
 )
+from quant.analyst.watch import (
+    WatchComment,
+    WatchResult,
+    comment,
+    render_watch,
+    run_watch,
+)
 
 __all__ = [
     "AdvisorBrief",
@@ -31,12 +38,17 @@ __all__ = [
     "Proposals",
     "RegimeSnapshot",
     "StrategyEvidence",
+    "WatchComment",
+    "WatchResult",
     "advise",
+    "comment",
     "gather_analyst_context",
     "gather_digest_data",
     "narrate",
     "propose",
     "render_context",
     "render_facts",
+    "render_watch",
     "run_digest",
+    "run_watch",
 ]

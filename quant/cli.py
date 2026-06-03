@@ -2314,6 +2314,79 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
 
 
 @analyst.command(
+    "watch",
+    help="Intraday Claude watch: a short READ-ONLY commentary on the live book, posted to "
+    "Slack (slots: open/midday/power-hour). Advisory only — places no orders, sets no halt, "
+    "changes no allocation; bounded + non-spammy.",
+)
+@click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")
+@click.option("--dry-run", is_flag=True, default=False, help="Print the note; do not post to Slack.")
+@click.option("--slot", default="midday", help="Intraday slot label (e.g. open/midday/power-hour).")
+def analyst_watch(asof: str | None, dry_run: bool, slot: str) -> None:
+    from quant.analyst import run_watch
+    from quant.analyst.context import gather_analyst_context, render_context
+    from quant.deploy.alerts import AlertClient, AlertConfig
+    from quant.governance.halt import load_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    session_date = date.fromisoformat(asof) if asof else date.today()
+    alerts = AlertClient(
+        AlertConfig(
+            healthcheck_tick_url=settings.healthcheck_tick_url,
+            healthcheck_guard_url=settings.healthcheck_guard_url,
+            pushover_app_token=settings.pushover_app_token,
+            pushover_user_key=settings.pushover_user_key,
+            slack_webhook_url=settings.slack_webhook_url,
+        )
+    )
+
+    # Best-effort live Alpaca snapshot; everything degrades gracefully without it.
+    account: dict[str, float] | None = None
+    live_positions: list[tuple[str, int]] | None = None
+    try:
+        client = AlpacaClient(settings=settings)
+        acct = client.account()
+        account = {"equity": acct.equity, "last_equity": acct.last_equity, "cash": acct.cash}
+        live_positions = [(p.symbol, int(p.qty)) for p in client.positions()]
+    except Exception as exc:  # best-effort — a broker hiccup must not fail the watch
+        console.print(f"[yellow]watch: Alpaca snapshot unavailable — {exc!r}[/yellow]")
+
+    governance_live, _ = _doctor_governance_live_slugs(settings.data_dir)
+    positions_dict = dict(live_positions) if live_positions else None
+    equity_val = account.get("equity") if account else None
+    ctx = gather_analyst_context(
+        settings.data_dir, session_date, positions=positions_dict, equity=equity_val
+    )
+    context_text = render_context(ctx)
+
+    result = run_watch(
+        data_dir=settings.data_dir,
+        asof=session_date,
+        settings=settings,
+        alerts=alerts,
+        slot=slot,
+        dry_run=dry_run,
+        account=account,
+        live_positions=live_positions,
+        governance_live=governance_live,
+        halt_active=load_halt(settings.data_dir).active,
+        context_text=context_text,
+    )
+
+    console.rule(f"analyst watch [{slot}] — {session_date.isoformat()}")
+    console.print(result.body or "(suppressed — nothing posted)")
+    console.rule()
+    src = "Claude" if result.used_llm else "template (no LLM)"
+    if result.suppressed_reason:
+        where = f"suppressed: {result.suppressed_reason}"
+    elif dry_run:
+        where = "DRY-RUN (not sent)"
+    else:
+        where = "posted to Slack" if result.posted else "not sent"
+    console.print(f"[dim]source: {src} · {where} · advisory only — nothing applied[/dim]")
+
+
+@analyst.command(
     "propose",
     help="Claude decision-maker Phase B: structured advisory proposals (de-risk throttle, "
     "allocation tilts, halt recommendation), governance-clamped and logged. Applies NOTHING.",
