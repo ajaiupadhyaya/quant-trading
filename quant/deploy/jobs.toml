@@ -102,3 +102,43 @@ max_lateness_next_day = true
 max_runtime_s = 28800
 commands = [["__validate_matrix__"], ["governance", "refresh"], ["governance", "status"]]
 commit_paths = ["data/backtests/", "data/governance/"]
+
+# Intraday READ-ONLY Claude analyst watch (Sprint 1 of the continuous analyst).
+# `analyst watch` posts a short commentary on the live book to Slack; it places
+# NO orders, sets no halt, changes no allocation (import-guard tested), is bounded
+# (20s client timeout, <=4 posts/day, de-duped), and commits nothing. Three fixed
+# RTH slots. catch_up=SAME_DAY with a SHORT max_lateness so a slot delayed by lock
+# contention degrades to MISSED (a soft healthcheck ping) instead of either posting
+# stale hours-late commentary OR firing the MISSED_CRITICAL emergency page (which
+# catch_up=NONE would do regardless of timing_critical). NOT timing_critical: runs
+# under the shared 'batch' lock, never the rebalance path, and the 15:00 slot
+# finishes well before the 15:55 close rebalance.
+[[job]]
+name = "intraday-watch-open"
+trigger_et = "10:15"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "10:45"
+max_runtime_s = 120
+commands = [["analyst", "watch", "--slot", "open"]]
+commit_paths = []
+
+[[job]]
+name = "intraday-watch-midday"
+trigger_et = "12:30"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "13:00"
+max_runtime_s = 120
+commands = [["analyst", "watch", "--slot", "midday"]]
+commit_paths = []
+
+[[job]]
+name = "intraday-watch-power-hour"
+trigger_et = "15:00"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "15:30"
+max_runtime_s = 120
+commands = [["analyst", "watch", "--slot", "power-hour"]]
+commit_paths = []

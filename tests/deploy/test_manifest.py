@@ -23,7 +23,26 @@ def test_loads_all_jobs() -> None:
         "nightly-backtest",
         "weekly-grid-search",
         "weekly-validation-governance",
+        "intraday-watch-open",
+        "intraday-watch-midday",
+        "intraday-watch-power-hour",
     }
+
+
+def test_intraday_watch_jobs_are_readonly_and_page_safe() -> None:
+    m = load_manifest(REPO_MANIFEST)
+    watch = [j for j in m.jobs if j.name.startswith("intraday-watch")]
+    assert len(watch) == 3
+    for j in watch:
+        # SAME_DAY (not NONE): a missed slot degrades to MISSED (a soft ping), never
+        # the MISSED_CRITICAL emergency page the dispatcher fires for catch_up=NONE.
+        assert j.catch_up == CatchUpPolicy.SAME_DAY
+        assert j.timing_critical is False  # runs under the 'batch' lock, never trades
+        assert j.commit_paths == ()  # the watch commits nothing
+        assert j.commands == (("analyst", "watch", "--slot", j.name.removeprefix("intraday-watch-")),)
+    # the power-hour slot must close out before the 15:55 rebalance window
+    ph = next(j for j in watch if j.name == "intraday-watch-power-hour")
+    assert ph.max_lateness == time(15, 30)
 
 
 def test_daily_rebalance_is_timing_critical_close_relative() -> None:
