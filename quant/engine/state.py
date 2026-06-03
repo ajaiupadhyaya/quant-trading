@@ -55,6 +55,11 @@ class MarketState:
     intraday_range_vol: float | None
     intraday_dispersion: float | None
     intraday_asof: str | None
+    # news sentiment (local NLP; Phase 7B)
+    news_sentiment: float | None
+    news_n_items: int | None
+    news_negative_frac: float | None
+    news_top_negative: str | None
     # live book / portfolio risk
     equity: float | None
     n_positions: int | None
@@ -123,6 +128,7 @@ def build_market_state(
     positions: dict[str, int] | None = None,
     equity: float | None = None,
     intraday: Any | None = None,
+    news: Any | None = None,
 ) -> MarketState:
     """Compose one read-only MarketState. Best-effort end to end; never raises."""
     now = now_utc or datetime.now(UTC)
@@ -190,6 +196,10 @@ def build_market_state(
         intraday_range_vol=_f(getattr(intraday, "range_vol", None)),
         intraday_dispersion=_f(getattr(intraday, "dispersion", None)),
         intraday_asof=getattr(intraday, "asof_minute", None),
+        news_sentiment=_f(getattr(news, "mean_sentiment", None)),
+        news_n_items=getattr(news, "n_items", None),
+        news_negative_frac=_f(getattr(news, "negative_frac", None)),
+        news_top_negative=getattr(news, "top_negative_headline", None),
         equity=_f(equity),
         n_positions=(len(positions) if positions is not None else None),
         port_ann_vol=_f(getattr(prisk, "ann_vol", None)),
@@ -237,6 +247,8 @@ def render_state(state: MarketState) -> str:
         bits.append(f"day_breadth={state.intraday_breadth:.0%}")
     if state.intraday_range_vol is not None:
         bits.append(f"range_vol={state.intraday_range_vol:.0%}")
+    if state.news_sentiment is not None and state.news_n_items:
+        bits.append(f"news={state.news_sentiment:+.2f}({state.news_n_items})")
     if state.equity is not None:
         bits.append(f"equity=${state.equity:,.0f}")
     if state.port_var_95 is not None:

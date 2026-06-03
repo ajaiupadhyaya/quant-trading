@@ -29,6 +29,7 @@ from quant.engine.state import (
     session_phase,
     to_json_dict,
 )
+from quant.nlp.sentiment import live_news_sentiment
 from quant.util.atomic import write_json_atomic
 from quant.util.logging import logger
 
@@ -47,6 +48,10 @@ class EngineConfig:
     # An event whose code already fired within this window is suppressed (no Slack
     # spam, no re-escalation) — a persistent condition reports once, not every cycle.
     event_dedup_window_s: float = 3600.0
+    # News sentiment refreshes on a slower cadence than the price snapshot
+    # (headlines arrive sporadically) and is reused between refreshes.
+    news_refresh_s: float = 180.0
+    news_lookback_minutes: int = 240
     events: EventConfig = field(default_factory=EventConfig)
 
 
@@ -162,6 +167,7 @@ def run_engine(
     positions_fn: Callable[[], dict[str, int] | None] | None = None,
     equity_fn: Callable[[], float | None] | None = None,
     intraday_fn: Callable[[], Any] | None = None,
+    news_fn: Callable[[], Any] | None = None,
     slack: Any | None = None,
     claude_fn: Callable[[MarketState, list[EngineEvent], Any], str] | None = None,
     console_print: Callable[[str], None] | None = None,
@@ -177,6 +183,9 @@ def run_engine(
     pos_fn = positions_fn or (lambda: _default_positions(settings))
     eq_fn = equity_fn or (lambda: _default_equity(settings))
     intra_fn = intraday_fn or (lambda: live_intraday_signals(settings))
+    news_fn_ = news_fn or (
+        lambda: live_news_sentiment(settings, lookback_minutes=cfg.news_lookback_minutes)
+    )
     claude = claude_fn or summarize_events
     if slack is None and not dry_run:
         from quant.deploy.alerts import AlertClient, AlertConfig
@@ -198,6 +207,8 @@ def run_engine(
     last_event_at: dict[str, datetime] = {}
     last_claude_at: datetime | None = _persisted_last_claude(data_dir)
     claude_session_count = 0
+    last_news_at: datetime | None = None
+    cached_news: Any = None
     cycle = 0
 
     while True:
@@ -210,6 +221,14 @@ def run_engine(
             equity = eq_fn()
             # Intraday snapshot only while the tape is active (skip overnight calls).
             intraday = intra_fn() if phase != "closed" else None
+            # News sentiment on its own slower cadence; reused between refreshes.
+            if (
+                cached_news is None
+                or last_news_at is None
+                or (now - last_news_at).total_seconds() >= cfg.news_refresh_s
+            ):
+                cached_news = news_fn_()
+                last_news_at = now
             state = build_market_state(
                 data_dir,
                 asof=asof,
@@ -217,6 +236,7 @@ def run_engine(
                 positions=positions,
                 equity=equity,
                 intraday=intraday,
+                news=cached_news,
             )
 
             # Session anchor (resets each ET trading date) for intraday drawdown.

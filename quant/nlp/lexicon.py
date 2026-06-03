@@ -1,0 +1,73 @@
+"""A curated financial-sentiment lexicon (Loughran-McDonald style).
+
+Interpretable, deterministic, dependency-free word lists tuned for market news
+HEADLINES (not social media). This is the standard finance-NLP baseline; the
+scorer in ``quant.nlp.sentiment`` is intentionally pluggable so a heavier model
+backend (e.g. FinBERT) can be swapped in later without changing the pipeline.
+
+Word lists are lemmatized-ish stems matched against simple tokens; keep them
+lower-case and de-duplicated.
+"""
+
+from __future__ import annotations
+
+# Words that, when they precede a sentiment word (within a few tokens), flip it.
+NEGATORS: frozenset[str] = frozenset(
+    {"not", "no", "never", "without", "lacks", "lacking", "fails", "failed", "fail", "unable",
+     "cannot", "cant", "wont", "isnt", "arent", "wasnt", "werent", "nor", "neither", "less",
+     "fewer", "down", "off"}
+)
+
+POSITIVE: frozenset[str] = frozenset(
+    {
+        # earnings / fundamentals
+        "beat", "beats", "tops", "topped", "exceeds", "exceeded", "outperform", "outperforms",
+        "outperformed", "upgrade", "upgrades", "upgraded", "raises", "raised", "boosts", "boosted",
+        "profit", "profits", "profitable", "record", "records", "growth", "grow", "grows", "growing",
+        "strong", "stronger", "strength", "robust", "solid", "healthy", "improve", "improves",
+        "improved", "improving", "expansion", "expand", "expands", "accelerate", "accelerates",
+        # price / market action
+        "surge", "surges", "surged", "surging", "soar", "soars", "soared", "rally", "rallies",
+        "rallied", "jump", "jumps", "jumped", "gain", "gains", "gained", "gaining", "climb", "climbs",
+        "climbed", "rise", "rises", "rose", "rising", "rebound", "rebounds", "rebounded", "advance",
+        "advances", "advanced", "bullish", "optimism", "optimistic", "upbeat", "buoyant",
+        # corporate
+        "approval", "approved", "approves", "wins", "won", "win", "awarded", "secures", "secured",
+        "launch", "launches", "launched", "partnership", "deal", "agreement", "breakthrough",
+        "milestone", "dividend", "buyback", "buybacks", "upside", "outlook",
+        "momentum", "demand", "recovery", "recover", "recovers", "recovered", "stabilize",
+        "stabilizes", "stabilized", "resilient", "resilience", "confidence", "confident",
+        "favorable", "positive", "success", "successful", "leads", "leading", "leader",
+        "innovative", "efficient", "efficiency",
+    }
+)
+
+NEGATIVE: frozenset[str] = frozenset(
+    {
+        # earnings / fundamentals
+        "miss", "misses", "missed", "shortfall", "downgrade", "downgrades", "downgraded", "cuts",
+        "cut", "slashes", "slashed", "lowers", "loss", "losses", "weak", "weaker", "weakness",
+        "soft", "softer", "decline", "declines", "declined", "declining", "shrink", "shrinks",
+        "contraction", "contract", "slowdown", "slowing", "slows", "stagnant", "deteriorate",
+        "deteriorates", "deteriorating", "disappoint", "disappoints", "disappointing", "warns",
+        "warn", "warning", "warned", "writedown", "impairment",
+        # price / market action
+        "plunge", "plunges", "plunged", "plummet", "plummets", "plummeted", "slump", "slumps",
+        "slumped", "tumble", "tumbles", "tumbled", "crash", "crashes", "crashed", "selloff",
+        "sinks", "sank", "slide", "slides", "slid", "drop", "drops", "dropped", "falls", "fell",
+        "falling", "sell", "selling", "bearish", "fear", "fears", "panic", "pessimism", "pessimistic",
+        "rout", "collapse", "collapses", "collapsed", "freefall",
+        # risk / distress
+        "recession", "downturn", "crisis", "default", "defaults", "bankruptcy", "bankrupt",
+        "insolvent", "insolvency", "lawsuit", "lawsuits", "sued", "sues", "probe", "investigation",
+        "investigated", "fraud", "scandal", "fine", "fined", "penalty", "sanction", "sanctions",
+        "recall", "recalls", "halt", "halted", "suspend", "suspended", "delay", "delays", "delayed",
+        "layoffs", "layoff", "fired", "shutdown", "strike", "strikes", "outage", "breach",
+        "hack", "hacked", "ransomware", "volatility", "volatile", "uncertainty", "uncertain",
+        "risk", "risks", "risky", "threat", "threats", "threatens", "tensions", "tension", "conflict",
+        "war", "attack", "attacks", "attacked", "sanctioned", "tariff", "tariffs", "inflation",
+        "stagflation", "deficit", "debt", "distress", "turmoil", "worries", "worried", "concern",
+        "concerns", "concerning", "negative", "trouble", "troubled", "struggle", "struggles",
+        "struggling", "headwind", "headwinds", "pressure", "pressured", "drag", "subpoena",
+    }
+)

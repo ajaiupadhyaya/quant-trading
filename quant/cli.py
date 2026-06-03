@@ -1442,6 +1442,26 @@ def engine_status() -> None:
             console.print(f"  {ln}")
 
 
+@cli.group(help="Market news + local sentiment (read-only; no LLM in scoring).")
+def news() -> None:
+    pass
+
+
+@news.command("sentiment", help="Fetch recent headlines and print the local sentiment read.")
+@click.option("--hours", type=int, default=4, show_default=True, help="Lookback window.")
+@click.option("--limit", type=int, default=50, show_default=True, help="Max headlines.")
+def news_sentiment(hours: int, limit: int) -> None:
+    from quant.data.news import fetch_news
+    from quant.nlp.sentiment import render_sentiment, score_news, score_text
+
+    settings = Settings()  # type: ignore[call-arg]
+    items = fetch_news(settings, lookback_minutes=hours * 60, limit=limit)
+    s = score_news(items)
+    console.print(render_sentiment(s))
+    for it in sorted(items, key=lambda i: score_text(i.headline))[:8]:
+        console.print(f"  [{score_text(it.headline):+.2f}] {it.headline[:100]}")
+
+
 @cli.group(help="Market-wide regime detection (HMM/Kalman) — an observed, gated signal.")
 def regime() -> None:
     pass
@@ -2086,6 +2106,16 @@ def _best_effort_equity(settings: Settings) -> float | None:
         return None
 
 
+def _best_effort_news(settings: Settings) -> Any:
+    """Recent-news sentiment for the analyst context; empty read on any failure."""
+    try:
+        from quant.nlp.sentiment import live_news_sentiment
+
+        return live_news_sentiment(settings)
+    except Exception:  # news is optional context
+        return None
+
+
 def _render_guardrail_table(report: Any) -> Table:
     table = Table(title="Guardrails", show_header=True)
     table.add_column("Guardrail")
@@ -2380,7 +2410,11 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
     positions_dict = dict(live_positions) if live_positions else None
     equity_val = account.get("equity") if account else None
     ctx = gather_analyst_context(
-        settings.data_dir, session_date, positions=positions_dict, equity=equity_val
+        settings.data_dir,
+        session_date,
+        positions=positions_dict,
+        equity=equity_val,
+        news=_best_effort_news(settings),
     )
     context_text = render_context(ctx)
 
@@ -2458,7 +2492,11 @@ def analyst_watch(asof: str | None, dry_run: bool, slot: str) -> None:
     positions_dict = dict(live_positions) if live_positions else None
     equity_val = account.get("equity") if account else None
     ctx = gather_analyst_context(
-        settings.data_dir, session_date, positions=positions_dict, equity=equity_val
+        settings.data_dir,
+        session_date,
+        positions=positions_dict,
+        equity=equity_val,
+        news=_best_effort_news(settings),
     )
     context_text = render_context(ctx)
 
@@ -2527,7 +2565,11 @@ def analyst_propose(asof: str | None) -> None:
     positions_dict = dict(live_positions) if live_positions else None
     equity_val = account.get("equity") if account else None
     ctx = gather_analyst_context(
-        settings.data_dir, session_date, positions=positions_dict, equity=equity_val
+        settings.data_dir,
+        session_date,
+        positions=positions_dict,
+        equity=equity_val,
+        news=_best_effort_news(settings),
     )
     context_text = render_context(ctx)
 

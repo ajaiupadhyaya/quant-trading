@@ -62,6 +62,7 @@ class AnalystContext:
     macro: dict[str, float] = field(default_factory=dict)
     portfolio_risk: Any | None = None  # quant.risk.PortfolioRisk | None (lazy to avoid cycle)
     signals: Any | None = None  # quant.research.signals.MarketSignals | None (latest logged)
+    news: Any | None = None  # quant.nlp.NewsSentiment | None (caller-supplied; fetched at CLI)
 
 
 # --- best-effort readers (each fail-open) ----------------------------------
@@ -238,11 +239,14 @@ def gather_analyst_context(
     include_macro: bool = True,
     positions: dict[str, int] | None = None,
     equity: float | None = None,
+    news: Any | None = None,
 ) -> AnalystContext:
     """Assemble the day's read-only context. Each piece is best-effort/fail-open.
 
     ``positions``/``equity`` (the live Alpaca snapshot, when the caller has it)
-    enable the portfolio-risk view (VaR/CVaR/beta of the current book)."""
+    enable the portfolio-risk view (VaR/CVaR/beta of the current book). ``news``
+    (a ``quant.nlp.NewsSentiment``) is supplied by the caller — the gatherer
+    itself stays network-free so it remains cheap to call every engine cycle."""
     return AnalystContext(
         asof=asof,
         regime=_read_regime(data_dir),
@@ -252,6 +256,7 @@ def gather_analyst_context(
         macro=_read_macro() if include_macro else {},
         portfolio_risk=_portfolio_risk(positions, equity, asof),
         signals=_read_signals(data_dir, asof),
+        news=news,
     )
 
 
@@ -309,6 +314,12 @@ def render_context(ctx: AnalystContext) -> str:
             from quant.research.signals import render_signals
 
             lines.append(render_signals(ctx.signals))
+
+    if ctx.news is not None:
+        with contextlib.suppress(Exception):  # render is best-effort
+            from quant.nlp.sentiment import render_sentiment
+
+            lines.append(render_sentiment(ctx.news))
 
     if ctx.recon:
         msb = ctx.recon.get("mean_slippage_bps")

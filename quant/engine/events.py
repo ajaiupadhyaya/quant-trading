@@ -49,6 +49,10 @@ class EventConfig:
     intraday_breadth_break: float = 0.20  # share of the universe up — a real washout
     intraday_range_warn: float = 0.30  # SPY Parkinson range-vol (annualized)
     intraday_range_crit: float = 0.50
+    # news sentiment (Phase 7B): a genuinely negative headline environment
+    news_negative_warn: float = -0.30
+    news_negative_crit: float = -0.50
+    news_min_items: int = 3  # need a real batch before flagging
 
 
 def _regime_flip(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
@@ -180,6 +184,18 @@ def _intraday_range_spike(
     )
 
 
+def _negative_news(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
+    if curr.news_sentiment is None or (curr.news_n_items or 0) < cfg.news_min_items:
+        return None
+    if curr.news_sentiment > cfg.news_negative_warn:
+        return None
+    sev = "critical" if curr.news_sentiment <= cfg.news_negative_crit else "warn"
+    detail = f"news sentiment {curr.news_sentiment:+.2f} over {curr.news_n_items} items"
+    if curr.news_top_negative:
+        detail += f' — "{curr.news_top_negative[:80]}"'
+    return EngineEvent(code="negative_news", severity=sev, detail=detail, at=curr.at)
+
+
 def _halt(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
     if curr.halt_active and not prev.halt_active:
         return EngineEvent(
@@ -217,6 +233,7 @@ _PAIR_DETECTORS = (
     _intraday_selloff,
     _intraday_breadth_break,
     _intraday_range_spike,
+    _negative_news,
     _halt,
 )
 
