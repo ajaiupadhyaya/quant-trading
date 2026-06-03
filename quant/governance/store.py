@@ -14,6 +14,7 @@ from quant.governance.models import (
     StrategyState,
     ValidationEvidence,
 )
+from quant.util.atomic import atomic_write_text
 
 VALIDATION_MANIFEST_NAME = "validation_manifest.json"
 STRATEGY_STATES_NAME = "strategy_states.json"
@@ -73,7 +74,9 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
         raise GovernanceError(
             f"Cannot write governance artifact with non-finite values: {path}"
         ) from exc
-    path.write_text(text, encoding="utf-8")
+    # Atomic tmp+rename so a crash mid-write never leaves a truncated artifact
+    # (prior-state integrity is load-bearing for the evidence-schema shield).
+    atomic_write_text(path, text)
 
 
 def _malformed(path: Path) -> GovernanceError:
@@ -108,6 +111,40 @@ def _expect_optional_int(raw: dict[str, Any], key: str, path: Path) -> int | Non
     if not isinstance(value, int) or isinstance(value, bool):
         raise _malformed(path)
     return value
+
+
+def _expect_int_default(raw: dict[str, Any], key: str, path: Path, default: int) -> int:
+    """Read an int; ABSENT key -> default; present-but-malformed -> raise (never silently default)."""
+    if key not in raw:
+        return default
+    value = raw[key]
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise _malformed(path)
+    return value
+
+
+def _expect_bool_default(raw: dict[str, Any], key: str, path: Path, default: bool) -> bool:
+    if key not in raw:
+        return default
+    value = raw[key]
+    if not isinstance(value, bool):
+        raise _malformed(path)
+    return value
+
+
+def _expect_optional_date_default(raw: dict[str, Any], key: str, path: Path) -> date | None:
+    """ABSENT key or explicit null -> None; present string -> parsed date; bad value -> raise."""
+    if key not in raw:
+        return None
+    value = raw[key]
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise _malformed(path)
+    try:
+        return _date(value)
+    except ValueError as exc:
+        raise _malformed(path) from exc
 
 
 def _expect_number(raw: dict[str, Any], key: str, path: Path) -> float:
@@ -174,6 +211,7 @@ def write_validation_manifest(path: Path, evidence_by_slug: dict[str, Validation
                 "provenance": evidence.provenance,
                 "manual_block": evidence.manual_block,
                 "manual_block_reason": evidence.manual_block_reason,
+                "evidence_schema_version": evidence.evidence_schema_version,
             }
             for slug, evidence in sorted(evidence_by_slug.items())
         },
@@ -214,6 +252,9 @@ def load_validation_manifest(path: Path) -> dict[str, ValidationEvidence]:
                 provenance=_expect_str(raw, "provenance", path),
                 manual_block=_expect_bool(raw, "manual_block", path),
                 manual_block_reason=_expect_optional_str(raw, "manual_block_reason", path),
+                evidence_schema_version=_expect_int_default(
+                    raw, "evidence_schema_version", path, 1
+                ),
             )
         except (KeyError, ValueError) as exc:
             raise _malformed(path) from exc
@@ -279,6 +320,12 @@ def load_strategy_states(path: Path) -> dict[str, StrategyState]:
                 reason=_expect_str(raw, "reason", path),
                 code_enabled_live=_expect_bool(raw, "code_enabled_live", path),
                 manual_block=_expect_bool(raw, "manual_block", path),
+                shielded=_expect_bool_default(raw, "shielded", path, False),
+                shield_consecutive=_expect_int_default(raw, "shield_consecutive", path, 0),
+                evidence_schema_version=_expect_int_default(
+                    raw, "evidence_schema_version", path, 1
+                ),
+                shield_first_at=_expect_optional_date_default(raw, "shield_first_at", path),
             )
         except (KeyError, ValueError) as exc:
             raise _malformed(path) from exc

@@ -15,9 +15,10 @@ from quant.governance.models import (
     StrategyState,
     ValidationEvidence,
 )
-from quant.governance.policy import classify_strategy
+from quant.governance.policy import apply_schema_shield, classify_strategy
 from quant.governance.store import (
     allocation_path,
+    load_strategy_states,
     strategy_states_path,
     validation_manifest_path,
     write_allocation,
@@ -97,6 +98,16 @@ def _expect_optional_number(
     return out
 
 
+def _report_schema_version(raw: dict[str, Any], data_dir: Path, slug: str) -> int:
+    """Evidence schema version: ABSENT (pre-shield sidecar) -> 1; present-but-malformed -> raise."""
+    value = raw.get("evidence_schema_version")
+    if value is None:
+        return 1
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise _malformed_report(data_dir, slug)
+    return value
+
+
 def _expect_optional_str(raw: dict[str, Any], key: str, data_dir: Path, slug: str) -> str | None:
     value = raw.get(key)
     if value is None:
@@ -149,6 +160,7 @@ def validation_report_to_evidence(data_dir: Path, slug: str) -> ValidationEviden
                 else _expect_bool(raw, "manual_block", data_dir, slug)
             ),
             manual_block_reason=_expect_optional_str(raw, "manual_block_reason", data_dir, slug),
+            evidence_schema_version=_report_schema_version(raw, data_dir, slug),
         )
     except (KeyError, ValueError) as exc:
         raise _malformed_report(data_dir, slug) from exc
@@ -163,15 +175,27 @@ def build_governance_artifacts(
 ) -> dict[str, StrategyState]:
     evidence_by_slug: dict[str, ValidationEvidence] = {}
     states: dict[str, StrategyState] = {}
+    # Prior persisted decision = last refresh's blessed state (read BEFORE we
+    # overwrite it below). Absent -> no incumbent (shield inert, fail-closed);
+    # present-but-malformed -> GovernanceError propagates (fail loud, never
+    # silently degraded to "no incumbent" which would disarm the shield).
+    states_path = strategy_states_path(data_dir)
+    prior_states = load_strategy_states(states_path) if states_path.exists() else {}
     for slug, strategy_cls in sorted(registry.items()):
         evidence = validation_report_to_evidence(data_dir, slug)
         if evidence is not None:
             evidence_by_slug[slug] = evidence
-        states[slug] = classify_strategy(
+        provisional = classify_strategy(
             spec=strategy_cls.spec,
             evidence=evidence,
             policy=policy,
             asof=asof,
+        )
+        states[slug] = apply_schema_shield(
+            provisional,
+            evidence=evidence,
+            asof=asof,
+            prior_state=prior_states.get(slug),
         )
     write_validation_manifest(validation_manifest_path(data_dir), evidence_by_slug)
     write_strategy_states(strategy_states_path(data_dir), states)
