@@ -129,3 +129,13 @@ def test_render_includes_portfolio_risk() -> None:
     text = render_context(AnalystContext(asof=ASOF, portfolio_risk=pr))
     assert "Portfolio risk:" in text
     assert "VaR95" in text
+
+
+def test_render_includes_fundamentals() -> None:
+    from quant.fundamentals.factors import FundamentalRow, compute_fundamentals
+
+    rows = [FundamentalRow(f"S{i}", 100.0, 1e12, 0.08, 0.5, 0.40, 0.05) for i in range(8)]
+    read = compute_fundamentals(rows, asof=ASOF)
+    text = render_context(AnalystContext(asof=ASOF, fundamentals=read))
+    assert "Fundamentals:" in text
+    assert "valuation=cheap" in text

@@ -68,6 +68,14 @@ class MarketState:
     financial_conditions: float | None
     vix_term_structure: float | None
     macro_risk_label: str | None
+    # fundamentals (cross-sectional value/quality on the mega-cap proxy; roadmap 7.B)
+    fund_coverage: float | None
+    equity_earnings_yield: float | None
+    equity_book_to_market: float | None
+    equity_gross_profitability: float | None
+    equity_asset_growth: float | None
+    valuation_label: str | None
+    fund_quality_label: str | None
     # live book / portfolio risk
     equity: float | None
     n_positions: int | None
@@ -138,6 +146,7 @@ def build_market_state(
     intraday: Any | None = None,
     news: Any | None = None,
     event_risk: Any | None = None,
+    fundamentals: Any | None = None,
 ) -> MarketState:
     """Compose one read-only MarketState. Best-effort end to end; never raises."""
     now = now_utc or datetime.now(UTC)
@@ -216,6 +225,13 @@ def build_market_state(
         financial_conditions=_f(getattr(event_risk, "financial_conditions", None)),
         vix_term_structure=_f(getattr(event_risk, "vix_term_structure", None)),
         macro_risk_label=getattr(event_risk, "risk_label", None),
+        fund_coverage=_f(getattr(fundamentals, "coverage", None)),
+        equity_earnings_yield=_f(getattr(fundamentals, "median_earnings_yield", None)),
+        equity_book_to_market=_f(getattr(fundamentals, "median_book_to_market", None)),
+        equity_gross_profitability=_f(getattr(fundamentals, "median_gross_profitability", None)),
+        equity_asset_growth=_f(getattr(fundamentals, "median_asset_growth", None)),
+        valuation_label=getattr(fundamentals, "valuation_label", None),
+        fund_quality_label=getattr(fundamentals, "quality_label", None),
         equity=_f(equity),
         n_positions=(len(positions) if positions is not None else None),
         port_ann_vol=_f(getattr(prisk, "ann_vol", None)),
@@ -267,6 +283,13 @@ def render_state(state: MarketState) -> str:
         bits.append(f"news={state.news_sentiment:+.2f}({state.news_n_items})")
     if state.macro_risk_label:
         bits.append(f"macro={state.macro_risk_label}")
+    if state.valuation_label:
+        ey = (
+            f"({state.equity_earnings_yield:.1%})"
+            if state.equity_earnings_yield is not None
+            else ""
+        )
+        bits.append(f"val={state.valuation_label}{ey}")
     if state.next_event and state.days_to_event is not None:
         win = "!" if state.in_event_window else ""
         bits.append(f"next={state.next_event}/{state.days_to_event}d{win}")

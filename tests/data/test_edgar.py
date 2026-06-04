@@ -13,9 +13,12 @@ from quant.data.edgar import (
     asset_growth_yoy,
     book_to_market,
     cik_for_ticker,
+    earnings_yield,
     fetch_company_facts,
     get_facts_asof,
     gross_profitability,
+    gross_profitability_ttm,
+    latest_annual_flow,
     market_cap_asof,
 )
 
@@ -52,7 +55,32 @@ def _mock_companyfacts() -> dict[str, object]:
                 "GrossProfit": {
                     "units": {
                         "USD": [
-                            {"val": 170_000_000_000, "end": "2023-09-30", "filed": "2023-11-03"},
+                            {
+                                "val": 170_000_000_000,
+                                "start": "2022-10-01",
+                                "end": "2023-09-30",
+                                "filed": "2023-11-03",
+                            },
+                        ]
+                    }
+                },
+                "NetIncomeLoss": {
+                    "units": {
+                        "USD": [
+                            # Quarterly (91d) — must be IGNORED by the annual selector.
+                            {
+                                "val": 25_000_000_000,
+                                "start": "2023-07-01",
+                                "end": "2023-09-30",
+                                "filed": "2023-11-03",
+                            },
+                            # Annual (364d) — the trailing-twelve-month figure we want.
+                            {
+                                "val": 100_000_000_000,
+                                "start": "2022-10-01",
+                                "end": "2023-09-30",
+                                "filed": "2023-11-03",
+                            },
                         ]
                     }
                 },
@@ -185,6 +213,63 @@ def test_book_to_market_and_profitability(monkeypatch, tmp_path: Path) -> None:
     gp = gross_profitability("AAPL", date(2024, 1, 1), data_dir=tmp_path)
     assert gp is not None
     assert abs(gp - (170_000_000_000 / 350_000_000_000)) < 1e-12
+
+
+def test_latest_annual_flow_prefers_annual_over_quarterly(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    # The 91d quarterly (25e9) must be ignored in favour of the 364d annual (100e9).
+    ni = latest_annual_flow("AAPL", date(2024, 1, 1), "net_income", data_dir=tmp_path)
+    assert ni == 100_000_000_000
+
+
+def test_latest_annual_flow_none_when_only_quarterly(monkeypatch, tmp_path: Path) -> None:
+    facts = {
+        "facts": {
+            "us-gaap": {
+                "NetIncomeLoss": {
+                    "units": {
+                        "USD": [
+                            {
+                                "val": 25e9,
+                                "start": "2023-07-01",
+                                "end": "2023-09-30",
+                                "filed": "2023-11-03",
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+    _patch_http(monkeypatch, facts=facts)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    assert latest_annual_flow("AAPL", date(2024, 1, 1), "net_income", data_dir=tmp_path) is None
+
+
+def test_earnings_yield_uses_annual_net_income(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    ey = earnings_yield("AAPL", date(2024, 1, 1), market_cap=2_500_000_000_000, data_dir=tmp_path)
+    assert ey is not None
+    assert abs(ey - (100_000_000_000 / 2_500_000_000_000)) < 1e-12  # annual, not the 25e9 quarter
+
+
+def test_gross_profitability_ttm_uses_annual_gross_profit(monkeypatch, tmp_path: Path) -> None:
+    _patch_http(monkeypatch)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    gp = gross_profitability_ttm("AAPL", date(2024, 1, 1), data_dir=tmp_path)
+    assert gp is not None
+    # annual gross profit 170e9 / total assets 350e9 (PIT at 2024-01-01)
+    assert abs(gp - (170_000_000_000 / 350_000_000_000)) < 1e-12
+
+
+def test_earnings_yield_none_when_net_income_missing(monkeypatch, tmp_path: Path) -> None:
+    facts = _mock_companyfacts()
+    del facts["facts"]["us-gaap"]["NetIncomeLoss"]  # type: ignore[index]
+    _patch_http(monkeypatch, facts=facts)
+    fetch_company_facts("AAPL", data_dir=tmp_path)
+    assert earnings_yield("AAPL", date(2024, 1, 1), market_cap=2.5e12, data_dir=tmp_path) is None
 
 
 def test_shares_outstanding_extracted_from_dei_namespace(monkeypatch, tmp_path: Path) -> None:

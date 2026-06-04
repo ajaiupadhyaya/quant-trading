@@ -91,6 +91,26 @@ def test_build_state_reads_logged_signals(tmp_path: Path) -> None:
     assert "signals" not in s.degraded
 
 
+def test_fundamentals_flow_into_state(tmp_path: Path) -> None:
+    from quant.fundamentals.factors import FundamentalRow, compute_fundamentals
+
+    rows = [FundamentalRow(f"S{i}", 100.0, 1e12, 0.08, 0.5, 0.40, 0.05) for i in range(8)]
+    read = compute_fundamentals(rows, asof=date(2026, 6, 3))
+    s = build_market_state(tmp_path, asof=date(2026, 6, 3), fundamentals=read)
+    assert s.valuation_label == "cheap"
+    assert s.fund_quality_label == "strong"
+    assert s.fund_coverage == 1.0
+    assert abs(s.equity_earnings_yield - 0.08) < 1e-12
+    # render shows the valuation posture
+    assert "val=cheap" in render_state(s)
+
+
+def test_fundamentals_absent_leaves_fields_none(tmp_path: Path) -> None:
+    s = build_market_state(tmp_path, asof=date(2026, 6, 3))  # no fundamentals passed
+    assert s.valuation_label is None
+    assert s.fund_coverage is None
+
+
 def test_reads_halt_from_monitor_status(tmp_path: Path) -> None:
     import json
 

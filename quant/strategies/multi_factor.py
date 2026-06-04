@@ -22,6 +22,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pandas as pd
 
+from quant.data.universe import MEGACAP_UNIVERSE
 from quant.strategies import register
 from quant.strategies._common import (
     asof_index,
@@ -31,28 +32,7 @@ from quant.strategies._common import (
 )
 from quant.strategies.base import Strategy, StrategySpec
 
-MEGACAP_UNIVERSE: list[str] = [
-    "AAPL",
-    "MSFT",
-    "GOOGL",
-    "AMZN",
-    "META",
-    "NVDA",
-    "TSLA",
-    "BRK-B",
-    "JPM",
-    "V",
-    "JNJ",
-    "WMT",
-    "PG",
-    "MA",
-    "HD",
-    "XOM",
-    "BAC",
-    "DIS",
-    "ADBE",
-    "CRM",
-]
+__all__ = ["MEGACAP_UNIVERSE", "MultiFactor"]
 
 
 def _zscore(row: pd.Series) -> pd.Series:

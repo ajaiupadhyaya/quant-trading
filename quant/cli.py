@@ -1396,8 +1396,12 @@ def engine() -> None:
     "Read-only/advisory — places no orders, sets no halt. --once/--max-cycles bound it.",
 )
 @click.option("--once", is_flag=True, default=False, help="Run a single cycle and exit.")
-@click.option("--max-cycles", type=int, default=None, help="Stop after N cycles (default: forever).")
-@click.option("--dry-run", is_flag=True, default=False, help="Compute + log, post nothing, no Claude.")
+@click.option(
+    "--max-cycles", type=int, default=None, help="Stop after N cycles (default: forever)."
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False, help="Compute + log, post nothing, no Claude."
+)
 def engine_run(once: bool, max_cycles: int | None, dry_run: bool) -> None:
     from quant.engine import run_engine
 
@@ -1467,7 +1471,9 @@ def macro() -> None:
     pass
 
 
-@macro.command("eventrisk", help="Print the current macro/policy/event-risk read + upcoming events.")
+@macro.command(
+    "eventrisk", help="Print the current macro/policy/event-risk read + upcoming events."
+)
 def macro_eventrisk() -> None:
     from quant.macro.events import live_event_risk, render_event_risk, upcoming_events
 
@@ -1477,6 +1483,46 @@ def macro_eventrisk() -> None:
     console.print("[bold]upcoming events[/bold]")
     for ev in upcoming_events(today, horizon_days=30):
         console.print(f"  {ev.date}  [{ev.impact}]  {ev.name}")
+
+
+@cli.group(help="Fundamentals: cross-sectional value/quality on the mega-cap universe (SEC EDGAR).")
+def fundamentals() -> None:
+    pass
+
+
+@fundamentals.command(
+    "status", help="Print the live PIT fundamentals read + per-name value/quality factors."
+)
+@click.option("--asof", default=None, help="Query date (YYYY-MM-DD). Default: today.")
+@click.option(
+    "--symbols", default=None, help="Comma-separated tickers. Default: mega-cap universe."
+)
+def fundamentals_status(asof: str | None, symbols: str | None) -> None:
+    from quant.fundamentals.factors import (
+        FundamentalsConfig,
+        compute_fundamentals,
+        fundamental_rows,
+        render_fundamentals,
+    )
+
+    settings = Settings()  # type: ignore[call-arg]
+    asof_date = date.fromisoformat(asof) if asof else date.today()
+    cfg = (
+        FundamentalsConfig(
+            universe=tuple(s.strip().upper() for s in symbols.split(",") if s.strip())
+        )
+        if symbols
+        else FundamentalsConfig()
+    )
+    rows = fundamental_rows(settings, asof_date, config=cfg)
+    console.print(render_fundamentals(compute_fundamentals(rows, asof=asof_date, config=cfg)))
+    console.print("[bold]per-name factors[/bold] (E/P, B/M, gross-profit, asset-growth)")
+    for r in rows:
+        ey = f"{r.earnings_yield:+.1%}" if r.earnings_yield is not None else "  n/a"
+        btm = f"{r.book_to_market:.2f}" if r.book_to_market is not None else " n/a"
+        gp = f"{r.gross_profitability:.2f}" if r.gross_profitability is not None else " n/a"
+        ag = f"{r.asset_growth:+.1%}" if r.asset_growth is not None else "  n/a"
+        console.print(f"  {r.symbol:<6} EY={ey}  BM={btm}  GP={gp}  AG={ag}")
 
 
 @cli.group(help="Market-wide regime detection (HMM/Kalman) — an observed, gated signal.")
@@ -2328,7 +2374,9 @@ def analyst() -> None:
     "digest", help="Build today's digest and post it to Slack. Read-only — never trades or halts."
 )
 @click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")
-@click.option("--dry-run", is_flag=True, default=False, help="Print the digest; do not post to Slack.")
+@click.option(
+    "--dry-run", is_flag=True, default=False, help="Print the digest; do not post to Slack."
+)
 def analyst_digest(asof: str | None, dry_run: bool) -> None:
     from quant.analyst import run_digest
     from quant.deploy.alerts import AlertClient, AlertConfig
@@ -2392,7 +2440,9 @@ def analyst_digest(asof: str | None, dry_run: bool) -> None:
     "Advisory only — places no orders, sets no halt, changes no allocation.",
 )
 @click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")
-@click.option("--dry-run", is_flag=True, default=False, help="Print the brief; do not post to Slack.")
+@click.option(
+    "--dry-run", is_flag=True, default=False, help="Print the brief; do not post to Slack."
+)
 def analyst_brief(asof: str | None, dry_run: bool) -> None:
     from quant.analyst import gather_digest_data, render_facts
     from quant.analyst.advisor import advise
@@ -2485,7 +2535,9 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
     "changes no allocation; bounded + non-spammy.",
 )
 @click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")
-@click.option("--dry-run", is_flag=True, default=False, help="Print the note; do not post to Slack.")
+@click.option(
+    "--dry-run", is_flag=True, default=False, help="Print the note; do not post to Slack."
+)
 @click.option("--slot", default="midday", help="Intraday slot label (e.g. open/midday/power-hour).")
 def analyst_watch(asof: str | None, dry_run: bool, slot: str) -> None:
     from quant.analyst import run_watch

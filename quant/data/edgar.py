@@ -89,13 +89,22 @@ _UNITS: tuple[str, ...] = ("USD", "shares", "USD/shares")
 
 @dataclass(frozen=True)
 class FactRow:
-    """One point-in-time XBRL fact."""
+    """One point-in-time XBRL fact.
+
+    ``start`` is the period start for FLOW concepts (income/cash-flow statement
+    items span a window); it is ``None`` for INSTANT balance-sheet concepts
+    (assets, equity, shares). The window length (``period_end - start``) lets us
+    distinguish a quarterly (~90d) from an annual (~365d) flow — essential for an
+    honest earnings yield, since a single quarter's net income understates the
+    trailing-twelve-month figure ~4x.
+    """
 
     concept: str
     value: float
     period_end: date
     filed: date
     unit: str
+    start: date | None = None
 
 
 def _settings() -> Settings:
@@ -167,7 +176,8 @@ def cik_for_ticker(ticker: str, data_dir: Path | None = None) -> str | None:
 
 def _facts_path(ticker: str, data_dir: Path) -> Path:
     safe = re.sub(r"[^A-Z0-9_]", "_", ticker.upper())
-    return data_dir / "fundamentals" / f"{safe}_facts.parquet"
+    # _v2 carries the period-start column; pre-v2 caches lack it and are ignored.
+    return data_dir / "fundamentals" / f"{safe}_facts_v2.parquet"
 
 
 def _extract_concept(facts: dict[str, Any], concept: str) -> list[FactRow]:
@@ -193,6 +203,7 @@ def _extract_concept(facts: dict[str, Any], concept: str) -> list[FactRow]:
                 out: list[FactRow] = []
                 for r in rows:
                     try:
+                        start_raw = r.get("start")
                         out.append(
                             FactRow(
                                 concept=concept,
@@ -200,6 +211,11 @@ def _extract_concept(facts: dict[str, Any], concept: str) -> list[FactRow]:
                                 period_end=date.fromisoformat(str(r["end"])[:10]),
                                 filed=date.fromisoformat(str(r["filed"])[:10]),
                                 unit=unit_name,
+                                start=(
+                                    date.fromisoformat(str(start_raw)[:10])
+                                    if start_raw is not None
+                                    else None
+                                ),
                             )
                         )
                     except Exception:  # malformed row; skip
@@ -227,7 +243,7 @@ def fetch_company_facts(ticker: str, data_dir: Path | None = None) -> pd.DataFra
     cik = cik_for_ticker(ticker, data_dir)
     if cik is None:
         logger.warning("No EDGAR CIK for ticker {}", ticker)
-        empty = pd.DataFrame(columns=["concept", "value", "period_end", "filed", "unit"])
+        empty = pd.DataFrame(columns=["concept", "value", "period_end", "filed", "unit", "start"])
         empty.to_parquet(path)
         return empty
 
@@ -247,6 +263,7 @@ def fetch_company_facts(ticker: str, data_dir: Path | None = None) -> pd.DataFra
                 "period_end": r.period_end,
                 "filed": r.filed,
                 "unit": r.unit,
+                "start": r.start,
             }
             for r in rows
         ]
@@ -326,6 +343,68 @@ def gross_profitability(ticker: str, asof: date, data_dir: Path | None = None) -
     if gp is None or ta is None or ta.value <= 0:
         return None
     return float(gp.value) / float(ta.value)
+
+
+def latest_annual_flow(
+    ticker: str, asof: date, concept: str, data_dir: Path | None = None
+) -> float | None:
+    """Most recent ANNUAL (≈365-day) value of a FLOW concept, filed ≤ ``asof``.
+
+    Income/cash-flow concepts are reported over both quarterly (~90d) and annual
+    (~365d) windows. For a valuation gauge we want the annual (trailing 10-K)
+    figure — a single quarter understates it ~4x. We select the latest fact whose
+    period length falls in [300, 400] days. Returns None if no annual fact exists
+    or the cache predates the period-start column.
+    """
+    df = fetch_company_facts(ticker, data_dir)
+    if df.empty or "start" not in df.columns:
+        return None
+    sub = df[(df["concept"] == concept) & (df["filed"] <= pd.Timestamp(asof).date())].copy()
+    sub = sub.dropna(subset=["start"])
+    if sub.empty:
+        return None
+    period_days = (pd.to_datetime(sub["period_end"]) - pd.to_datetime(sub["start"])).dt.days
+    annual = sub[(period_days >= 300) & (period_days <= 400)]
+    if annual.empty:
+        return None
+    annual = annual.sort_values(["period_end", "filed"])
+    return float(annual.iloc[-1]["value"])
+
+
+def earnings_yield(
+    ticker: str, asof: date, market_cap: float, data_dir: Path | None = None
+) -> float | None:
+    """Trailing-twelve-month earnings yield = annual net_income / market_cap, PIT.
+
+    The inverse of the P/E ratio and the cleanest absolute valuation gauge with a
+    market-level interpretation (≈5% is fairly valued; higher = cheaper). Uses the
+    latest ANNUAL net income (not a single quarter — that would understate it ~4x)
+    and the PIT market cap (price * shares-outstanding, from ``market_cap_asof``).
+    Can be negative when the trailing year was a net loss.
+    """
+    if market_cap <= 0:
+        return None
+    ni = latest_annual_flow(ticker, asof, "net_income", data_dir)
+    if ni is None:
+        return None
+    return ni / float(market_cap)
+
+
+def gross_profitability_ttm(ticker: str, asof: date, data_dir: Path | None = None) -> float | None:
+    """Novy-Marx quality with an ANNUAL gross profit numerator (PIT).
+
+    Like ``gross_profitability`` but uses the latest annual gross profit rather
+    than whatever single (often quarterly) fact sorts last — so the absolute
+    level is comparable to the ~0.2-0.5 range the quality label anchors expect.
+    """
+    gp = latest_annual_flow(ticker, asof, "gross_profit", data_dir)
+    if gp is None:
+        return None
+    facts = get_facts_asof(ticker, asof, data_dir)
+    ta = facts.get("total_assets")
+    if ta is None or ta.value <= 0:
+        return None
+    return gp / float(ta.value)
 
 
 def asset_growth_yoy(

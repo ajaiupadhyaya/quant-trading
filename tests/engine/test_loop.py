@@ -13,6 +13,14 @@ from quant.engine.loop import EngineConfig, engine_dir, run_engine
 from tests.engine.conftest import SpySlack, fake_settings, mk_state
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_fundamentals(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the loop tests offline: the default fundamentals_fn would otherwise
+    issue ~20 cold SEC EDGAR fetches per refresh. These tests stub
+    build_market_state and never assert on the fundamentals read."""
+    monkeypatch.setattr(lp, "live_fundamentals", lambda *_a, **_k: None)
+
+
 def _clock(start: datetime, step_s: float):
     t = {"v": start - timedelta(seconds=step_s)}
 
@@ -196,3 +204,28 @@ def test_summarize_events_failopen_without_api_key(tmp_path: Path) -> None:
     ev = [EngineEvent(code="risk_breach", severity="critical", detail="VaR95 6%", at="t")]
     out = summarize_events(mk_state(), ev, fake_settings(tmp_path))
     assert "risk_breach" in out  # deterministic template, no API call
+
+
+def test_fundamentals_fn_result_reaches_build_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_build(*_a: object, **k: object):
+        captured.update(k)
+        return mk_state()
+
+    monkeypatch.setattr(lp, "build_market_state", fake_build)
+    sentinel = object()
+    run_engine(
+        fake_settings(tmp_path),
+        max_cycles=1,
+        dry_run=True,
+        sleep=lambda _x: None,
+        now_fn=_clock(datetime(2026, 6, 3, 14, tzinfo=UTC), 46),
+        positions_fn=lambda: {"GLD": 1},
+        equity_fn=lambda: 1_000_000.0,
+        fundamentals_fn=lambda _d: sentinel,  # overrides the default reader
+        slack=SpySlack(),
+    )
+    assert captured.get("fundamentals") is sentinel

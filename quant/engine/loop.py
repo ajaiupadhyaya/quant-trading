@@ -29,6 +29,7 @@ from quant.engine.state import (
     session_phase,
     to_json_dict,
 )
+from quant.fundamentals.factors import live_fundamentals
 from quant.macro.events import live_event_risk
 from quant.nlp.sentiment import live_news_sentiment
 from quant.util.atomic import write_json_atomic
@@ -55,6 +56,9 @@ class EngineConfig:
     news_lookback_minutes: int = 240
     # Event-risk (FRED uncertainty + calendar) moves daily at most — refresh slowly.
     eventrisk_refresh_s: float = 1800.0
+    # Fundamentals (PIT EDGAR facts) only change on filings; the read moves with
+    # price (earnings yield), so refresh a few times a session, not every cycle.
+    fundamentals_refresh_s: float = 21600.0  # 6h
     events: EventConfig = field(default_factory=EventConfig)
 
 
@@ -172,6 +176,7 @@ def run_engine(
     intraday_fn: Callable[[], Any] | None = None,
     news_fn: Callable[[], Any] | None = None,
     eventrisk_fn: Callable[[date], Any] | None = None,
+    fundamentals_fn: Callable[[date], Any] | None = None,
     slack: Any | None = None,
     claude_fn: Callable[[MarketState, list[EngineEvent], Any], str] | None = None,
     console_print: Callable[[str], None] | None = None,
@@ -191,6 +196,7 @@ def run_engine(
         lambda: live_news_sentiment(settings, lookback_minutes=cfg.news_lookback_minutes)
     )
     er_fn = eventrisk_fn or (lambda d: live_event_risk(settings, d))
+    fund_fn = fundamentals_fn or (lambda d: live_fundamentals(settings, d))
     claude = claude_fn or summarize_events
     if slack is None and not dry_run:
         from quant.deploy.alerts import AlertClient, AlertConfig
@@ -216,6 +222,8 @@ def run_engine(
     cached_news: Any = None
     last_er_at: datetime | None = None
     cached_er: Any = None
+    last_fund_at: datetime | None = None
+    cached_fund: Any = None
     cycle = 0
 
     while True:
@@ -244,6 +252,14 @@ def run_engine(
             ):
                 cached_er = er_fn(asof)
                 last_er_at = now
+            # Fundamentals (PIT EDGAR + price): slow cadence, reused between refreshes.
+            if (
+                cached_fund is None
+                or last_fund_at is None
+                or (now - last_fund_at).total_seconds() >= cfg.fundamentals_refresh_s
+            ):
+                cached_fund = fund_fn(asof)
+                last_fund_at = now
             state = build_market_state(
                 data_dir,
                 asof=asof,
@@ -253,6 +269,7 @@ def run_engine(
                 intraday=intraday,
                 news=cached_news,
                 event_risk=cached_er,
+                fundamentals=cached_fund,
             )
 
             # Session anchor (resets each ET trading date) for intraday drawdown.
@@ -278,9 +295,7 @@ def run_engine(
             )
 
             # Detect, dedup, notify.
-            events = detect_events(
-                prev, state, cfg.events, session_high_equity=session_high_equity
-            )
+            events = detect_events(prev, state, cfg.events, session_high_equity=session_high_equity)
             fresh = [
                 e
                 for e in events
@@ -301,7 +316,12 @@ def run_engine(
             gap_ok = last_claude_at is None or (
                 (now - last_claude_at).total_seconds() >= cfg.claude_min_gap_s
             )
-            if impactful and not dry_run and gap_ok and claude_session_count < cfg.claude_max_per_session:
+            if (
+                impactful
+                and not dry_run
+                and gap_ok
+                and claude_session_count < cfg.claude_max_per_session
+            ):
                 summary = claude(state, impactful, settings)
                 last_claude_at = now
                 claude_session_count += 1
