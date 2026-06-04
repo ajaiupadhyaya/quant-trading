@@ -158,12 +158,17 @@ Each phase marks **autonomy**: 🟢 safe-autonomous (read-only/shadow, I can bui
 - **Regime:** macro-conditioned HMM + Bayesian online change-point detector.
   ✅ DONE (`quant/forecast/regime.py`) — macro-conditioned HMM adds the BAA-AAA *credit cycle* as a PIT
   HMM dimension (market-priced, no revisions; NFCI/claims/Sahm deliberately excluded as revised→leaky).
-  Honest A/B vs market-only (SPY 2005-26, 4510 OOS days, walk-forward causal filter): crisis-prob→fwd-vol
-  rank IC 0.284→**0.321** (+0.037, +13% rel.) — a real predictiveness gain; crude 3-label de-risk drawdown
-  ~flat (−19.6% vs −21.4%) → ADVISORY/shadow (analyst context only), drives nothing; actuation = separate
-  gate. PLUS a training-free Bayesian online change-point detector (Adams-MacKay BOCPD, Normal-Gamma) that
-  flags SHARP breaks (COVID cp_prob 0.18 vs 0.013 baseline; live-flagged Apr-2025 tariff crash & Oct-2025),
-  complementing the standing-regime HMM. CLIs: `quant forecast regime` / `regime-eval` / `changepoint`.
+  Honest A/B vs market-only — and the honest outcome is a CORRECTION: a cheap config (quarterly refit,
+  3 restarts, 2005-26) showed crisis-prob→fwd-vol rank IC 0.284→0.321 (+0.037), which briefly earned an
+  advisory slot, but the gain is FRAGILE and did NOT survive scrutiny — +0.037 (3 restarts) → +0.026
+  (8 restarts) → **−0.0003 under the standard production config** (monthly refit, 8 restarts, full
+  2000-26: market IC 0.346 vs macro 0.345); de-risk drawdown is flat-to-WORSE with credit-conditioning
+  in every config. → **RESEARCH-ONLY** (a config-fragile gain fails the bar; the existing market-only
+  regime stands), UNWIRED from the analyst/MarketState. The credit-conditioning lesson: re-run cheap
+  evals at full fidelity before claiming a gain. PLUS a training-free Bayesian online change-point detector
+  (Adams-MacKay BOCPD, Normal-Gamma) that flags SHARP breaks (COVID cp_prob 0.18 vs 0.013 baseline;
+  live-flagged Apr-2025 tariff crash & Oct-2025) — a separate, VALIDATED descriptive tool that stands.
+  CLIs: `quant forecast regime` / `regime-eval` / `changepoint`.
 - **Ensemble:** validated stacking combiner (purged CV) → strategy tilts; no naive averaging.
   ✅ DONE (`quant/forecast/ensemble.py`) — stacking vol-forecast ensemble: NNLS combiner over the
   vol-unit learners (trailing-realized / EWMA / HAR) + the orthogonal stress signals (regime crisis-prob,
@@ -175,8 +180,12 @@ Each phase marks **autonomy**: 🟢 safe-autonomous (read-only/shadow, I can bui
   validated value is crisis-prob *timing* as regime context, already wired advisory). → RESEARCH-ONLY,
   HAR stays the advisory champion; NOT wired into MarketState/analyst. We deliberately do NOT search
   combiner variants until one wins (that is the spec-search the one-way-trap forbids). CLIs: `quant
-  forecast ensemble` / `ensemble-eval`. **Phase 8 outcome: of 4 models, 1 earned advisory (HAR vol),
-  1 advisory-context (macro-regime), 2 honest nulls (factor model, stacking ensemble) — honesty bar held.**
+  forecast ensemble` / `ensemble-eval`. **Phase 8 outcome: of 4 models, only HAR-RV vol earned advisory
+  (clean OOS win, DM p=0.012); the macro-regime conditioning, the cross-sectional factor model, and the
+  stacking ensemble were all honest NULLS (research-only, not promoted) — and the macro-regime was a
+  CORRECTION after a fragile cheap-config gain failed the full-fidelity re-run. The BOCPD change-point
+  detector stands as a validated descriptive CLI tool. Honesty bar HELD — including against my own
+  earlier overstatement.**
 - **Walk-forward retraining** (nightly/weekly) = "continuously trained on historical data"; every
   retrain re-passes the gates (shadow → gated → live). Logged to the experiment registry.
 - 🔴 Taking any model live requires passing the honest gates — never lower a threshold; honor the

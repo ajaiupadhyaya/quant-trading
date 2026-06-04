@@ -46,16 +46,21 @@ from quant.regime.models import N_STATES, REGIME_LABELS
 
 _TRADING_DAYS = 252
 
-# Verdict from the honest A/B (compare_regime_models, SPY 2005-2026, quarterly
-# refit, 4510 OOS days). Adding the BAA-AAA credit dimension lifted the crisis-
-# probability -> forward-vol rank IC from 0.284 to 0.321 (+0.037, +13% rel.) — a
-# real OOS improvement in the regime's *predictiveness*. The crude 3-label de-risk
-# drawdown was ~flat-to-marginally-worse (-19.6% vs -21.4%), so the gain is in the
-# continuous probability, not a discrete trading rule. Disposition: ADVISORY/
-# SHADOW — surfaced read-only to the analyst, drives nothing; promotion to any
-# actuation (de-risking/sizing) is a separate gate, never auto-granted. Mirrors
-# how OOS_SKILL_SPY flags the vol forecaster.
-OOS_VERDICT: str | None = "credit-conditioned: OOS crisis->vol IC 0.32 vs 0.28 (advisory)"
+# Verdict from the honest A/B (compare_regime_models). An EARLIER cheap config
+# (quarterly refit, 3 restarts, 2005-26) showed the BAA-AAA credit dimension lift
+# the crisis-prob -> forward-vol rank IC by +0.037, and that briefly earned this an
+# advisory slot. It did NOT survive scrutiny: the gain is FRAGILE across estimation
+# settings — +0.037 (3 restarts) -> +0.026 (8 restarts) -> -0.0003 under the
+# standard production config (monthly refit, 8 restarts, full 2000-26 history,
+# market IC 0.346 vs macro 0.345). The crude de-risk drawdown is flat-to-WORSE with
+# credit-conditioning in every config. A signal that swings to ~0 under more
+# restarts / more-frequent refit / more history is not robust, so it FAILS the bar.
+# Disposition: RESEARCH-ONLY (like the factor model + the stacking ensemble) — NOT
+# wired into the analyst/MarketState; the existing market-only regime stands. The
+# BOCPD change-point detector below is a separate, validated descriptive tool.
+OOS_VERDICT: str | None = (
+    "credit-conditioning NOT robust: IC gain +0.037->0.000 across configs — research-only"
+)
 
 
 # --------------------------------------------------------------------------- #

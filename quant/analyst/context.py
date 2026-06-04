@@ -68,7 +68,6 @@ class AnalystContext:
     macro_nowcast: Any | None = None  # quant.macro.MacroNowcast | None (caller-supplied)
     vol_surface: Any | None = None  # quant.options.VolSurface | None (caller-supplied)
     vol_forecast: Any | None = None  # quant.forecast.VolForecast | None (caller-supplied)
-    macro_regime: Any | None = None  # quant.forecast.MacroRegimeRead | None (caller-supplied)
 
 
 # --- best-effort readers (each fail-open) ----------------------------------
@@ -251,7 +250,6 @@ def gather_analyst_context(
     macro_nowcast: Any | None = None,
     vol_surface: Any | None = None,
     vol_forecast: Any | None = None,
-    macro_regime: Any | None = None,
 ) -> AnalystContext:
     """Assemble the day's read-only context. Each piece is best-effort/fail-open.
 
@@ -274,7 +272,6 @@ def gather_analyst_context(
         macro_nowcast=macro_nowcast,
         vol_surface=vol_surface,
         vol_forecast=vol_forecast,
-        macro_regime=macro_regime,
     )
 
 
@@ -368,12 +365,6 @@ def render_context(ctx: AnalystContext) -> str:
             from quant.forecast.vol import render_vol_forecast
 
             lines.append(render_vol_forecast(ctx.vol_forecast))
-
-    if ctx.macro_regime is not None:
-        with contextlib.suppress(Exception):  # render is best-effort
-            from quant.forecast.regime import render_macro_regime
-
-            lines.append(render_macro_regime(ctx.macro_regime))
 
     if ctx.recon:
         msb = ctx.recon.get("mean_slippage_bps")

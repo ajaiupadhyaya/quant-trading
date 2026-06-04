@@ -1671,8 +1671,10 @@ def forecast_regime() -> None:
     r = live_macro_regime(settings, date.today(), oos_verdict=OOS_VERDICT)
     console.print(render_macro_regime(r))
     console.print(
-        "[dim]Macro-conditioning = the BAA-AAA credit spread added as an HMM dimension. "
-        "Advisory only; run `regime-eval` for the honest market-only-vs-macro A/B.[/dim]"
+        "[dim]RESEARCH ONLY — credit-conditioning's OOS IC gain was NOT robust (+0.037 at a cheap "
+        "config -> ~0.000 at the production config); not wired into the analyst/MarketState. The "
+        "existing market-only regime stands; the change-point detector is a separate validated tool. "
+        "See `regime-eval`.[/dim]"
     )
 
 
@@ -2557,16 +2559,6 @@ def _best_effort_vol_forecast(settings: Settings, asof: date) -> Any:
         return None
 
 
-def _best_effort_macro_regime(settings: Settings, asof: date) -> Any:
-    """Macro-conditioned regime + change-point read (advisory) for the analyst; None on failure."""
-    try:
-        from quant.forecast.regime import OOS_VERDICT, live_macro_regime
-
-        return live_macro_regime(settings, asof, oos_verdict=OOS_VERDICT)
-    except Exception:  # the macro-regime read is optional advisory context
-        return None
-
-
 def _render_guardrail_table(report: Any) -> Table:
     table = Table(title="Guardrails", show_header=True)
     table.add_column("Guardrail")
@@ -2875,7 +2867,6 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
         macro_nowcast=_best_effort_nowcast(settings, session_date),
         vol_surface=_best_effort_vol_surface(settings, session_date),
         vol_forecast=_best_effort_vol_forecast(settings, session_date),
-        macro_regime=_best_effort_macro_regime(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -2965,7 +2956,6 @@ def analyst_watch(asof: str | None, dry_run: bool, slot: str) -> None:
         macro_nowcast=_best_effort_nowcast(settings, session_date),
         vol_surface=_best_effort_vol_surface(settings, session_date),
         vol_forecast=_best_effort_vol_forecast(settings, session_date),
-        macro_regime=_best_effort_macro_regime(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -3044,7 +3034,6 @@ def analyst_propose(asof: str | None) -> None:
         macro_nowcast=_best_effort_nowcast(settings, session_date),
         vol_surface=_best_effort_vol_surface(settings, session_date),
         vol_forecast=_best_effort_vol_forecast(settings, session_date),
-        macro_regime=_best_effort_macro_regime(settings, session_date),
     )
     context_text = render_context(ctx)
 
