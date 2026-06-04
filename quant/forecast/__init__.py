@@ -6,6 +6,18 @@ HAR-RV volatility forecaster (Corsi 2009) benchmarked against EWMA/RiskMetrics
 and a random walk.
 """
 
+from quant.forecast.ensemble import (
+    BASE_LEARNERS,
+    StackConfig,
+    StackEval,
+    StackForecast,
+    build_base_panel,
+    compute_stack,
+    fit_stacker,
+    live_stack,
+    render_stack,
+    walk_forward_stack,
+)
 from quant.forecast.factor import (
     FACTOR_UNIVERSE,
     FactorConfig,
@@ -47,6 +59,7 @@ from quant.forecast.vol import (
 )
 
 __all__ = [
+    "BASE_LEARNERS",
     "FACTOR_UNIVERSE",
     "BOCPDConfig",
     "ChangePointRead",
@@ -58,26 +71,35 @@ __all__ = [
     "MacroRegimeRead",
     "RegimeComparison",
     "RegimeMetrics",
+    "StackConfig",
+    "StackEval",
+    "StackForecast",
     "VolForecast",
     "bocpd_run_length",
+    "build_base_panel",
     "build_macro_regime_features",
     "change_point_series",
     "compare_regime_models",
     "compute_change_points",
     "compute_factor_scores",
     "compute_macro_regime",
+    "compute_stack",
     "compute_vol_forecast",
     "ewma_forecast_series",
     "fit_har",
+    "fit_stacker",
     "har_forecast_next",
     "live_factor_scores",
     "live_macro_regime",
+    "live_stack",
     "live_vol_forecast",
     "qlike",
     "realized_variance",
     "render_factor_scores",
     "render_macro_regime",
+    "render_stack",
     "render_vol_forecast",
     "walk_forward_eval",
     "walk_forward_factor_eval",
+    "walk_forward_stack",
 ]

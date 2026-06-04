@@ -1688,19 +1688,23 @@ def forecast_regime_eval(start: str) -> None:
     s0 = pd.Timestamp(start).date()
     end = date.today()
     inp = _load_macro_inputs(settings.data_dir, s0, end)
-    if any(inp.get(k) is None for k in ("spy_close", "vix", "dgs10", "dgs2", "baa", "aaa")):
+    spy_close, vix = inp["spy_close"], inp["vix"]
+    dgs10, dgs2, baa, aaa = inp["dgs10"], inp["dgs2"], inp["baa"], inp["aaa"]
+    if (
+        spy_close is None
+        or vix is None
+        or dgs10 is None
+        or dgs2 is None
+        or baa is None
+        or aaa is None
+    ):
         console.print(
             "[red]regime-eval: missing cached inputs (need SPY + VIX + DGS10/2 + BAA/AAA).[/red]"
         )
         return
     console.print("[dim]Refitting both HMMs walk-forward over the full history — ~1-2 min...[/dim]")
     cmp = compare_regime_models(
-        spy_close=inp["spy_close"],
-        vix=inp["vix"],
-        dgs10=inp["dgs10"],
-        dgs2=inp["dgs2"],
-        baa=inp["baa"],
-        aaa=inp["aaa"],
+        spy_close=spy_close, vix=vix, dgs10=dgs10, dgs2=dgs2, baa=baa, aaa=aaa
     )
     for m in (cmp.market, cmp.macro):
         ic = f"{m.crisis_fwd_vol_ic:+.4f}" if m.crisis_fwd_vol_ic is not None else "n/a"
@@ -1732,7 +1736,7 @@ def forecast_changepoint(symbol: str) -> None:
         )
     )
     close = _extract_close(spy, symbol.upper())
-    ret = pd.Series(np.log(close.astype(float)).diff().to_numpy(), index=close.index).dropna()
+    ret = pd.Series(np.log(close.astype(float).to_numpy()), index=close.index).diff().dropna()
     r = compute_change_points(ret)
     if r.cp_prob is None:
         console.print("Change-point: unavailable (insufficient history).")
@@ -1747,6 +1751,91 @@ def forecast_changepoint(symbol: str) -> None:
         "[dim]Training-free, PIT online detector — flags SHARP breaks (e.g. COVID); a slow "
         "grind-bear (2022) is caught by the standing-regime HMM instead. Advisory only.[/dim]"
     )
+
+
+def _regime_and_cp_series(settings: Settings, close: pd.Series) -> tuple[Any, Any]:
+    """Build the macro-regime crisis-prob + change-point series for the ensemble (heavy)."""
+    import numpy as np
+
+    from quant.data import macro
+    from quant.forecast.regime import (
+        MacroRegimeConfig,
+        build_macro_regime_features,
+        change_point_series,
+    )
+    from quant.regime.detect import DetectConfig, run_detection
+
+    feats = build_macro_regime_features(
+        spy_close=close,
+        vix=macro.get_series(macro.FRED_SERIES["vix"]),
+        dgs10=macro.get_series(macro.FRED_SERIES["tenyear"]),
+        dgs2=macro.get_series(macro.FRED_SERIES["twoyear"]),
+        baa=macro.get_series(macro.FRED_SERIES["baa"]),
+        aaa=macro.get_series(macro.FRED_SERIES["aaa"]),
+        macro_config=MacroRegimeConfig(use_credit=True),
+    )
+    series = run_detection(
+        feats, DetectConfig(refit_freq="QS", train_window_days=252 * 3, n_restarts=3)
+    )
+    ret = pd.Series(np.log(close.astype(float).to_numpy()), index=close.index).diff().dropna()
+    cp = change_point_series(ret)["cp_prob"]
+    return series["p_crisis"], cp
+
+
+@forecast.command("ensemble", help="Live stacked forward-21d vol forecast (HAR+regime+cp). Slow.")
+def forecast_ensemble() -> None:
+    from quant.forecast.ensemble import live_stack, render_stack
+
+    settings = Settings()  # type: ignore[call-arg]
+    console.print("[dim]Fitting the stack (runs the regime walk-forward) — ~1-2 min...[/dim]")
+    f = live_stack(settings, date.today())
+    console.print(render_stack(f))
+    console.print(
+        "[dim]RESEARCH ONLY — the learned stack LOST to HAR-alone OOS (QLIKE +16%, DM p=0.003) "
+        "and even to a naive average; the regime crisis-prob got ~0 weight. HAR stays the "
+        "advisory vol champion; this is not wired into MarketState/analyst. See `ensemble-eval`.[/dim]"
+    )
+
+
+@forecast.command(
+    "ensemble-eval",
+    help="Honest nested purged walk-forward: does the stack beat HAR-alone + naive avg?",
+)
+@click.option("--start", default="2005-01-01", show_default=True)
+def forecast_ensemble_eval(start: str) -> None:
+    from quant.data import bars
+    from quant.forecast.ensemble import StackConfig, build_base_panel, walk_forward_stack
+    from quant.regime.features import _extract_close
+
+    settings = Settings()  # type: ignore[call-arg]
+    s0 = pd.Timestamp(start).date()
+    spy = bars.get_bars(bars.BarRequest(symbols=["SPY"], start=s0, end=date.today()))
+    close = _extract_close(spy, "SPY")
+    console.print(
+        "[dim]Running the regime walk-forward + nested purged stack eval — ~1-2 min...[/dim]"
+    )
+    p_crisis, cp = _regime_and_cp_series(settings, close)
+    panel = build_base_panel(close, p_crisis=p_crisis, cp_prob=cp, config=StackConfig())
+    ev = walk_forward_stack(panel, StackConfig())
+    console.print(
+        f"[bold]vol ensemble OOS[/bold] — {ev.n_oos} test points, best base = {ev.best_base}"
+    )
+    order = ("rw21", "ewma", "har", "regime", "cp", "eq3", "stack")
+    console.print(
+        "  mean QLIKE: "
+        + ", ".join(f"{k}={ev.mean_qlike[k]:.4f}" for k in order if k in ev.mean_qlike)
+    )
+    if ev.avg_weights:
+        console.print(
+            "  avg learned weights: "
+            + ", ".join(f"{k}={v:.2f}" for k, v in ev.avg_weights.items() if abs(v) > 1e-3)
+        )
+    if ev.dm_stack_vs_best:
+        console.print(
+            f"  DM stack-vs-{ev.best_base}: stat={ev.dm_stack_vs_best[0]:+.2f} "
+            f"p={ev.dm_stack_vs_best[1]:.3f}  (stat<0 → stack better)"
+        )
+    console.print(f"[bold]VERDICT:[/bold] {ev.verdict}")
 
 
 @cli.group(help="Market-wide regime detection (HMM/Kalman) — an observed, gated signal.")

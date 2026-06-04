@@ -165,6 +165,18 @@ Each phase marks **autonomy**: 🟢 safe-autonomous (read-only/shadow, I can bui
   flags SHARP breaks (COVID cp_prob 0.18 vs 0.013 baseline; live-flagged Apr-2025 tariff crash & Oct-2025),
   complementing the standing-regime HMM. CLIs: `quant forecast regime` / `regime-eval` / `changepoint`.
 - **Ensemble:** validated stacking combiner (purged CV) → strategy tilts; no naive averaging.
+  ✅ DONE (`quant/forecast/ensemble.py`) — stacking vol-forecast ensemble: NNLS combiner over the
+  vol-unit learners (trailing-realized / EWMA / HAR) + the orthogonal stress signals (regime crisis-prob,
+  BOCPD change-point), targeting forward-21d realized vol, judged by a NESTED PURGED walk-forward
+  (21d embargo, QLIKE + Diebold-Mariano). HONEST NULL (SPY 2005-26, 4359 OOS points): mean QLIKE
+  HAR **0.434** < naive-avg 0.447 < learned stack **0.504** — the stack is significantly WORSE than
+  HAR (DM +2.93, p=0.003) AND worse than a naive average (DM +5.92, p=3e-9); the combiner gives the
+  regime crisis-prob ~0 weight (it adds no incremental forward-vol *level* content beyond HAR — its
+  validated value is crisis-prob *timing* as regime context, already wired advisory). → RESEARCH-ONLY,
+  HAR stays the advisory champion; NOT wired into MarketState/analyst. We deliberately do NOT search
+  combiner variants until one wins (that is the spec-search the one-way-trap forbids). CLIs: `quant
+  forecast ensemble` / `ensemble-eval`. **Phase 8 outcome: of 4 models, 1 earned advisory (HAR vol),
+  1 advisory-context (macro-regime), 2 honest nulls (factor model, stacking ensemble) — honesty bar held.**
 - **Walk-forward retraining** (nightly/weekly) = "continuously trained on historical data"; every
   retrain re-passes the gates (shadow → gated → live). Logged to the experiment registry.
 - 🔴 Taking any model live requires passing the honest gates — never lower a threshold; honor the
