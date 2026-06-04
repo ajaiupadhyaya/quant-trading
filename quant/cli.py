@@ -1661,6 +1661,94 @@ def forecast_factor_eval(model: str) -> None:
     )
 
 
+@forecast.command(
+    "regime", help="Live macro-conditioned regime read (HMM + credit cycle) + change-point."
+)
+def forecast_regime() -> None:
+    from quant.forecast.regime import OOS_VERDICT, live_macro_regime, render_macro_regime
+
+    settings = Settings()  # type: ignore[call-arg]
+    r = live_macro_regime(settings, date.today(), oos_verdict=OOS_VERDICT)
+    console.print(render_macro_regime(r))
+    console.print(
+        "[dim]Macro-conditioning = the BAA-AAA credit spread added as an HMM dimension. "
+        "Advisory only; run `regime-eval` for the honest market-only-vs-macro A/B.[/dim]"
+    )
+
+
+@forecast.command(
+    "regime-eval",
+    help="Honest A/B: does adding the credit cycle improve OOS regime predictiveness?",
+)
+@click.option("--start", default="2000-01-01", show_default=True)
+def forecast_regime_eval(start: str) -> None:
+    from quant.forecast.regime import _load_macro_inputs, compare_regime_models
+
+    settings = Settings()  # type: ignore[call-arg]
+    s0 = pd.Timestamp(start).date()
+    end = date.today()
+    inp = _load_macro_inputs(settings.data_dir, s0, end)
+    if any(inp.get(k) is None for k in ("spy_close", "vix", "dgs10", "dgs2", "baa", "aaa")):
+        console.print(
+            "[red]regime-eval: missing cached inputs (need SPY + VIX + DGS10/2 + BAA/AAA).[/red]"
+        )
+        return
+    console.print("[dim]Refitting both HMMs walk-forward over the full history — ~1-2 min...[/dim]")
+    cmp = compare_regime_models(
+        spy_close=inp["spy_close"],
+        vix=inp["vix"],
+        dgs10=inp["dgs10"],
+        dgs2=inp["dgs2"],
+        baa=inp["baa"],
+        aaa=inp["aaa"],
+    )
+    for m in (cmp.market, cmp.macro):
+        ic = f"{m.crisis_fwd_vol_ic:+.4f}" if m.crisis_fwd_vol_ic is not None else "n/a"
+        sep = f"{m.fwd_vol_separation:+.3f}" if m.fwd_vol_separation is not None else "n/a"
+        console.print(
+            f"[bold]{m.name}[/bold] (feats={m.n_features}, n={m.n}): "
+            f"crisis→fwd-vol IC={ic}, fwd-vol sep={sep}, "
+            f"de-risk dd {m.dd_baseline:.1%}→{m.dd_derisked:.1%} ({m.dd_reduction:+.1%})"
+        )
+    if cmp.ic_improvement is not None:
+        console.print(f"  IC improvement (macro minus market): {cmp.ic_improvement:+.4f}")
+    console.print(f"[bold]VERDICT:[/bold] {cmp.verdict}")
+
+
+@forecast.command(
+    "changepoint", help="Bayesian online change-point detector (BOCPD) on SPY returns."
+)
+@click.option("--symbol", default="SPY", show_default=True)
+def forecast_changepoint(symbol: str) -> None:
+    import numpy as np
+
+    from quant.data import bars
+    from quant.forecast.regime import compute_change_points
+    from quant.regime.features import _extract_close
+
+    spy = bars.get_bars(
+        bars.BarRequest(
+            symbols=[symbol.upper()], start=date(date.today().year - 12, 1, 1), end=date.today()
+        )
+    )
+    close = _extract_close(spy, symbol.upper())
+    ret = pd.Series(np.log(close.astype(float)).diff().to_numpy(), index=close.index).dropna()
+    r = compute_change_points(ret)
+    if r.cp_prob is None:
+        console.print("Change-point: unavailable (insufficient history).")
+        return
+    console.print(
+        f"[bold]{symbol.upper()} change-point[/bold] (asof {r.asof}): "
+        f"cp_prob={r.cp_prob:.1%} (P run-length≤5), expected run={r.expected_run_length:.0f}d"
+    )
+    if r.recent_cp_dates:
+        console.print("  recent break-probability spikes: " + ", ".join(r.recent_cp_dates))
+    console.print(
+        "[dim]Training-free, PIT online detector — flags SHARP breaks (e.g. COVID); a slow "
+        "grind-bear (2022) is caught by the standing-regime HMM instead. Advisory only.[/dim]"
+    )
+
+
 @cli.group(help="Market-wide regime detection (HMM/Kalman) — an observed, gated signal.")
 def regime() -> None:
     pass
@@ -2380,6 +2468,16 @@ def _best_effort_vol_forecast(settings: Settings, asof: date) -> Any:
         return None
 
 
+def _best_effort_macro_regime(settings: Settings, asof: date) -> Any:
+    """Macro-conditioned regime + change-point read (advisory) for the analyst; None on failure."""
+    try:
+        from quant.forecast.regime import OOS_VERDICT, live_macro_regime
+
+        return live_macro_regime(settings, asof, oos_verdict=OOS_VERDICT)
+    except Exception:  # the macro-regime read is optional advisory context
+        return None
+
+
 def _render_guardrail_table(report: Any) -> Table:
     table = Table(title="Guardrails", show_header=True)
     table.add_column("Guardrail")
@@ -2688,6 +2786,7 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
         macro_nowcast=_best_effort_nowcast(settings, session_date),
         vol_surface=_best_effort_vol_surface(settings, session_date),
         vol_forecast=_best_effort_vol_forecast(settings, session_date),
+        macro_regime=_best_effort_macro_regime(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -2777,6 +2876,7 @@ def analyst_watch(asof: str | None, dry_run: bool, slot: str) -> None:
         macro_nowcast=_best_effort_nowcast(settings, session_date),
         vol_surface=_best_effort_vol_surface(settings, session_date),
         vol_forecast=_best_effort_vol_forecast(settings, session_date),
+        macro_regime=_best_effort_macro_regime(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -2855,6 +2955,7 @@ def analyst_propose(asof: str | None) -> None:
         macro_nowcast=_best_effort_nowcast(settings, session_date),
         vol_surface=_best_effort_vol_surface(settings, session_date),
         vol_forecast=_best_effort_vol_forecast(settings, session_date),
+        macro_regime=_best_effort_macro_regime(settings, session_date),
     )
     context_text = render_context(ctx)
 

@@ -150,9 +150,20 @@ Each phase marks **autonomy**: 🟢 safe-autonomous (read-only/shadow, I can bui
 
 ### Phase 8 — Models & ML ("trained on industry-standard methods + historical data")  🟢 research / 🔴 promote
 - **Vol forecasting:** GARCH/EGARCH/HAR-RV → sizing + vol-targeting.
+  ✅ DONE (`quant/forecast/vol.py`) — HAR-RV beat EWMA OOS (DM p=0.012); ADVISORY/shadow, drives nothing.
 - **Return/edge:** cross-sectional factor model (FF + momentum + quality), regularized
   (ridge/elastic-net/GBM) with **purged** CV.
+  ✅ DONE (`quant/forecast/factor.py`) — HONEST NULL: equal-weight composite OOS IC −0.044 (factor winter;
+  only momentum +); ridge borderline + survivorship-biased → RESEARCH-ONLY, not wired into anything.
 - **Regime:** macro-conditioned HMM + Bayesian online change-point detector.
+  ✅ DONE (`quant/forecast/regime.py`) — macro-conditioned HMM adds the BAA-AAA *credit cycle* as a PIT
+  HMM dimension (market-priced, no revisions; NFCI/claims/Sahm deliberately excluded as revised→leaky).
+  Honest A/B vs market-only (SPY 2005-26, 4510 OOS days, walk-forward causal filter): crisis-prob→fwd-vol
+  rank IC 0.284→**0.321** (+0.037, +13% rel.) — a real predictiveness gain; crude 3-label de-risk drawdown
+  ~flat (−19.6% vs −21.4%) → ADVISORY/shadow (analyst context only), drives nothing; actuation = separate
+  gate. PLUS a training-free Bayesian online change-point detector (Adams-MacKay BOCPD, Normal-Gamma) that
+  flags SHARP breaks (COVID cp_prob 0.18 vs 0.013 baseline; live-flagged Apr-2025 tariff crash & Oct-2025),
+  complementing the standing-regime HMM. CLIs: `quant forecast regime` / `regime-eval` / `changepoint`.
 - **Ensemble:** validated stacking combiner (purged CV) → strategy tilts; no naive averaging.
 - **Walk-forward retraining** (nightly/weekly) = "continuously trained on historical data"; every
   retrain re-passes the gates (shadow → gated → live). Logged to the experiment registry.
