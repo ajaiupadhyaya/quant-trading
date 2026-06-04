@@ -76,6 +76,14 @@ class MarketState:
     equity_asset_growth: float | None
     valuation_label: str | None
     fund_quality_label: str | None
+    # macro / business-cycle nowcast (roadmap track C)
+    macro_cycle_label: str | None
+    recession_risk: float | None
+    recession_risk_label: str | None
+    hy_oas: float | None
+    credit_spread_baa_aaa: float | None
+    term_spread_10y3m: float | None
+    sahm: float | None
     # live book / portfolio risk
     equity: float | None
     n_positions: int | None
@@ -147,6 +155,7 @@ def build_market_state(
     news: Any | None = None,
     event_risk: Any | None = None,
     fundamentals: Any | None = None,
+    macro_nowcast: Any | None = None,
 ) -> MarketState:
     """Compose one read-only MarketState. Best-effort end to end; never raises."""
     now = now_utc or datetime.now(UTC)
@@ -232,6 +241,13 @@ def build_market_state(
         equity_asset_growth=_f(getattr(fundamentals, "median_asset_growth", None)),
         valuation_label=getattr(fundamentals, "valuation_label", None),
         fund_quality_label=getattr(fundamentals, "quality_label", None),
+        macro_cycle_label=getattr(macro_nowcast, "cycle_label", None),
+        recession_risk=_f(getattr(macro_nowcast, "recession_risk", None)),
+        recession_risk_label=getattr(macro_nowcast, "recession_risk_label", None),
+        hy_oas=_f(getattr(macro_nowcast, "hy_oas", None)),
+        credit_spread_baa_aaa=_f(getattr(macro_nowcast, "credit_spread_baa_aaa", None)),
+        term_spread_10y3m=_f(getattr(macro_nowcast, "term_spread_10y3m", None)),
+        sahm=_f(getattr(macro_nowcast, "sahm", None)),
         equity=_f(equity),
         n_positions=(len(positions) if positions is not None else None),
         port_ann_vol=_f(getattr(prisk, "ann_vol", None)),
@@ -290,6 +306,9 @@ def render_state(state: MarketState) -> str:
             else ""
         )
         bits.append(f"val={state.valuation_label}{ey}")
+    if state.macro_cycle_label:
+        rr = f"/rr={state.recession_risk:.2f}" if state.recession_risk is not None else ""
+        bits.append(f"cycle={state.macro_cycle_label}{rr}")
     if state.next_event and state.days_to_event is not None:
         win = "!" if state.in_event_window else ""
         bits.append(f"next={state.next_event}/{state.days_to_event}d{win}")

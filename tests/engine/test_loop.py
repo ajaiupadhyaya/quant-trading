@@ -12,13 +12,8 @@ from quant.engine import loop as lp
 from quant.engine.loop import EngineConfig, engine_dir, run_engine
 from tests.engine.conftest import SpySlack, fake_settings, mk_state
 
-
-@pytest.fixture(autouse=True)
-def _hermetic_fundamentals(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep the loop tests offline: the default fundamentals_fn would otherwise
-    issue ~20 cold SEC EDGAR fetches per refresh. These tests stub
-    build_market_state and never assert on the fundamentals read."""
-    monkeypatch.setattr(lp, "live_fundamentals", lambda *_a, **_k: None)
+# Heavy live readers (fundamentals + macro nowcast) are stubbed by the autouse
+# _hermetic_heavy_readers fixture in conftest.py so these loop tests stay offline.
 
 
 def _clock(start: datetime, step_s: float):

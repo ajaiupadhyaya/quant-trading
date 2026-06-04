@@ -56,6 +56,9 @@ class EventConfig:
     # macro / event risk (Phase 7C) — transition-based to avoid multi-day spam
     nfci_tight: float = 0.0  # NFCI crossing above 0 = conditions tightening
     vix_backwardation: float = 1.0  # VXV/VIX crossing below 1 = near-term stress
+    # macro / cycle nowcast (track C) — transition-based
+    hy_oas_stress: float = 5.0  # HY OAS (percent) crossing above this = credit stress
+    hy_oas_high: float = 8.0  # acute credit stress
 
 
 def _regime_flip(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
@@ -93,7 +96,11 @@ def _vol_spike(prev: MarketState, curr: MarketState, cfg: EventConfig) -> Engine
     ) or curr.vix >= cfg.vix_stress_level
     if not (jumped or stressed):
         return None
-    sev = "critical" if (curr.vix >= cfg.vix_stress_level or curr.vol_regime == "stressed") else "warn"
+    sev = (
+        "critical"
+        if (curr.vix >= cfg.vix_stress_level or curr.vol_regime == "stressed")
+        else "warn"
+    )
     delta = f" (+{curr.vix - prev.vix:.1f})" if prev.vix is not None else ""
     return EngineEvent(
         code="vol_spike", severity=sev, detail=f"VIX {curr.vix:.1f}{delta}", at=curr.at
@@ -230,7 +237,9 @@ def _financial_conditions_tighten(
     return None
 
 
-def _vix_backwardation(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
+def _vix_backwardation(
+    prev: MarketState, curr: MarketState, cfg: EventConfig
+) -> EngineEvent | None:
     if curr.vix_term_structure is None or prev.vix_term_structure is None:
         return None
     if prev.vix_term_structure >= cfg.vix_backwardation > curr.vix_term_structure:
@@ -244,6 +253,38 @@ def _vix_backwardation(prev: MarketState, curr: MarketState, cfg: EventConfig) -
             at=curr.at,
         )
     return None
+
+
+def _credit_stress(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
+    # Fires once when HY OAS crosses ABOVE the stress level (bond market pricing risk).
+    if curr.hy_oas is None or prev.hy_oas is None:
+        return None
+    if prev.hy_oas < cfg.hy_oas_stress <= curr.hy_oas:
+        sev = "critical" if curr.hy_oas >= cfg.hy_oas_high else "warn"
+        return EngineEvent(
+            code="credit_stress",
+            severity=sev,
+            detail=(
+                f"HY OAS {prev.hy_oas:.1f}% -> {curr.hy_oas:.1f}% "
+                "(credit spreads widening past stress)"
+            ),
+            at=curr.at,
+        )
+    return None
+
+
+def _recession_onset(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
+    # Fires once when the macro recession-risk read crosses INTO "high".
+    if curr.recession_risk_label != "high" or prev.recession_risk_label == "high":
+        return None
+    rr = f" ({curr.recession_risk:.2f})" if curr.recession_risk is not None else ""
+    cyc = f", cycle={curr.macro_cycle_label}" if curr.macro_cycle_label else ""
+    return EngineEvent(
+        code="recession_onset",
+        severity="critical",
+        detail=f"macro recession-risk -> high{rr}{cyc}",
+        at=curr.at,
+    )
 
 
 def _halt(prev: MarketState, curr: MarketState, cfg: EventConfig) -> EngineEvent | None:
@@ -287,6 +328,8 @@ _PAIR_DETECTORS = (
     _event_window,
     _financial_conditions_tighten,
     _vix_backwardation,
+    _credit_stress,
+    _recession_onset,
     _halt,
 )
 

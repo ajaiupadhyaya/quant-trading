@@ -111,6 +111,27 @@ def test_fundamentals_absent_leaves_fields_none(tmp_path: Path) -> None:
     assert s.fund_coverage is None
 
 
+def test_macro_nowcast_flows_into_state(tmp_path: Path) -> None:
+    from quant.macro.nowcast import compute_macro_nowcast
+
+    nowcast = compute_macro_nowcast(
+        date(2026, 6, 3), t10y3m=-0.4, hy_oas=4.5, nfci=0.1, claims=230_000,
+        claims_year_low=210_000, sahm=0.2, baa=5.6, aaa=4.7,
+    )
+    s = build_market_state(tmp_path, asof=date(2026, 6, 3), macro_nowcast=nowcast)
+    assert s.macro_cycle_label == "late-cycle"
+    assert s.hy_oas == 4.5
+    assert abs(s.credit_spread_baa_aaa - 0.9) < 1e-9
+    assert s.term_spread_10y3m == -0.4
+    assert "cycle=late-cycle" in render_state(s)
+
+
+def test_macro_nowcast_absent_leaves_fields_none(tmp_path: Path) -> None:
+    s = build_market_state(tmp_path, asof=date(2026, 6, 3))
+    assert s.macro_cycle_label is None
+    assert s.recession_risk is None
+
+
 def test_reads_halt_from_monitor_status(tmp_path: Path) -> None:
     import json
 

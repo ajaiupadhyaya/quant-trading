@@ -6,7 +6,21 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from quant.engine.state import MarketState
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_heavy_readers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep loop tests offline: the default fundamentals_fn / macro_nowcast_fn
+    would otherwise issue ~20 cold SEC EDGAR fetches and ~10 FRED reads per
+    refresh. Tests that need specific values pass an explicit *_fn (which bypasses
+    these module globals); tests that don't never assert on these reads."""
+    import quant.engine.loop as lp
+
+    monkeypatch.setattr(lp, "live_fundamentals", lambda *_a, **_k: None, raising=False)
+    monkeypatch.setattr(lp, "live_macro_nowcast", lambda *_a, **_k: None, raising=False)
 
 
 def mk_state(**over: Any) -> MarketState:
@@ -52,6 +66,13 @@ def mk_state(**over: Any) -> MarketState:
         equity_asset_growth=0.06,
         valuation_label="fair",
         fund_quality_label="neutral",
+        macro_cycle_label="expansion",
+        recession_risk=0.15,
+        recession_risk_label="low",
+        hy_oas=3.2,
+        credit_spread_baa_aaa=0.8,
+        term_spread_10y3m=0.55,
+        sahm=0.10,
         equity=1_000_000.0,
         n_positions=3,
         port_ann_vol=0.12,

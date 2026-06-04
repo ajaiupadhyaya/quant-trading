@@ -15,13 +15,25 @@ from quant.macro.events import (
     render_event_risk,
     upcoming_events,
 )
+from quant.macro.nowcast import (
+    MacroNowcast,
+    MacroNowcastConfig,
+    compute_macro_nowcast,
+    live_macro_nowcast,
+    render_macro_nowcast,
+)
 
 __all__ = [
     "EventRisk",
+    "MacroNowcast",
+    "MacroNowcastConfig",
     "ScheduledEvent",
     "compute_event_risk",
+    "compute_macro_nowcast",
     "live_event_risk",
+    "live_macro_nowcast",
     "next_high_impact_event",
     "render_event_risk",
+    "render_macro_nowcast",
     "upcoming_events",
 ]

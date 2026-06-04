@@ -1485,6 +1485,19 @@ def macro_eventrisk() -> None:
         console.print(f"  {ev.date}  [{ev.impact}]  {ev.name}")
 
 
+@macro.command("nowcast", help="Print the macro / business-cycle nowcast (FRED curve/credit/Sahm).")
+def macro_nowcast() -> None:
+    from quant.macro.nowcast import live_macro_nowcast, render_macro_nowcast
+
+    settings = Settings()  # type: ignore[call-arg]
+    n = live_macro_nowcast(settings, date.today())
+    console.print(render_macro_nowcast(n))
+    console.print(
+        f"  recession_signal={n.recession_signal}  components={n.n_components}  "
+        f"breakeven10={n.breakeven_10y}  claims={n.initial_claims}"
+    )
+
+
 @cli.group(help="Fundamentals: cross-sectional value/quality on the mega-cap universe (SEC EDGAR).")
 def fundamentals() -> None:
     pass
@@ -2189,6 +2202,26 @@ def _best_effort_event_risk(settings: Settings, asof: date) -> Any:
         return None
 
 
+def _best_effort_fundamentals(settings: Settings, asof: date) -> Any:
+    """Cross-sectional fundamentals read for the analyst context; None on failure."""
+    try:
+        from quant.fundamentals.factors import live_fundamentals
+
+        return live_fundamentals(settings, asof)
+    except Exception:  # fundamentals are optional context
+        return None
+
+
+def _best_effort_nowcast(settings: Settings, asof: date) -> Any:
+    """Macro / business-cycle nowcast for the analyst context; None on failure."""
+    try:
+        from quant.macro.nowcast import live_macro_nowcast
+
+        return live_macro_nowcast(settings, asof)
+    except Exception:  # the nowcast is optional context
+        return None
+
+
 def _render_guardrail_table(report: Any) -> Table:
     table = Table(title="Guardrails", show_header=True)
     table.add_column("Guardrail")
@@ -2493,6 +2526,8 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
         equity=equity_val,
         news=_best_effort_news(settings),
         event_risk=_best_effort_event_risk(settings, session_date),
+        fundamentals=_best_effort_fundamentals(settings, session_date),
+        macro_nowcast=_best_effort_nowcast(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -2578,6 +2613,8 @@ def analyst_watch(asof: str | None, dry_run: bool, slot: str) -> None:
         equity=equity_val,
         news=_best_effort_news(settings),
         event_risk=_best_effort_event_risk(settings, session_date),
+        fundamentals=_best_effort_fundamentals(settings, session_date),
+        macro_nowcast=_best_effort_nowcast(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -2652,6 +2689,8 @@ def analyst_propose(asof: str | None) -> None:
         equity=equity_val,
         news=_best_effort_news(settings),
         event_risk=_best_effort_event_risk(settings, session_date),
+        fundamentals=_best_effort_fundamentals(settings, session_date),
+        macro_nowcast=_best_effort_nowcast(settings, session_date),
     )
     context_text = render_context(ctx)
 

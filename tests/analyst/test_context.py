@@ -139,3 +139,14 @@ def test_render_includes_fundamentals() -> None:
     text = render_context(AnalystContext(asof=ASOF, fundamentals=read))
     assert "Fundamentals:" in text
     assert "valuation=cheap" in text
+
+
+def test_render_includes_macro_nowcast() -> None:
+    from quant.macro.nowcast import compute_macro_nowcast
+
+    n = compute_macro_nowcast(
+        ASOF, t10y3m=-0.4, hy_oas=4.5, nfci=0.1, claims=230_000, claims_year_low=210_000, sahm=0.2
+    )
+    text = render_context(AnalystContext(asof=ASOF, macro_nowcast=n))
+    assert "Macro nowcast:" in text
+    assert "cycle=late-cycle" in text

@@ -31,6 +31,7 @@ from quant.engine.state import (
 )
 from quant.fundamentals.factors import live_fundamentals
 from quant.macro.events import live_event_risk
+from quant.macro.nowcast import live_macro_nowcast
 from quant.nlp.sentiment import live_news_sentiment
 from quant.util.atomic import write_json_atomic
 from quant.util.logging import logger
@@ -59,6 +60,8 @@ class EngineConfig:
     # Fundamentals (PIT EDGAR facts) only change on filings; the read moves with
     # price (earnings yield), so refresh a few times a session, not every cycle.
     fundamentals_refresh_s: float = 21600.0  # 6h
+    # Macro nowcast (FRED curve/credit/claims/Sahm) updates daily at most.
+    nowcast_refresh_s: float = 21600.0  # 6h
     events: EventConfig = field(default_factory=EventConfig)
 
 
@@ -177,6 +180,7 @@ def run_engine(
     news_fn: Callable[[], Any] | None = None,
     eventrisk_fn: Callable[[date], Any] | None = None,
     fundamentals_fn: Callable[[date], Any] | None = None,
+    macro_nowcast_fn: Callable[[date], Any] | None = None,
     slack: Any | None = None,
     claude_fn: Callable[[MarketState, list[EngineEvent], Any], str] | None = None,
     console_print: Callable[[str], None] | None = None,
@@ -197,6 +201,7 @@ def run_engine(
     )
     er_fn = eventrisk_fn or (lambda d: live_event_risk(settings, d))
     fund_fn = fundamentals_fn or (lambda d: live_fundamentals(settings, d))
+    nowcast_fn = macro_nowcast_fn or (lambda d: live_macro_nowcast(settings, d))
     claude = claude_fn or summarize_events
     if slack is None and not dry_run:
         from quant.deploy.alerts import AlertClient, AlertConfig
@@ -224,6 +229,8 @@ def run_engine(
     cached_er: Any = None
     last_fund_at: datetime | None = None
     cached_fund: Any = None
+    last_nowcast_at: datetime | None = None
+    cached_nowcast: Any = None
     cycle = 0
 
     while True:
@@ -260,6 +267,14 @@ def run_engine(
             ):
                 cached_fund = fund_fn(asof)
                 last_fund_at = now
+            # Macro nowcast (FRED curve/credit/claims/Sahm): slow cadence.
+            if (
+                cached_nowcast is None
+                or last_nowcast_at is None
+                or (now - last_nowcast_at).total_seconds() >= cfg.nowcast_refresh_s
+            ):
+                cached_nowcast = nowcast_fn(asof)
+                last_nowcast_at = now
             state = build_market_state(
                 data_dir,
                 asof=asof,
@@ -270,6 +285,7 @@ def run_engine(
                 news=cached_news,
                 event_risk=cached_er,
                 fundamentals=cached_fund,
+                macro_nowcast=cached_nowcast,
             )
 
             # Session anchor (resets each ET trading date) for intraday drawdown.
