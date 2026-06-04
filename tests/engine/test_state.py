@@ -132,6 +132,31 @@ def test_macro_nowcast_absent_leaves_fields_none(tmp_path: Path) -> None:
     assert s.recession_risk is None
 
 
+def test_vol_surface_flows_into_state(tmp_path: Path) -> None:
+    from datetime import timedelta
+
+    from quant.options.pricing import bs_price
+    from quant.options.surface import OptionQuote, compute_vol_surface
+
+    asof = date(2026, 6, 3)
+
+    def mk(dte, strike, right, vol):
+        return OptionQuote(asof + timedelta(days=dte), strike, right, bs_price(750, strike, dte / 365, vol, 0.045, 0.013, right))
+
+    quotes = [mk(28, 750, "call", 0.16), mk(28, 712.5, "put", 0.22), mk(28, 787.5, "call", 0.14), mk(88, 750, "call", 0.17)]
+    vs = compute_vol_surface(quotes, 750.0, asof)
+    s = build_market_state(tmp_path, asof=asof, vol_surface=vs)
+    assert s.iv_regime == "normal"
+    assert abs(s.iv_atm_30d - 0.16) < 1e-3
+    assert s.vol_tail_label == "elevated"
+    assert "iv=normal" in render_state(s)
+
+
+def test_vol_surface_absent_leaves_fields_none(tmp_path: Path) -> None:
+    s = build_market_state(tmp_path, asof=date(2026, 6, 3))
+    assert s.iv_regime is None and s.iv_atm_30d is None
+
+
 def test_reads_halt_from_monitor_status(tmp_path: Path) -> None:
     import json
 

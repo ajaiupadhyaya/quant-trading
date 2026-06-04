@@ -13,14 +13,16 @@ from quant.engine.state import MarketState
 
 @pytest.fixture(autouse=True)
 def _hermetic_heavy_readers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep loop tests offline: the default fundamentals_fn / macro_nowcast_fn
-    would otherwise issue ~20 cold SEC EDGAR fetches and ~10 FRED reads per
-    refresh. Tests that need specific values pass an explicit *_fn (which bypasses
-    these module globals); tests that don't never assert on these reads."""
+    """Keep loop tests offline: the default fundamentals_fn / macro_nowcast_fn /
+    vol_surface_fn would otherwise issue ~20 cold SEC EDGAR fetches, ~10 FRED
+    reads, and a SPY option-chain pull per refresh. Tests that need specific
+    values pass an explicit *_fn (which bypasses these module globals); tests
+    that don't never assert on these reads."""
     import quant.engine.loop as lp
 
     monkeypatch.setattr(lp, "live_fundamentals", lambda *_a, **_k: None, raising=False)
     monkeypatch.setattr(lp, "live_macro_nowcast", lambda *_a, **_k: None, raising=False)
+    monkeypatch.setattr(lp, "live_vol_surface", lambda *_a, **_k: None, raising=False)
 
 
 def mk_state(**over: Any) -> MarketState:
@@ -73,6 +75,11 @@ def mk_state(**over: Any) -> MarketState:
         credit_spread_baa_aaa=0.8,
         term_spread_10y3m=0.55,
         sahm=0.10,
+        iv_atm_30d=0.165,
+        iv_term_slope=0.01,
+        put_skew=0.045,
+        iv_regime="normal",
+        vol_tail_label="benign",
         equity=1_000_000.0,
         n_positions=3,
         port_ann_vol=0.12,

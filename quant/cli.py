@@ -1945,6 +1945,21 @@ def hedge() -> None:
     pass
 
 
+@hedge.command(
+    "surface", help="Live SPY implied-vol surface: ATM IV, term structure, put skew (read-only)."
+)
+def hedge_surface() -> None:
+    from quant.options.surface import live_vol_surface, render_vol_surface
+
+    settings = Settings()  # type: ignore[call-arg]
+    v = live_vol_surface(settings, date.today())
+    console.print(render_vol_surface(v))
+    console.print(
+        f"  spot={v.spot}  near={v.near_dte}d ATM_IV={v.atm_iv_30d}  far={v.far_dte}d "
+        f"ATM_IV={v.atm_iv_90d}  quotes={v.n_quotes}/{v.n_expiries}exp"
+    )
+
+
 def _spy_close_series(spy_bars: pd.DataFrame) -> pd.Series:
     """Extract a clean SPY close series from a get_bars (symbol, field) frame."""
     if isinstance(spy_bars.columns, pd.MultiIndex):
@@ -2219,6 +2234,16 @@ def _best_effort_nowcast(settings: Settings, asof: date) -> Any:
 
         return live_macro_nowcast(settings, asof)
     except Exception:  # the nowcast is optional context
+        return None
+
+
+def _best_effort_vol_surface(settings: Settings, asof: date) -> Any:
+    """Implied-vol surface (IV/term/skew) for the analyst context; None on failure."""
+    try:
+        from quant.options.surface import live_vol_surface
+
+        return live_vol_surface(settings, asof)
+    except Exception:  # the vol surface is optional context
         return None
 
 
@@ -2528,6 +2553,7 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
         event_risk=_best_effort_event_risk(settings, session_date),
         fundamentals=_best_effort_fundamentals(settings, session_date),
         macro_nowcast=_best_effort_nowcast(settings, session_date),
+        vol_surface=_best_effort_vol_surface(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -2615,6 +2641,7 @@ def analyst_watch(asof: str | None, dry_run: bool, slot: str) -> None:
         event_risk=_best_effort_event_risk(settings, session_date),
         fundamentals=_best_effort_fundamentals(settings, session_date),
         macro_nowcast=_best_effort_nowcast(settings, session_date),
+        vol_surface=_best_effort_vol_surface(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -2691,6 +2718,7 @@ def analyst_propose(asof: str | None) -> None:
         event_risk=_best_effort_event_risk(settings, session_date),
         fundamentals=_best_effort_fundamentals(settings, session_date),
         macro_nowcast=_best_effort_nowcast(settings, session_date),
+        vol_surface=_best_effort_vol_surface(settings, session_date),
     )
     context_text = render_context(ctx)
 

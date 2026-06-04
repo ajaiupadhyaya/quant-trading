@@ -150,3 +150,19 @@ def test_render_includes_macro_nowcast() -> None:
     text = render_context(AnalystContext(asof=ASOF, macro_nowcast=n))
     assert "Macro nowcast:" in text
     assert "cycle=late-cycle" in text
+
+
+def test_render_includes_vol_surface() -> None:
+    from datetime import timedelta
+
+    from quant.options.pricing import bs_price
+    from quant.options.surface import OptionQuote, compute_vol_surface
+
+    def mk(dte, strike, right, vol):
+        return OptionQuote(ASOF + timedelta(days=dte), strike, right, bs_price(750, strike, dte / 365, vol, 0.045, 0.013, right))
+
+    quotes = [mk(28, 750, "call", 0.16), mk(28, 712.5, "put", 0.22), mk(28, 787.5, "call", 0.14)]
+    vs = compute_vol_surface(quotes, 750.0, ASOF)
+    text = render_context(AnalystContext(asof=ASOF, vol_surface=vs))
+    assert "Vol surface:" in text
+    assert "iv_regime=normal" in text

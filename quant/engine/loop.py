@@ -33,6 +33,7 @@ from quant.fundamentals.factors import live_fundamentals
 from quant.macro.events import live_event_risk
 from quant.macro.nowcast import live_macro_nowcast
 from quant.nlp.sentiment import live_news_sentiment
+from quant.options.surface import live_vol_surface
 from quant.util.atomic import write_json_atomic
 from quant.util.logging import logger
 
@@ -62,6 +63,8 @@ class EngineConfig:
     fundamentals_refresh_s: float = 21600.0  # 6h
     # Macro nowcast (FRED curve/credit/claims/Sahm) updates daily at most.
     nowcast_refresh_s: float = 21600.0  # 6h
+    # Vol surface (SPY option chain → IV/term/skew): heavy fetch, moderate cadence.
+    vol_surface_refresh_s: float = 1800.0  # 30m
     events: EventConfig = field(default_factory=EventConfig)
 
 
@@ -181,6 +184,7 @@ def run_engine(
     eventrisk_fn: Callable[[date], Any] | None = None,
     fundamentals_fn: Callable[[date], Any] | None = None,
     macro_nowcast_fn: Callable[[date], Any] | None = None,
+    vol_surface_fn: Callable[[date], Any] | None = None,
     slack: Any | None = None,
     claude_fn: Callable[[MarketState, list[EngineEvent], Any], str] | None = None,
     console_print: Callable[[str], None] | None = None,
@@ -202,6 +206,7 @@ def run_engine(
     er_fn = eventrisk_fn or (lambda d: live_event_risk(settings, d))
     fund_fn = fundamentals_fn or (lambda d: live_fundamentals(settings, d))
     nowcast_fn = macro_nowcast_fn or (lambda d: live_macro_nowcast(settings, d))
+    vol_fn = vol_surface_fn or (lambda d: live_vol_surface(settings, d))
     claude = claude_fn or summarize_events
     if slack is None and not dry_run:
         from quant.deploy.alerts import AlertClient, AlertConfig
@@ -231,6 +236,8 @@ def run_engine(
     cached_fund: Any = None
     last_nowcast_at: datetime | None = None
     cached_nowcast: Any = None
+    last_vol_at: datetime | None = None
+    cached_vol: Any = None
     cycle = 0
 
     while True:
@@ -275,6 +282,14 @@ def run_engine(
             ):
                 cached_nowcast = nowcast_fn(asof)
                 last_nowcast_at = now
+            # Vol surface (SPY option chain): heavy fetch, only while the tape is active.
+            if phase != "closed" and (
+                cached_vol is None
+                or last_vol_at is None
+                or (now - last_vol_at).total_seconds() >= cfg.vol_surface_refresh_s
+            ):
+                cached_vol = vol_fn(asof)
+                last_vol_at = now
             state = build_market_state(
                 data_dir,
                 asof=asof,
@@ -286,6 +301,7 @@ def run_engine(
                 event_risk=cached_er,
                 fundamentals=cached_fund,
                 macro_nowcast=cached_nowcast,
+                vol_surface=cached_vol,
             )
 
             # Session anchor (resets each ET trading date) for intraday drawdown.
