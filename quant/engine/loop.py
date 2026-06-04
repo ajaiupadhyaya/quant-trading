@@ -29,6 +29,7 @@ from quant.engine.state import (
     session_phase,
     to_json_dict,
 )
+from quant.forecast.vol import OOS_SKILL_SPY, live_vol_forecast
 from quant.fundamentals.factors import live_fundamentals
 from quant.macro.events import live_event_risk
 from quant.macro.nowcast import live_macro_nowcast
@@ -65,6 +66,8 @@ class EngineConfig:
     nowcast_refresh_s: float = 21600.0  # 6h
     # Vol surface (SPY option chain → IV/term/skew): heavy fetch, moderate cadence.
     vol_surface_refresh_s: float = 1800.0  # 30m
+    # Vol forecast (HAR-RV on cached bars): cheap, but only moves daily.
+    vol_forecast_refresh_s: float = 21600.0  # 6h
     events: EventConfig = field(default_factory=EventConfig)
 
 
@@ -185,6 +188,7 @@ def run_engine(
     fundamentals_fn: Callable[[date], Any] | None = None,
     macro_nowcast_fn: Callable[[date], Any] | None = None,
     vol_surface_fn: Callable[[date], Any] | None = None,
+    vol_forecast_fn: Callable[[date], Any] | None = None,
     slack: Any | None = None,
     claude_fn: Callable[[MarketState, list[EngineEvent], Any], str] | None = None,
     console_print: Callable[[str], None] | None = None,
@@ -207,6 +211,9 @@ def run_engine(
     fund_fn = fundamentals_fn or (lambda d: live_fundamentals(settings, d))
     nowcast_fn = macro_nowcast_fn or (lambda d: live_macro_nowcast(settings, d))
     vol_fn = vol_surface_fn or (lambda d: live_vol_surface(settings, d))
+    vol_fc_fn = vol_forecast_fn or (
+        lambda d: live_vol_forecast(settings, d, symbol="SPY", oos_skill=OOS_SKILL_SPY)
+    )
     claude = claude_fn or summarize_events
     if slack is None and not dry_run:
         from quant.deploy.alerts import AlertClient, AlertConfig
@@ -238,6 +245,8 @@ def run_engine(
     cached_nowcast: Any = None
     last_vol_at: datetime | None = None
     cached_vol: Any = None
+    last_vol_fc_at: datetime | None = None
+    cached_vol_fc: Any = None
     cycle = 0
 
     while True:
@@ -290,6 +299,14 @@ def run_engine(
             ):
                 cached_vol = vol_fn(asof)
                 last_vol_at = now
+            # Vol forecast (HAR-RV on cached bars): cheap, slow cadence.
+            if (
+                cached_vol_fc is None
+                or last_vol_fc_at is None
+                or (now - last_vol_fc_at).total_seconds() >= cfg.vol_forecast_refresh_s
+            ):
+                cached_vol_fc = vol_fc_fn(asof)
+                last_vol_fc_at = now
             state = build_market_state(
                 data_dir,
                 asof=asof,
@@ -302,6 +319,7 @@ def run_engine(
                 fundamentals=cached_fund,
                 macro_nowcast=cached_nowcast,
                 vol_surface=cached_vol,
+                vol_forecast=cached_vol_fc,
             )
 
             # Session anchor (resets each ET trading date) for intraday drawdown.

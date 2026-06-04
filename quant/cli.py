@@ -1538,6 +1538,62 @@ def fundamentals_status(asof: str | None, symbols: str | None) -> None:
         console.print(f"  {r.symbol:<6} EY={ey}  BM={btm}  GP={gp}  AG={ag}")
 
 
+@cli.group(help="Forecasting models (Phase 8, research/shadow) — HAR-RV vol, evaluated OOS.")
+def forecast() -> None:
+    pass
+
+
+@forecast.command("vol", help="Live one-day-ahead HAR-RV volatility forecast (annualized).")
+@click.option("--symbol", default="SPY", show_default=True, help="Underlying symbol.")
+def forecast_vol(symbol: str) -> None:
+    from quant.forecast.vol import OOS_SKILL_SPY, live_vol_forecast, render_vol_forecast
+
+    settings = Settings()  # type: ignore[call-arg]
+    skill = OOS_SKILL_SPY if symbol.upper() == "SPY" else None
+    f = live_vol_forecast(settings, date.today(), symbol=symbol.upper(), oos_skill=skill)
+    console.print(render_vol_forecast(f))
+
+
+@forecast.command(
+    "vol-eval",
+    help="Walk-forward OOS eval: HAR vs EWMA/RW/rolling (QLIKE + MSE + Diebold-Mariano).",
+)
+@click.option("--symbol", default="SPY", show_default=True)
+@click.option("--min-train", default=504, show_default=True, type=int, help="Initial train days.")
+def forecast_vol_eval(symbol: str, min_train: int) -> None:
+    import pandas as pd
+
+    from quant.data import bars
+    from quant.forecast.vol import walk_forward_eval
+
+    settings = Settings()  # type: ignore[call-arg]
+    path = bars._cache_path(symbol.upper(), settings.data_dir)
+    if not path.exists():
+        raise click.ClickException(
+            f"No cached bars for {symbol.upper()} — run `quant data refresh`."
+        )
+    close = pd.read_parquet(path)["close"].dropna().to_numpy()
+    ev = walk_forward_eval(close, min_train=min_train)
+    console.print(
+        f"[bold]{symbol.upper()} vol-forecast OOS[/bold] — {ev.n_oos} days, winner: {ev.winner}"
+    )
+    for _m, s in sorted(ev.scores.items(), key=lambda kv: kv[1].mean_qlike):
+        console.print(
+            f"  {s.model:<8} QLIKE mean={s.mean_qlike:.4f} med={s.median_qlike:.4f}  "
+            f"MSE={s.mean_mse:.2e}  n={s.n}"
+        )
+    if ev.dm_stat is not None and ev.dm_pvalue is not None:
+        sig = ev.dm_pvalue < 0.05
+        verdict = (
+            "HAR beats EWMA"
+            if (ev.dm_stat < 0 and sig)
+            else "EWMA beats HAR"
+            if (ev.dm_stat > 0 and sig)
+            else "no significant difference"
+        )
+        console.print(f"  DM(HAR vs EWMA): stat={ev.dm_stat:+.3f} p={ev.dm_pvalue:.4f} → {verdict}")
+
+
 @cli.group(help="Market-wide regime detection (HMM/Kalman) — an observed, gated signal.")
 def regime() -> None:
     pass
@@ -2247,6 +2303,16 @@ def _best_effort_vol_surface(settings: Settings, asof: date) -> Any:
         return None
 
 
+def _best_effort_vol_forecast(settings: Settings, asof: date) -> Any:
+    """HAR-RV vol forecast (validated OOS) for the analyst context; None on failure."""
+    try:
+        from quant.forecast.vol import OOS_SKILL_SPY, live_vol_forecast
+
+        return live_vol_forecast(settings, asof, symbol="SPY", oos_skill=OOS_SKILL_SPY)
+    except Exception:  # the forecast is optional context
+        return None
+
+
 def _render_guardrail_table(report: Any) -> Table:
     table = Table(title="Guardrails", show_header=True)
     table.add_column("Guardrail")
@@ -2554,6 +2620,7 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
         fundamentals=_best_effort_fundamentals(settings, session_date),
         macro_nowcast=_best_effort_nowcast(settings, session_date),
         vol_surface=_best_effort_vol_surface(settings, session_date),
+        vol_forecast=_best_effort_vol_forecast(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -2642,6 +2709,7 @@ def analyst_watch(asof: str | None, dry_run: bool, slot: str) -> None:
         fundamentals=_best_effort_fundamentals(settings, session_date),
         macro_nowcast=_best_effort_nowcast(settings, session_date),
         vol_surface=_best_effort_vol_surface(settings, session_date),
+        vol_forecast=_best_effort_vol_forecast(settings, session_date),
     )
     context_text = render_context(ctx)
 
@@ -2719,6 +2787,7 @@ def analyst_propose(asof: str | None) -> None:
         fundamentals=_best_effort_fundamentals(settings, session_date),
         macro_nowcast=_best_effort_nowcast(settings, session_date),
         vol_surface=_best_effort_vol_surface(settings, session_date),
+        vol_forecast=_best_effort_vol_forecast(settings, session_date),
     )
     context_text = render_context(ctx)
 

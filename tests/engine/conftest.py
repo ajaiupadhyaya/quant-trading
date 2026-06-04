@@ -23,6 +23,7 @@ def _hermetic_heavy_readers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(lp, "live_fundamentals", lambda *_a, **_k: None, raising=False)
     monkeypatch.setattr(lp, "live_macro_nowcast", lambda *_a, **_k: None, raising=False)
     monkeypatch.setattr(lp, "live_vol_surface", lambda *_a, **_k: None, raising=False)
+    monkeypatch.setattr(lp, "live_vol_forecast", lambda *_a, **_k: None, raising=False)
 
 
 def mk_state(**over: Any) -> MarketState:
@@ -80,6 +81,9 @@ def mk_state(**over: Any) -> MarketState:
         put_skew=0.045,
         iv_regime="normal",
         vol_tail_label="benign",
+        vol_forecast_ann=0.14,
+        vol_forecast_regime="normal",
+        vol_forecast_vs_realized=0.05,
         equity=1_000_000.0,
         n_positions=3,
         port_ann_vol=0.12,

@@ -90,6 +90,10 @@ class MarketState:
     put_skew: float | None
     iv_regime: str | None
     vol_tail_label: str | None
+    # vol forecast (HAR-RV, validated OOS; roadmap Phase 8 — advisory/shadow)
+    vol_forecast_ann: float | None
+    vol_forecast_regime: str | None
+    vol_forecast_vs_realized: float | None
     # live book / portfolio risk
     equity: float | None
     n_positions: int | None
@@ -163,6 +167,7 @@ def build_market_state(
     fundamentals: Any | None = None,
     macro_nowcast: Any | None = None,
     vol_surface: Any | None = None,
+    vol_forecast: Any | None = None,
 ) -> MarketState:
     """Compose one read-only MarketState. Best-effort end to end; never raises."""
     now = now_utc or datetime.now(UTC)
@@ -260,6 +265,9 @@ def build_market_state(
         put_skew=_f(getattr(vol_surface, "put_skew", None)),
         iv_regime=getattr(vol_surface, "iv_regime", None),
         vol_tail_label=getattr(vol_surface, "tail_label", None),
+        vol_forecast_ann=_f(getattr(vol_forecast, "forecast_vol_ann", None)),
+        vol_forecast_regime=getattr(vol_forecast, "regime", None),
+        vol_forecast_vs_realized=_f(getattr(vol_forecast, "forecast_vs_realized", None)),
         equity=_f(equity),
         n_positions=(len(positions) if positions is not None else None),
         port_ann_vol=_f(getattr(prisk, "ann_vol", None)),
@@ -323,6 +331,8 @@ def render_state(state: MarketState) -> str:
         bits.append(f"cycle={state.macro_cycle_label}{rr}")
     if state.iv_regime and state.iv_atm_30d is not None:
         bits.append(f"iv={state.iv_regime}({state.iv_atm_30d:.0%})")
+    if state.vol_forecast_ann is not None:
+        bits.append(f"fcast_vol={state.vol_forecast_ann:.0%}")
     if state.next_event and state.days_to_event is not None:
         win = "!" if state.in_event_window else ""
         bits.append(f"next={state.next_event}/{state.days_to_event}d{win}")

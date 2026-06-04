@@ -157,6 +157,25 @@ def test_vol_surface_absent_leaves_fields_none(tmp_path: Path) -> None:
     assert s.iv_regime is None and s.iv_atm_30d is None
 
 
+def test_vol_forecast_flows_into_state(tmp_path: Path) -> None:
+    import numpy as np
+
+    from quant.forecast.vol import compute_vol_forecast
+
+    rng = np.random.default_rng(0)
+    close = 100 * np.exp(np.cumsum(0.01 * rng.standard_normal(400)))
+    fc = compute_vol_forecast(close, date(2026, 6, 3), symbol="SPY")
+    s = build_market_state(tmp_path, asof=date(2026, 6, 3), vol_forecast=fc)
+    assert s.vol_forecast_ann is not None and s.vol_forecast_ann > 0
+    assert s.vol_forecast_regime in {"calm", "normal", "elevated", "stressed"}
+    assert "fcast_vol=" in render_state(s)
+
+
+def test_vol_forecast_absent_leaves_fields_none(tmp_path: Path) -> None:
+    s = build_market_state(tmp_path, asof=date(2026, 6, 3))
+    assert s.vol_forecast_ann is None and s.vol_forecast_regime is None
+
+
 def test_reads_halt_from_monitor_status(tmp_path: Path) -> None:
     import json
 

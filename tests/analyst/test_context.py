@@ -166,3 +166,16 @@ def test_render_includes_vol_surface() -> None:
     text = render_context(AnalystContext(asof=ASOF, vol_surface=vs))
     assert "Vol surface:" in text
     assert "iv_regime=normal" in text
+
+
+def test_render_includes_vol_forecast() -> None:
+    import numpy as np
+
+    from quant.forecast.vol import compute_vol_forecast
+
+    rng = np.random.default_rng(1)
+    close = 100 * np.exp(np.cumsum(0.01 * rng.standard_normal(400)))
+    fc = compute_vol_forecast(close, ASOF, symbol="SPY", oos_skill="beats EWMA")
+    text = render_context(AnalystContext(asof=ASOF, vol_forecast=fc))
+    assert "Vol forecast:" in text
+    assert "1d-ahead vol=" in text
