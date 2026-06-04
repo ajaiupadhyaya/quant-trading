@@ -1,0 +1,72 @@
+{
+  "created_at": "2026-06-03T16:03:10+00:00",
+  "requested_end": "2026-06-03",
+  "requested_start": "2010-01-01",
+  "snapshot_id": "snapshot-20260603160310",
+  "symbols": {
+    "DBC": {
+      "data_end": "2026-06-03",
+      "data_start": "2010-01-04",
+      "path": "data/raw/DBC.parquet",
+      "rows": 4129,
+      "sha256": "ff7e8e59e11ada3f63ce6fa8d3d9ea5f765f2bb8f52b7c7e33bced0f2c35c68c",
+      "symbol": "DBC"
+    },
+    "EEM": {
+      "data_end": "2026-06-03",
+      "data_start": "2010-01-04",
+      "path": "data/raw/EEM.parquet",
+      "rows": 4129,
+      "sha256": "9ed7b91b069fc3d3744013e1cf2f71a86a12ccfd9680af2ae24ff02d293ab5b4",
+      "symbol": "EEM"
+    },
+    "EFA": {
+      "data_end": "2026-06-03",
+      "data_start": "2010-01-04",
+      "path": "data/raw/EFA.parquet",
+      "rows": 4129,
+      "sha256": "ef4e7b6ba7065b8a4d13b840ade262360a6c1104d0341d60a452e4b022a38b63",
+      "symbol": "EFA"
+    },
+    "GLD": {
+      "data_end": "2026-06-03",
+      "data_start": "2010-01-04",
+      "path": "data/raw/GLD.parquet",
+      "rows": 4129,
+      "sha256": "dc67862bf5e04af6c8df896beab6485d89bf8cf0f318aeb3ee12dc9c14f39468",
+      "symbol": "GLD"
+    },
+    "IEF": {
+      "data_end": "2026-06-03",
+      "data_start": "2010-01-04",
+      "path": "data/raw/IEF.parquet",
+      "rows": 4129,
+      "sha256": "5f528aaa54ef4de361ea7ae04e14033a1094dc8918d7ef0f5bc2a98dc2445106",
+      "symbol": "IEF"
+    },
+    "SPY": {
+      "data_end": "2026-06-03",
+      "data_start": "2010-01-04",
+      "path": "data/raw/SPY.parquet",
+      "rows": 4129,
+      "sha256": "b80566691cfac0a26820a26453d458caed2eaf8d5c883d160e4ff4400c0477f2",
+      "symbol": "SPY"
+    },
+    "TLT": {
+      "data_end": "2026-06-03",
+      "data_start": "2010-01-04",
+      "path": "data/raw/TLT.parquet",
+      "rows": 4129,
+      "sha256": "18ccd7eb6fae7b0b8af9c1290837157d86a6efb565ab3669ac0f28baf3121829",
+      "symbol": "TLT"
+    },
+    "VNQ": {
+      "data_end": "2026-06-03",
+      "data_start": "2010-01-04",
+      "path": "data/raw/VNQ.parquet",
+      "rows": 4129,
+      "sha256": "d976d21893880c3cfaf88d927639df02d3b9f8aa289331ed029e3c80cd86cb15",
+      "symbol": "VNQ"
+    }
+  }
+}
