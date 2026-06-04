@@ -1594,6 +1594,73 @@ def forecast_vol_eval(symbol: str, min_train: int) -> None:
         console.print(f"  DM(HAR vs EWMA): stat={ev.dm_stat:+.3f} p={ev.dm_pvalue:.4f} → {verdict}")
 
 
+def _factor_closes(settings: Settings) -> Any:
+    import pandas as pd
+
+    from quant.data import bars
+    from quant.forecast.factor import FACTOR_UNIVERSE
+
+    frames = {}
+    for sym in FACTOR_UNIVERSE:
+        path = bars._cache_path(sym, settings.data_dir)
+        if path.exists():
+            df = pd.read_parquet(path)
+            if "close" in df.columns and len(df):
+                frames[sym] = df["close"]
+    if not frames:
+        raise click.ClickException(
+            "No cached bars for the factor universe — run `quant data refresh`."
+        )
+    return pd.DataFrame(frames).sort_index()
+
+
+@forecast.command(
+    "factor", help="Current cross-sectional factor scores + top/bottom names (research)."
+)
+@click.option("--top", default=8, show_default=True, type=int, help="Names to list each side.")
+def forecast_factor(top: int) -> None:
+    from quant.forecast.factor import compute_factor_scores, render_factor_scores
+
+    settings = Settings()  # type: ignore[call-arg]
+    closes = _factor_closes(settings)
+    f = compute_factor_scores(closes, date.today(), data_dir=settings.data_dir, top_n=top)
+    console.print(render_factor_scores(f))
+    console.print(
+        "[dim]RESEARCH ONLY — the equal-weight composite had NEGATIVE OOS IC on large-caps "
+        "2010-26 (factor winter; only momentum positive). Not a trade signal. See `factor-eval`.[/dim]"
+    )
+
+
+@forecast.command(
+    "factor-eval", help="Purged walk-forward cross-sectional IC: composite vs ridge (honest OOS)."
+)
+@click.option(
+    "--model", default="composite", show_default=True, type=click.Choice(["composite", "ridge"])
+)
+def forecast_factor_eval(model: str) -> None:
+    from quant.forecast.factor import walk_forward_factor_eval
+
+    settings = Settings()  # type: ignore[call-arg]
+    closes = _factor_closes(settings)
+    ev = walk_forward_factor_eval(closes, data_dir=settings.data_dir, model=model)
+    console.print(f"[bold]factor model OOS[/bold] ({model}) — {ev.n_periods} monthly periods")
+    if ev.mean_ic is not None:
+        console.print(f"  mean IC={ev.mean_ic:+.4f} (t={ev.ic_tstat:+.2f}, IR={ev.ic_ir:+.3f})")
+    if ev.mean_rank_ic is not None:
+        console.print(
+            f"  rank IC={ev.mean_rank_ic:+.4f} (t={ev.rank_ic_tstat:+.2f}, hit={ev.hit_rate:.0%})"
+        )
+    if ev.mean_tertile_spread is not None:
+        console.print(f"  top-minus-bottom tertile (21d fwd)={ev.mean_tertile_spread:+.2%}")
+    if ev.per_factor_ic:
+        ranked = sorted(ev.per_factor_ic.items(), key=lambda kv: -kv[1])
+        console.print("  per-factor mean IC: " + ", ".join(f"{k}={v:+.4f}" for k, v in ranked))
+    console.print(
+        "[dim]Universe is today's large-caps (survivorship-biased) → absolute IC is optimistic; "
+        "research-only, not promoted to any tilt.[/dim]"
+    )
+
+
 @cli.group(help="Market-wide regime detection (HMM/Kalman) — an observed, gated signal.")
 def regime() -> None:
     pass
