@@ -1,32 +1,40 @@
-# M4 Deployment (E1) — operator runbook + GH→M4 cutover
+# M4 Deployment — operator runbook
 
-Goal: make the **M4 Mac mini the sole always-on executor** of the live Alpaca
-paper system, and **retire the GitHub Actions cron**. Design spec:
-`docs/superpowers/specs/2026-06-02-m4-deployment-e1-design.md`.
+Goal: keep the **M4 Mac mini as the sole always-on executor** of the Alpaca
+paper system. The local launchd agents run the scheduler tick, guard daemon, and
+continuous read-only engine. GitHub Actions workflows are retained for manual
+fallback/history, but active cron schedules were removed from `main`.
 
-## ⚠️ Current reality (read first)
-As of the 2026-06-03 cutover, the live system is **NOT** running on the M4 yet —
-it runs on **GitHub Actions cloud cron on the `main` branch** (`daily-rebalance.yml`
-still has `cron: "55 19 * * 1-5"`; GitHub schedules from `main` regardless of this
-branch). This branch (`feat/m4-deploy-e1`) removes those schedules, but it is **not
-merged to `main`**, so the cron is still live. The M4 has never been provisioned.
+## Current Reality (Read First)
+
+As of 2026-06-05, `main` contains the M4 deployment stack and the active GitHub
+cron schedules are removed. The expected production shape is:
+
+- `com.ajaiupadhyaya.quant-tick`: launchd `StartInterval=60`; dispatches due
+  jobs from `quant/deploy/jobs.toml`.
+- `com.ajaiupadhyaya.quant-guard`: launchd `KeepAlive`; can halt the paper book
+  on severe guardrail breaches, never resumes automatically.
+- `com.ajaiupadhyaya.quant-engine`: launchd `KeepAlive`; read-only continuous
+  market-state engine, never trades or halts.
+
+The current paper-live scheduled job is `daily-rebalance` in
+`quant/deploy/jobs.toml`. It places **Alpaca paper** orders at the close window
+when the readiness chain passes. Re-add `--dry-run` to that job if you want a
+no-orders shakedown.
 
 ## 🔒 THE ONE-EXECUTOR INVARIANT (the prime safety rule)
-**Never let the GitHub cron and the M4 both place LIVE orders.** Doing so
-double-trades the account. Therefore:
-- The M4 runs **dry-run** during shakedown (GH cron keeps trading — no conflict,
-  because dry-run places no orders).
-- You flip the M4 to **live** ONLY in the same sitting that you **disable the GH
-  cron** (Step 5). One executor at all times.
-- Rollback at any point = re-enable the GH cron + uninstall the M4 agents (Step 7).
+**Never let a GitHub scheduled workflow and the M4 both place orders.** Doing so
+double-trades the paper account. `main` currently has no active workflow
+`schedule:` triggers, and `tests/deploy/test_migration_fidelity.py` enforces
+that. If you ever re-enable cloud schedules, first stop or dry-run the M4
+`daily-rebalance` job.
 
 ---
 
-## Step 0 — Bootstrap the repo on the M4 (development clone)
+## Step 0 — Bootstrap The Repo On The M4
 ```bash
 git clone https://github.com/ajaiupadhyaya/quant-trading.git ~/Documents/quant-trading
 cd ~/Documents/quant-trading
-git checkout feat/m4-deploy-e1
 cp .env.example .env && chmod 600 .env     # then fill in secrets (below)
 uv sync --all-extras
 uv run quant doctor                        # expect 7/7 (needs a bar cache; see note)
@@ -53,76 +61,64 @@ paths, uv path) before installing.
    grace 11m); wire each to the Pushover integration; put their ping URLs in `.env`.
 4. `mkdir -p ~/Library/Logs/quant-deploy`
 
-## Step 2 — Guard daemon (monitoring; safe — never trades)
-Bring it up dry-run first, confirm it cannot halt the book, then go live:
-1. Manually: `uv run quant guard run --once --dry-run` → inspect output.
-2. Edit `deploy/com.ajaiupadhyaya.quant-guard.plist` to add `--dry-run` to the args,
-   `./deploy/install.sh`, watch `~/Library/Logs/quant-deploy/guard.*.log` for a tick.
-3. Remove `--dry-run`, re-run `./deploy/install.sh`. The guard can now HALT (but
-   never resumes — resume is always manual).
+## Step 2 — Manual Preflight Before Loading Agents
 
-## Step 3 — M4 shakedown in DRY-RUN (while the GH cron still trades)
-This is safe to run for several trading days alongside the GH cron — dry-run
-places no orders.
-1. Edit `quant/deploy/jobs.toml`: set the `daily-rebalance` job's command to
-   `["rebalance", "--dry-run"]` (it is currently `["rebalance"]` = live).
-2. `./deploy/install.sh` to (re)load the tick + guard launch agents.
-3. Sanity: `uv run quant ops tick` once by hand; confirm a marker appears under
-   `data/ops/scheduler/`.
-4. Over a few sessions confirm: premarket-health / daily-rebalance(dry) /
-   reconciliation markers each weekday; catch-up after a forced sleep; tick +
-   guard healthchecks stay green on phone; a deliberately-induced failure pages
-   Pushover.
+Run these from the repo root:
 
-## Step 4 — Cutover gates (ALL must pass before going live)
+```bash
+uv run quant doctor
+uv run quant data quality --start 2018-01-01 --symbols SPY,TLT,IEF,GLD,DBC,VNQ,EFA,EEM
+uv run quant risk pretrade
+uv run quant guard run --once --dry-run
+uv run quant engine run --once --dry-run
+uv run quant ops tick
+```
+
+Expected:
+- `doctor` is `7/7`.
+- data quality passes with zero missing bars.
+- pretrade risk passes.
+- guard reports account/reconciliation/bar freshness without placing orders.
+- engine writes one read-only market-state cycle.
+- `ops tick` exits 0; if run during a due window, due jobs should complete.
+
+## Step 3 — Install Or Reload LaunchAgents
+
+```bash
+./deploy/install.sh
+```
+
+This loads/reloads all three agents: tick, guard, and engine. The guard can HALT
+but never resumes. The engine is read-only. The tick job may place paper orders
+only when `daily-rebalance` is due and its readiness chain passes.
+
+## Step 4 — Operational Gates
 - [ ] Power-cycle survival: `sudo fdesetup authrestart`; after boot both agents
-      auto-reload (`launchctl print …/quant-tick` and `…/quant-guard`).
+      auto-reload (`launchctl print …/quant-tick`, `…/quant-guard`,
+      `…/quant-engine`).
 - [ ] Every alert channel tested: healthchecks "send test ping" → phone; a manual
       `uv run quant governance halt` → emergency Pushover received & **acked**;
       then `uv run quant governance resume --reason "test"`.
 - [ ] Simulated MISSED_CRITICAL (tick after the close window) pages and does NOT trade.
-- [ ] Dry-run rebalance preview matches the GH artifacts for the same days.
-
-## Step 5 — GO LIVE (the cutover — do all of this in one sitting)
-**a. Disable the GitHub cron FIRST** (instant, reversible; the decisive safety step):
-```bash
-for wf in daily-rebalance premarket-health posttrade-reconciliation \
-          nightly-backtest weekly-grid-search weekly-validation-governance; do
-  gh workflow disable "$wf"
-done
-gh workflow list            # confirm all show "disabled"
-```
-(Or GitHub web UI → Actions → each workflow → ••• → Disable workflow.)
-Confirm no scheduled run is mid-flight: `gh run list --limit 5`.
-
-**b. Flip the M4 to live:** revert Step 3 — set `daily-rebalance` back to
-`["rebalance"]` (no `--dry-run`) in `quant/deploy/jobs.toml`; commit it.
-
-**c. Reload the agents:** `./deploy/install.sh`. The next `daily-rebalance` tick
-(15:55 ET) now places real orders — and the M4 is the **sole** executor.
-
-**d. Verify the first live M4 rebalance:** a fresh marker under
+- [ ] First live M4 paper rebalance verified: a fresh marker under
 `data/ops/scheduler/`, a new Alpaca order with a deterministic client_order_id
 `defensive-etf-allocation-YYYYMMDD-<symbol>`, and a green tick heartbeat.
 
-## Step 6 — (optional, later) merge to `main` for hygiene
-Once the M4 is proven, merge `feat/m4-deploy-e1` → `main` so `main`'s workflow
-files also have the schedules removed (belt-and-suspenders; the `gh workflow
-disable` in Step 5 is what actually stops them today).
-
-## Step 7 — ROLLBACK (if the M4 misbehaves)
+## Step 5 — Rollback
 ```bash
 ./deploy/uninstall.sh                                  # stop the M4 agents
-for wf in daily-rebalance premarket-health posttrade-reconciliation \
-          nightly-backtest weekly-grid-search weekly-validation-governance; do
-  gh workflow enable "$wf"                             # restore the cloud executor
-done
 ```
-You are back to the working GitHub-cron system within minutes.
+
+If you intentionally restore GitHub cloud scheduling later, do so only after the
+M4 `daily-rebalance` job is stopped or changed to `--dry-run`.
 
 ## Operations
-- Status: `launchctl print gui/$(id -u)/com.ajaiupadhyaya.quant-tick`
+- Status:
+  - `launchctl print gui/$(id -u)/com.ajaiupadhyaya.quant-tick`
+  - `launchctl print gui/$(id -u)/com.ajaiupadhyaya.quant-guard`
+  - `launchctl print gui/$(id -u)/com.ajaiupadhyaya.quant-engine`
 - Logs:   `~/Library/Logs/quant-deploy/{tick,guard}.{stdout,stderr}.log`
+          and `~/Library/Logs/quant-deploy/engine.{stdout,stderr}.log`
 - Manual job (recovery for a missed window): `uv run quant ops run-job daily-rebalance` (see `--help`)
 - Resume after a halt (human only): `uv run quant governance resume --reason "..."`
 - Deploy code changes: `git pull` on the M4 (it does NOT auto-pull); agents run
