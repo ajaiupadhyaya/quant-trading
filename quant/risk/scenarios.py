@@ -84,9 +84,7 @@ class StressReport:
         return head + " | " + ", ".join(parts)
 
 
-def _historical_shock(
-    sym: str, returns: pd.DataFrame, start: date, end: date
-) -> float | None:
+def _historical_shock(sym: str, returns: pd.DataFrame, start: date, end: date) -> float | None:
     """Cumulative simple return of ``sym`` over [start, end], or None if no data."""
     if returns is None or returns.empty or sym not in returns.columns:
         return None
@@ -108,9 +106,7 @@ def _hypothetical_shock(sym: str, shocks: dict[str, float]) -> float | None:
     return None
 
 
-def _evaluate(
-    weights: dict[str, float], shock_for_symbol: Callable[[str], float | None]
-) -> dict:
+def _evaluate(weights: dict[str, float], shock_for_symbol: Callable[[str], float | None]) -> dict:
     """Apply ``shock_for_symbol(sym) -> float | None`` across weights.
 
     Returns the raw pieces; the caller wraps them into a ScenarioResult (so

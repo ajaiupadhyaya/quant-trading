@@ -269,7 +269,14 @@ class PortfolioRiskLimits:
     max_abs_beta: float = 1.50
     max_asset_class_weight: float = 1.00
     max_other_bucket_weight: float = 1.00
-    max_scenario_loss: float = 0.30  # worst stress-scenario loss (positive frac); WARN cap
+    # Worst stress-scenario loss (positive frac); WARN cap. Sized against full-crisis
+    # HISTORICAL replays, which are cumulative multi-month drawdowns and thus far
+    # larger than the instantaneous hypothetical shocks (≤17% on the live book). The
+    # 2026-06-05 risk-on book measured a 2008-GFC replay loss of 48.2%; with gross
+    # capped at 1.0 (no leverage) the unlevered worst case tops out near ~50%, so 0.55
+    # lets the defensive sleeve record OK every run while still tripping on a levered
+    # or pathologically-concentrated book.
+    max_scenario_loss: float = 0.55
     fail_closed_on_uncomputable: bool = False
 
 

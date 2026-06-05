@@ -673,9 +673,7 @@ def run_rebalance(
         safety_results.append(
             CheckResult(ok=gate.ok, name="portfolio_risk_gate", detail=gate.detail)
         )
-        _write_portfolio_risk_gate_artifact(
-            settings.data_dir, asof=asof, gate=gate, stress=stress
-        )
+        _write_portfolio_risk_gate_artifact(settings.data_dir, asof=asof, gate=gate, stress=stress)
 
         if gate_mode is RiskGateMode.BLOCK and not gate.ok and not dry_run:
             # Human-gated BLOCK flip (NOT the default). Mirrors Guard 4: skip the

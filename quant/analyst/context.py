@@ -227,9 +227,7 @@ def _portfolio_risk(
         return None
 
 
-def _stress(
-    positions: dict[str, int] | None, equity: float | None, asof: date
-) -> Any | None:
+def _stress(positions: dict[str, int] | None, equity: float | None, asof: date) -> Any | None:
     if not positions or not equity or equity <= 0:
         return None
     try:
