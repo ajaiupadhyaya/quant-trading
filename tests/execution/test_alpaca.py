@@ -100,3 +100,59 @@ def test_submit_order_dry_run_does_not_call_api(
             dry_run=True,
         )
     mock_trading_client.submit_order.assert_not_called()
+
+
+def test_submit_order_market_request_is_byte_identical(
+    fake_env: None, mock_trading_client: MagicMock
+) -> None:
+    """A default (market) template must submit the same MarketOrderRequest as before."""
+    from datetime import date
+
+    from alpaca.trading.enums import OrderSide as AlpacaSide
+    from alpaca.trading.enums import TimeInForce as AlpacaTIF
+    from alpaca.trading.requests import MarketOrderRequest
+
+    with patch("quant.execution.alpaca.TradingClient", return_value=mock_trading_client):
+        client = AlpacaClient()
+        client.submit_order(
+            OrderTemplate(symbol="SPY", qty=3, side=OrderSide.BUY, strategy_slug="trend"),
+            asof=date(2026, 6, 1),
+        )
+    req = mock_trading_client.submit_order.call_args.args[0]
+    assert isinstance(req, MarketOrderRequest)
+    assert req.symbol == "SPY"
+    assert req.qty == 3
+    assert req.side == AlpacaSide.BUY
+    assert req.time_in_force == AlpacaTIF.DAY
+    assert req.client_order_id == "trend-20260601-SPY"
+
+
+def test_submit_order_limit_builds_limit_request(
+    fake_env: None, mock_trading_client: MagicMock
+) -> None:
+    from datetime import date
+
+    from alpaca.trading.enums import TimeInForce as AlpacaTIF
+    from alpaca.trading.requests import LimitOrderRequest
+
+    from quant.execution.orders import OrderType, TimeInForce
+
+    with patch("quant.execution.alpaca.TradingClient", return_value=mock_trading_client):
+        client = AlpacaClient()
+        client.submit_order(
+            OrderTemplate(
+                symbol="SPY",
+                qty=2,
+                side=OrderSide.SELL,
+                strategy_slug="trend",
+                order_type=OrderType.LIMIT,
+                limit_price=415.25,
+                time_in_force=TimeInForce.GTC,
+            ),
+            asof=date(2026, 6, 1),
+        )
+    req = mock_trading_client.submit_order.call_args.args[0]
+    assert isinstance(req, LimitOrderRequest)
+    assert req.limit_price == 415.25
+    assert req.time_in_force == AlpacaTIF.GTC
+    assert req.client_order_id == "trend-20260601-SPY"
