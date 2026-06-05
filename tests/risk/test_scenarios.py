@@ -141,3 +141,69 @@ def test_render_non_empty_and_degrades():
     # a fully-degraded report renders an n/a sentinel, not a crash
     empty = StressReport(results=(), worst_loss=None, worst_scenario=None, computable=False)
     assert "n/a" in empty.render()
+
+
+# --- gate violation mapping (build_portfolio_risk_gate stress kwarg) ----------
+
+from quant.risk.portfolio import (  # noqa: E402
+    PortfolioRisk,
+    PortfolioRiskLimits,
+    RiskGateMode,
+    build_portfolio_risk_gate,
+)
+
+
+def _flat_risk():
+    return PortfolioRisk(
+        n_positions=1,
+        gross_exposure=1.0,
+        net_exposure=1.0,
+        ann_vol=0.10,
+        var_95=0.01,
+        cvar_95=0.02,
+        beta_to_benchmark=0.5,
+        top_name_weight=1.0,
+        lookback_days=180,
+        sector_exposure={"equity": 1.0},
+        computable=True,
+    )
+
+
+def test_stress_within_limit_no_violation():
+    rep = StressReport(results=(), worst_loss=0.20, worst_scenario="x", computable=True)
+    gate = build_portfolio_risk_gate(
+        _flat_risk(), limits=PortfolioRiskLimits(), mode=RiskGateMode.WARN, stress=rep
+    )
+    assert gate.ok
+    assert all(v.code != "stress" for v in gate.violations)
+    assert gate.stress is rep
+
+
+def test_stress_over_limit_warn_violation():
+    rep = StressReport(results=(), worst_loss=0.45, worst_scenario="2008-GFC", computable=True)
+    gate = build_portfolio_risk_gate(
+        _flat_risk(),
+        limits=PortfolioRiskLimits(max_scenario_loss=0.30),
+        mode=RiskGateMode.WARN,
+        stress=rep,
+    )
+    assert not gate.ok
+    assert any(v.code == "stress" for v in gate.violations)
+    assert gate.severity == "warn"  # WARN never blocks
+
+
+def test_stress_none_worst_never_violates():
+    rep = StressReport(results=(), worst_loss=None, worst_scenario=None, computable=False)
+    gate = build_portfolio_risk_gate(
+        _flat_risk(), limits=PortfolioRiskLimits(), mode=RiskGateMode.WARN, stress=rep
+    )
+    assert all(v.code != "stress" for v in gate.violations)
+
+
+def test_gate_back_compat_no_stress():
+    # Omitting stress preserves prior behavior and gate.stress is None.
+    gate = build_portfolio_risk_gate(
+        _flat_risk(), limits=PortfolioRiskLimits(), mode=RiskGateMode.WARN
+    )
+    assert gate.stress is None
+    assert gate.ok

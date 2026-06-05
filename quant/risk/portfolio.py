@@ -269,6 +269,7 @@ class PortfolioRiskLimits:
     max_abs_beta: float = 1.50
     max_asset_class_weight: float = 1.00
     max_other_bucket_weight: float = 1.00
+    max_scenario_loss: float = 0.30  # worst stress-scenario loss (positive frac); WARN cap
     fail_closed_on_uncomputable: bool = False
 
 
@@ -286,6 +287,7 @@ class RiskGateResult:
     severity: str  # 'ok' | 'warn' | 'block' (block only when mode is BLOCK and violating)
     violations: tuple[RiskViolation, ...]
     risk: PortfolioRisk
+    stress: object | None = None  # quant.risk.scenarios.StressReport | None (duck-typed)
 
     @property
     def detail(self) -> str:
@@ -299,6 +301,7 @@ def build_portfolio_risk_gate(
     *,
     limits: PortfolioRiskLimits,
     mode: RiskGateMode = RiskGateMode.WARN,
+    stress: object | None = None,
 ) -> RiskGateResult:
     """Evaluate an already-computed ``PortfolioRisk`` against ``limits``. Pure.
 
@@ -337,8 +340,22 @@ def build_portfolio_risk_gate(
             RiskViolation("uncomputable", "portfolio risk not computable (fail-closed)")
         )
 
+    # Stress dimension (roadmap Phase 2): worst scenario loss vs cap. Duck-typed on
+    # ``stress.worst_loss`` (a quant.risk.scenarios.StressReport) to avoid an import
+    # cycle. A None/absent worst_loss never violates.
+    worst_loss = getattr(stress, "worst_loss", None)
+    if worst_loss is not None and worst_loss > limits.max_scenario_loss:
+        worst_name = getattr(stress, "worst_scenario", "?")
+        violations.append(
+            RiskViolation(
+                "stress",
+                f"stress worst-loss {worst_loss:.1%} ({worst_name}) > "
+                f"{limits.max_scenario_loss:.1%}",
+            )
+        )
+
     ok = not violations
     severity = "ok" if ok else ("block" if mode is RiskGateMode.BLOCK else "warn")
     return RiskGateResult(
-        mode=mode, ok=ok, severity=severity, violations=tuple(violations), risk=risk
+        mode=mode, ok=ok, severity=severity, violations=tuple(violations), risk=risk, stress=stress
     )
