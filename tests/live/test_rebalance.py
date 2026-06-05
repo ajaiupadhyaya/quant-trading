@@ -825,6 +825,29 @@ def test_guard5_records_portfolio_risk_gate_check(
     assert {"asof", "ok", "severity", "violations", "risk"} <= set(payload)
 
 
+def test_guard5_writes_stress_section_and_keeps_netted(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    """Guard 5 folds a stress section into the gate artifact and records the check;
+    in WARN mode it stays fail-open and never aborts the batch."""
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+    )
+    assert _check(report, "portfolio_risk_gate") is not None
+    assert not (report.skipped_reason or "").startswith("portfolio_risk_gate")
+    import json as _json
+
+    artifact = fake_settings.data_dir / "risk" / "portfolio_risk_gate.2024-06-28.json"
+    payload = _json.loads(artifact.read_text())
+    assert "stress" in payload
+    assert {"computable", "worst_loss", "worst_scenario", "results"} <= set(payload["stress"])
+
+
 def test_guard5_is_fail_open_and_never_aborts_the_batch(
     fake_settings: Settings, patched_bars: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

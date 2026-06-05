@@ -61,6 +61,7 @@ class AnalystContext:
     recon: dict[str, Any] | None = None
     macro: dict[str, float] = field(default_factory=dict)
     portfolio_risk: Any | None = None  # quant.risk.PortfolioRisk | None (lazy to avoid cycle)
+    stress: Any | None = None  # quant.risk.scenarios.StressReport | None (lazy)
     signals: Any | None = None  # quant.research.signals.MarketSignals | None (latest logged)
     news: Any | None = None  # quant.nlp.NewsSentiment | None (caller-supplied; fetched at CLI)
     event_risk: Any | None = None  # quant.macro.EventRisk | None (caller-supplied)
@@ -226,6 +227,18 @@ def _portfolio_risk(
         return None
 
 
+def _stress(positions: dict[str, int] | None, equity: float | None, asof: date) -> Any | None:
+    if not positions or not equity or equity <= 0:
+        return None
+    try:
+        from quant.risk.scenarios import live_stress
+
+        return live_stress(positions, float(equity), asof=asof)
+    except Exception as exc:  # fail-open
+        logger.info("analyst.context: stress skipped ({!r})", exc)
+        return None
+
+
 def _read_signals(data_dir: Path, asof: date) -> Any | None:
     """Latest logged quant signal battery (no recompute/network). Fail-open."""
     try:
@@ -265,6 +278,7 @@ def gather_analyst_context(
         recon=_read_recon(data_dir),
         macro=_read_macro() if include_macro else {},
         portfolio_risk=_portfolio_risk(positions, equity, asof),
+        stress=_stress(positions, equity, asof),
         signals=_read_signals(data_dir, asof),
         news=news,
         event_risk=event_risk,
@@ -323,6 +337,10 @@ def render_context(ctx: AnalystContext) -> str:
     if ctx.portfolio_risk is not None:
         with contextlib.suppress(Exception):  # render is best-effort
             lines.append("Portfolio risk: " + ctx.portfolio_risk.render())
+
+    if ctx.stress is not None:
+        with contextlib.suppress(Exception):  # render is best-effort
+            lines.append("Stress: " + ctx.stress.render())
 
     if ctx.signals is not None:
         with contextlib.suppress(Exception):  # render is best-effort

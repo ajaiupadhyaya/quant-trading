@@ -131,6 +131,20 @@ def test_render_includes_portfolio_risk() -> None:
     assert "VaR95" in text
 
 
+def test_render_includes_stress() -> None:
+    from quant.risk.scenarios import ScenarioResult, StressReport
+
+    rep = StressReport(
+        results=(ScenarioResult("2008-GFC", "historical", -0.18),),
+        worst_loss=0.18,
+        worst_scenario="2008-GFC",
+        computable=True,
+    )
+    text = render_context(AnalystContext(asof=ASOF, stress=rep))
+    assert "Stress:" in text
+    assert "2008-GFC" in text
+
+
 def test_render_includes_fundamentals() -> None:
     from quant.fundamentals.factors import FundamentalRow, compute_fundamentals
 

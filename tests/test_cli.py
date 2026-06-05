@@ -69,6 +69,16 @@ def test_cli_status_renders(fake_env: None) -> None:
     assert "100000" in result.output or "100,000" in result.output
 
 
+def test_risk_scenarios_flat_book(fake_env: None) -> None:
+    mock_alpaca = MagicMock()
+    mock_alpaca.account.return_value = MagicMock(equity=0.0)
+    mock_alpaca.positions.return_value = []
+    with patch("quant.cli.AlpacaClient", return_value=mock_alpaca):
+        result = CliRunner().invoke(cli, ["risk", "scenarios"])
+    assert result.exit_code == 0
+    assert "flat" in result.output.lower()
+
+
 def test_cli_data_inventory_runs(fake_env: None, tmp_data_dir) -> None:
     result = CliRunner().invoke(cli, ["data", "inventory"])
     assert result.exit_code == 0

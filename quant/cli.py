@@ -2103,6 +2103,78 @@ def risk_portfolio(lookback: int) -> None:
     console.print(f"[dim]wrote {out}[/dim]")
 
 
+@risk.command(
+    "scenarios",
+    help="Stress the LIVE book under historical + hypothetical shock scenarios. Read-only.",
+)
+@click.option(
+    "--lookback", default=180, show_default=True, type=int, help="Trading-day window for weights."
+)
+def risk_scenarios(lookback: int) -> None:
+    from quant.risk.scenarios import live_stress
+
+    settings = Settings()  # type: ignore[call-arg]
+    asof = date.today()
+    positions: dict[str, int] = {}
+    equity = 0.0
+    try:
+        client = AlpacaClient(settings=settings)
+        equity = float(client.account().equity)
+        positions = {p.symbol: int(p.qty) for p in client.positions()}
+    except Exception as exc:
+        raise click.ClickException(f"Alpaca unavailable: {exc!r}") from exc
+
+    if not positions:
+        console.print("[yellow]Book is flat — no scenarios to stress.[/yellow]")
+        return
+
+    rep = live_stress(positions, equity, asof=asof, lookback_days=lookback)
+    if rep is None or not rep.computable:
+        console.print("[yellow]Could not compute stress (no bar history?).[/yellow]")
+        return
+
+    out = settings.data_dir / "risk" / f"scenarios.{asof.isoformat()}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(
+            {
+                "asof": asof.isoformat(),
+                "equity": equity,
+                "worst_loss": rep.worst_loss,
+                "worst_scenario": rep.worst_scenario,
+                "degraded": list(rep.degraded),
+                "results": [
+                    {
+                        "name": r.name,
+                        "kind": r.kind,
+                        "pnl_pct": r.pnl_pct,
+                        "by_class": dict(r.by_class),
+                        "missing_symbols": list(r.missing_symbols),
+                        "computable": r.computable,
+                    }
+                    for r in rep.results
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    table = Table(title=f"stress scenarios — {asof.isoformat()}")
+    table.add_column("Scenario")
+    table.add_column("Kind")
+    table.add_column("P&L", justify="right")
+    for r in rep.results:
+        pnl = "n/a" if r.pnl_pct is None else f"{r.pnl_pct:+.1%}"
+        style = "red" if (r.pnl_pct is not None and r.pnl_pct < 0) else "green"
+        marker = " ◀ worst" if r.name == rep.worst_scenario else ""
+        table.add_row(r.name, r.kind, f"[{style}]{pnl}[/{style}]{marker}")
+    console.print(table)
+    console.print(rep.render())
+    console.print(f"[dim]wrote {out}[/dim]")
+
+
 @cli.group(
     help="Position sizing — an observed, comparison-only overlay (vol-target/Kelly/dd/regime)."
 )
