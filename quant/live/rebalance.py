@@ -164,7 +164,9 @@ def already_traded_today(client: object, asof: date) -> bool:
     return len(lister(asof)) > 0
 
 
-def _write_portfolio_risk_gate_artifact(data_dir: Path, *, asof: date, gate: Any) -> None:
+def _write_portfolio_risk_gate_artifact(
+    data_dir: Path, *, asof: date, gate: Any, stress: Any | None = None
+) -> None:
     """Write a per-run portfolio-risk-gate artifact (atomic JSON). Best-effort —
     called from inside Guard 5's try/except so a write failure cannot escape."""
     from quant.util.atomic import write_json_atomic
@@ -193,6 +195,24 @@ def _write_portfolio_risk_gate_artifact(data_dir: Path, *, asof: date, gate: Any
             "degraded_metrics": list(r.degraded_metrics),
         },
     }
+    if stress is not None:
+        payload["stress"] = {
+            "computable": stress.computable,
+            "worst_loss": stress.worst_loss,
+            "worst_scenario": stress.worst_scenario,
+            "degraded": list(stress.degraded),
+            "results": [
+                {
+                    "name": res.name,
+                    "kind": res.kind,
+                    "pnl_pct": res.pnl_pct,
+                    "by_class": dict(res.by_class),
+                    "missing_symbols": list(res.missing_symbols),
+                    "computable": res.computable,
+                }
+                for res in stress.results
+            ],
+        }
     path = data_dir / "risk" / f"portfolio_risk_gate.{asof.isoformat()}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     write_json_atomic(path, payload)
@@ -613,6 +633,7 @@ def run_rebalance(
             build_portfolio_risk_gate,
             live_portfolio_risk,
         )
+        from quant.risk.scenarios import live_stress
 
         try:
             gate_mode = RiskGateMode(str(settings.portfolio_risk_gate_mode).strip().lower())
@@ -645,11 +666,16 @@ def run_rebalance(
                 computable=False,
                 degraded_metrics=("ann_vol", "var_95", "cvar_95", "beta_to_benchmark"),
             )
-        gate = build_portfolio_risk_gate(port_risk, limits=PortfolioRiskLimits(), mode=gate_mode)
+        stress = live_stress(post_trade, account.equity, asof=asof)
+        gate = build_portfolio_risk_gate(
+            port_risk, limits=PortfolioRiskLimits(), mode=gate_mode, stress=stress
+        )
         safety_results.append(
             CheckResult(ok=gate.ok, name="portfolio_risk_gate", detail=gate.detail)
         )
-        _write_portfolio_risk_gate_artifact(settings.data_dir, asof=asof, gate=gate)
+        _write_portfolio_risk_gate_artifact(
+            settings.data_dir, asof=asof, gate=gate, stress=stress
+        )
 
         if gate_mode is RiskGateMode.BLOCK and not gate.ok and not dry_run:
             # Human-gated BLOCK flip (NOT the default). Mirrors Guard 4: skip the
