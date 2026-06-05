@@ -93,6 +93,7 @@ def test_dry_run_does_not_persist_strategy_positions(
     # equity row should have been written even on dry-run
     eq = read_equity(fake_settings.data_dir)
     assert len(eq) == 1
+    assert not (fake_settings.data_dir / "live" / "trades.parquet").exists()
     # strategy_positions parquet should NOT exist after a dry-run
     assert not (fake_settings.data_dir / "live" / "strategy_positions.parquet").exists()
 
