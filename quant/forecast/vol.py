@@ -78,7 +78,7 @@ def log_returns(close: np.ndarray) -> np.ndarray:
 def realized_variance(returns: np.ndarray) -> np.ndarray:
     """Daily realized-variance proxy = squared log return (floored)."""
     r = np.asarray(returns, dtype=float)
-    return np.maximum(r * r, _VAR_FLOOR)
+    return np.asarray(np.maximum(r * r, _VAR_FLOOR), dtype=float)
 
 
 def _har_features(rv: np.ndarray, t: int) -> tuple[float, float, float] | None:
@@ -138,7 +138,7 @@ def ewma_forecast_series(rv: np.ndarray, lam: float = 0.94) -> np.ndarray:
     f[0] = rv[0]
     for t in range(1, rv.size):
         f[t] = lam * f[t - 1] + (1.0 - lam) * rv[t]
-    return np.maximum(f, _VAR_FLOOR)
+    return np.asarray(np.maximum(f, _VAR_FLOOR), dtype=float)
 
 
 def _rolling_hist_forecast(rv: np.ndarray, t: int, window: int) -> float:
@@ -302,11 +302,9 @@ def compute_vol_forecast(
         math.sqrt(_TRADING_DAYS * var_next) if var_next is not None and var_next > 0 else None
     )
     realized_ann = float(np.sqrt(_TRADING_DAYS * np.mean(rv[-21:]))) if rv.size >= 21 else None
-    vs = (
-        (forecast_ann / realized_ann - 1.0)
-        if (forecast_ann is not None and realized_ann not in (None, 0))
-        else None
-    )
+    vs = None
+    if forecast_ann is not None and realized_ann is not None and realized_ann != 0:
+        vs = forecast_ann / realized_ann - 1.0
     return VolForecast(
         asof=asof.isoformat(),
         symbol=symbol,

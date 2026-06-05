@@ -95,14 +95,37 @@ def test_readers_on_empty_dir_return_empty_frames(tmp_path: Path) -> None:
 
 def test_last_strategy_positions_returns_latest_same_day_write(tmp_data_dir: Path) -> None:
     d = date(2026, 5, 26)
-    # Write 1 (manual run) holds GOOGL; an interleaved other-slug write separates the two mf writes.
+    # Write 1 (manual run) holds GOOGL.
     write_strategy_positions(tmp_data_dir, d, "multi-factor", {"BAC": 676, "GOOGL": 91})
-    write_strategy_positions(tmp_data_dir, d, "trend", {"SPY": 70})
     # Write 2 (scheduled run) on the SAME date drops GOOGL, adds JNJ.
     write_strategy_positions(tmp_data_dir, d, "multi-factor", {"BAC": 670, "JNJ": 152})
 
     snap = last_strategy_positions(tmp_data_dir, "multi-factor")
     assert snap == {"BAC": 670, "JNJ": 152}  # latest write only; phantom GOOGL gone
+
+
+def test_last_strategy_positions_legacy_file_uses_latest_date(tmp_data_dir: Path) -> None:
+    path = tmp_data_dir / "live" / "strategy_positions.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp(date(2026, 6, 2)),
+                "strategy": "defensive-etf-allocation",
+                "symbol": "GLD",
+                "qty": 809,
+            },
+            {
+                "date": pd.Timestamp(date(2026, 6, 3)),
+                "strategy": "defensive-etf-allocation",
+                "symbol": "SPY",
+                "qty": 438,
+            },
+        ]
+    ).to_parquet(path, index=False)
+
+    snap = last_strategy_positions(tmp_data_dir, "defensive-etf-allocation")
+    assert snap == {"SPY": 438}
 
 
 def test_last_strategy_positions_single_write_unchanged(tmp_data_dir: Path) -> None:

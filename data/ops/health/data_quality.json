@@ -1,5 +1,5 @@
 {
-  "end": "2026-06-01",
+  "end": "2026-06-04",
   "passed": true,
   "start": "2018-01-01",
   "symbols": {
@@ -8,7 +8,7 @@
       "impossible_ohlc": 0,
       "missing_bars": 0,
       "passed": true,
-      "rows": 2115,
+      "rows": 4131,
       "stale": false
     },
     "EEM": {
@@ -16,7 +16,7 @@
       "impossible_ohlc": 0,
       "missing_bars": 0,
       "passed": true,
-      "rows": 2115,
+      "rows": 4131,
       "stale": false
     },
     "EFA": {
@@ -24,7 +24,7 @@
       "impossible_ohlc": 0,
       "missing_bars": 0,
       "passed": true,
-      "rows": 2115,
+      "rows": 4131,
       "stale": false
     },
     "GLD": {
@@ -32,7 +32,7 @@
       "impossible_ohlc": 0,
       "missing_bars": 0,
       "passed": true,
-      "rows": 2115,
+      "rows": 4131,
       "stale": false
     },
     "IEF": {
@@ -40,7 +40,7 @@
       "impossible_ohlc": 0,
       "missing_bars": 0,
       "passed": true,
-      "rows": 2115,
+      "rows": 4131,
       "stale": false
     },
     "SPY": {
@@ -48,7 +48,7 @@
       "impossible_ohlc": 0,
       "missing_bars": 0,
       "passed": true,
-      "rows": 2115,
+      "rows": 4131,
       "stale": false
     },
     "TLT": {
@@ -56,7 +56,7 @@
       "impossible_ohlc": 0,
       "missing_bars": 0,
       "passed": true,
-      "rows": 2115,
+      "rows": 4131,
       "stale": false
     },
     "VNQ": {
@@ -64,7 +64,7 @@
       "impossible_ohlc": 0,
       "missing_bars": 0,
       "passed": true,
-      "rows": 2115,
+      "rows": 4131,
       "stale": false
     }
   }

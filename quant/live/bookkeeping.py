@@ -14,7 +14,7 @@ demand.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -40,6 +40,7 @@ TRADES_COLUMNS: list[str] = [
 
 STRATEGY_POSITIONS_COLUMNS: list[str] = [
     "date",
+    "snapshot_id",
     "strategy",
     "symbol",
     "qty",
@@ -145,9 +146,11 @@ def write_strategy_positions(
 ) -> Path:
     """Append a per-strategy positions snapshot for (asof, strategy_slug)."""
     path = _live_dir(data_dir) / "strategy_positions.parquet"
+    snapshot_id = f"{asof.isoformat()}-{strategy_slug}-{datetime.now(UTC).isoformat()}"
     rows = [
         {
             "date": pd.Timestamp(asof),
+            "snapshot_id": snapshot_id,
             "strategy": strategy_slug,
             "symbol": sym,
             "qty": int(qty),
@@ -166,13 +169,10 @@ def last_strategy_positions(
 ) -> dict[str, int]:
     """Return the most-recent snapshot for ``strategy_slug`` (or {} if none).
 
-    ``strategy_positions.parquet`` is append-only and each ``write_strategy_positions``
-    call appends one contiguous block of rows (in file order, since the parquet is
-    written with index=False). The latest snapshot is therefore the LAST contiguous
-    run of this slug's rows — NOT all rows sharing ``max(date)``. Multiple rebalances
-    can occur on the same calendar date (e.g. a manual dispatch plus the scheduled
-    run); unioning same-date rows would wrongly resurrect symbols that a later
-    same-day write dropped.
+    New rows carry a ``snapshot_id`` so a same-day manual run and scheduled run
+    can be distinguished. Older parquet files do not have that column; for those,
+    fall back to the most recent date for the strategy, which avoids resurrecting
+    symbols from prior trading sessions.
     """
     path = _live_dir(data_dir) / "strategy_positions.parquet"
     if not path.exists():
@@ -183,9 +183,10 @@ def last_strategy_positions(
     sub = df[df["strategy"] == strategy_slug]
     if sub.empty:
         return {}
-    positions = sub.index.to_numpy(dtype=int)
-    start = len(positions) - 1
-    while start > 0 and positions[start] == positions[start - 1] + 1:
-        start -= 1
-    last_block = sub.iloc[start:]
+    if "snapshot_id" in sub.columns and sub["snapshot_id"].notna().any():
+        last_snapshot_id = sub[sub["snapshot_id"].notna()].iloc[-1]["snapshot_id"]
+        last_block = sub[sub["snapshot_id"] == last_snapshot_id]
+    else:
+        max_date = sub["date"].max()
+        last_block = sub[sub["date"] == max_date]
     return {str(row["symbol"]): int(row["qty"]) for row in last_block.to_dict("records")}

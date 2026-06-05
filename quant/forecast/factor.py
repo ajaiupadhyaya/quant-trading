@@ -119,10 +119,10 @@ def cross_sectional_ic(scores: pd.Series, fwd: pd.Series) -> tuple[float | None,
     df = pd.concat([scores, fwd], axis=1, keys=["s", "f"]).dropna()
     if len(df) < 5:
         return None, None
-    pear = float(df["s"].corr(df["f"]))
-    rank = float(df["s"].corr(df["f"], method="spearman"))
-    pear = pear if np.isfinite(pear) else None
-    rank = rank if np.isfinite(rank) else None
+    pear_raw = df["s"].corr(df["f"])
+    rank_raw = df["s"].corr(df["f"], method="spearman")
+    pear = float(pear_raw) if pear_raw is not None and np.isfinite(pear_raw) else None
+    rank = float(rank_raw) if rank_raw is not None and np.isfinite(rank_raw) else None
     return pear, rank
 
 

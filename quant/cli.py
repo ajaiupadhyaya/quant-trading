@@ -1264,6 +1264,8 @@ def data_quality(symbols: str | None, start: str, end: str | None) -> None:
         )
     console.print(table)
     console.print(f"[dim]wrote {out}[/dim]")
+    if not report.passed:
+        raise SystemExit(2)
 
 
 @cli.group(help="Research experiment registry and comparison.")

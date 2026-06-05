@@ -173,14 +173,14 @@ def test_data_snapshot_and_quality_commands_write_artifacts(
     tmp_data_dir: Path, fake_env: None
 ) -> None:
     raw = tmp_data_dir / "raw" / "SPY.parquet"
-    dates = pd.bdate_range("2026-01-01", periods=3)
+    dates = pd.bdate_range("2026-01-01", periods=4)
     pd.DataFrame(
         {
-            "open": [1.0, 2.0, 3.0],
-            "high": [2.0, 3.0, 4.0],
-            "low": [1.0, 2.0, 3.0],
-            "close": [2.0, 3.0, 4.0],
-            "volume": [100, 100, 100],
+            "open": [1.0, 2.0, 3.0, 4.0],
+            "high": [2.0, 3.0, 4.0, 5.0],
+            "low": [1.0, 2.0, 3.0, 4.0],
+            "close": [2.0, 3.0, 4.0, 5.0],
+            "volume": [100, 100, 100, 100],
         },
         index=pd.DatetimeIndex(dates, name="timestamp"),
     ).to_parquet(raw)
@@ -210,6 +210,33 @@ def test_data_snapshot_and_quality_commands_write_artifacts(
     assert (tmp_data_dir / "snapshots" / "cli-snap" / "manifest.json").exists()
     assert quality.exit_code == 0, quality.output
     assert (tmp_data_dir / "ops" / "health" / "data_quality.json").exists()
+
+
+def test_data_quality_command_exits_nonzero_when_report_fails(
+    tmp_data_dir: Path, fake_env: None
+) -> None:
+    raw = tmp_data_dir / "raw" / "SPY.parquet"
+    raw.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "open": [100.0],
+            "high": [101.0],
+            "low": [99.0],
+            "close": [100.5],
+            "volume": [1_000],
+        },
+        index=pd.DatetimeIndex([pd.Timestamp("2026-01-02")], name="timestamp"),
+    ).to_parquet(raw)
+
+    runner = CliRunner()
+    quality = runner.invoke(
+        cli,
+        ["data", "quality", "--symbols", "SPY", "--start", "2026-01-02", "--end", "2026-01-07"],
+    )
+
+    assert quality.exit_code == 2, quality.output
+    payload = json.loads((tmp_data_dir / "ops" / "health" / "data_quality.json").read_text())
+    assert payload["passed"] is False
 
 
 def test_risk_pretrade_command_writes_report(tmp_data_dir: Path, fake_env: None) -> None:
