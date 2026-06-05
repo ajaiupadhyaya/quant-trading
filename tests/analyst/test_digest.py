@@ -167,9 +167,18 @@ def test_render_facts_has_key_lines() -> None:
 
 def test_render_facts_flat_and_no_orders() -> None:
     d = DigestData(
-        asof=ASOF, dry_run=False, equity=None, prev_equity=None, cash=None,
-        governance_live=[], positions=[], orders=[], guard_worst_severity=None,
-        guard_heartbeat=None, guard_outcomes=[], halt_active=True,
+        asof=ASOF,
+        dry_run=False,
+        equity=None,
+        prev_equity=None,
+        cash=None,
+        governance_live=[],
+        positions=[],
+        orders=[],
+        guard_worst_severity=None,
+        guard_heartbeat=None,
+        guard_outcomes=[],
+        halt_active=True,
     )
     facts = render_facts(d)
     assert "flat" in facts and "Orders today: none" in facts and "ACTIVE" in facts

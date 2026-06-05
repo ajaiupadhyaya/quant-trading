@@ -80,8 +80,15 @@ def test_pairs_sizing_is_beta_neutral() -> None:
     strat = PairsTrading(bars=bars, params={"min_history_days": 50}, vix=vix)
 
     pc = PairCandidate(
-        a="AAA", b="BBB", beta=2.0, alpha=0.0, ar1_rho=0.5,
-        half_life_days=10.0, spread_std=0.01, adf_stat=-5.0, adf_passes=True,
+        a="AAA",
+        b="BBB",
+        beta=2.0,
+        alpha=0.0,
+        ar1_rho=0.5,
+        half_life_days=10.0,
+        spread_std=0.01,
+        adf_stat=-5.0,
+        adf_passes=True,
     )
     strat._discovered = [pc]
     strat._last_discovery_loc = 10**9  # skip rediscovery, keep the injected pair

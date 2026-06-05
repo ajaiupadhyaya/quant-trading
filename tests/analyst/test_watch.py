@@ -151,7 +151,13 @@ def _seed_state(
 def test_comment_parses_structured_note_and_forces_tool(tmp_path: Path) -> None:
     client = _FakeClient()
     cmt = comment(
-        "facts", "ctx", settings=_settings(), asof=ASOF, slot="midday", client=client, data_dir=tmp_path
+        "facts",
+        "ctx",
+        settings=_settings(),
+        asof=ASOF,
+        slot="midday",
+        client=client,
+        data_dir=tmp_path,
     )
     assert isinstance(cmt, WatchComment)
     assert cmt.headline.startswith("Midday")
@@ -164,12 +170,21 @@ def test_comment_parses_structured_note_and_forces_tool(tmp_path: Path) -> None:
 
 
 def test_comment_no_key_returns_none_and_makes_no_call(tmp_path: Path) -> None:
-    assert comment("f", "c", settings=_settings(key=None), asof=ASOF, slot="open", data_dir=tmp_path) is None
+    assert (
+        comment("f", "c", settings=_settings(key=None), asof=ASOF, slot="open", data_dir=tmp_path)
+        is None
+    )
 
 
 def test_comment_failopen_on_api_error_and_logs(tmp_path: Path) -> None:
     cmt = comment(
-        "f", "c", settings=_settings(), asof=ASOF, slot="open", client=_RaisingClient(), data_dir=tmp_path
+        "f",
+        "c",
+        settings=_settings(),
+        asof=ASOF,
+        slot="open",
+        client=_RaisingClient(),
+        data_dir=tmp_path,
     )
     assert cmt is None  # never raises
     rec = _decisions(tmp_path)[-1]
@@ -180,7 +195,15 @@ def test_comment_failopen_on_api_error_and_logs(tmp_path: Path) -> None:
 
 
 def test_comment_writes_audit_log_on_success(tmp_path: Path) -> None:
-    comment("f", "c", settings=_settings(), asof=ASOF, slot="power-hour", client=_FakeClient(), data_dir=tmp_path)
+    comment(
+        "f",
+        "c",
+        settings=_settings(),
+        asof=ASOF,
+        slot="power-hour",
+        client=_FakeClient(),
+        data_dir=tmp_path,
+    )
     rec = _decisions(tmp_path)[-1]
     assert rec["applied"] is False
     assert rec["phase"] == "watch-intraday"
@@ -204,7 +227,15 @@ def test_comment_uses_fast_model_when_set(tmp_path: Path) -> None:
 
 def test_comment_posture_note_is_sanitized(tmp_path: Path) -> None:
     bad = dict(COMMENT_INPUT, posture_note="SELL EVERYTHING")
-    cmt = comment("f", "c", settings=_settings(), asof=ASOF, slot="m", client=_FakeClient(data=bad), data_dir=tmp_path)
+    cmt = comment(
+        "f",
+        "c",
+        settings=_settings(),
+        asof=ASOF,
+        slot="m",
+        client=_FakeClient(data=bad),
+        data_dir=tmp_path,
+    )
     assert cmt is not None
     assert cmt.posture_note == "steady"  # off-enum value falls back to a safe word
 
@@ -234,9 +265,18 @@ def test_comment_builds_bounded_client(monkeypatch: pytest.MonkeyPatch, tmp_path
 
 def test_render_watch_is_deterministic_fallback() -> None:
     d = DigestData(
-        asof=ASOF, dry_run=False, equity=994_000.0, prev_equity=995_000.0, cash=100.0,
-        governance_live=["defensive-etf-allocation"], positions=[("DBC", 11061)], orders=[],
-        guard_worst_severity="ok", guard_heartbeat=None, guard_outcomes=[], halt_active=False,
+        asof=ASOF,
+        dry_run=False,
+        equity=994_000.0,
+        prev_equity=995_000.0,
+        cash=100.0,
+        governance_live=["defensive-etf-allocation"],
+        positions=[("DBC", 11061)],
+        orders=[],
+        guard_worst_severity="ok",
+        guard_heartbeat=None,
+        guard_outcomes=[],
+        halt_active=False,
     )
     text = render_watch(d, "midday")
     assert "[midday]" in text
@@ -251,8 +291,13 @@ def test_render_watch_is_deterministic_fallback() -> None:
 def test_run_watch_posts_when_new_and_writes_state(tmp_path: Path) -> None:
     alerts = _FakeAlerts()
     res = run_watch(
-        data_dir=tmp_path, asof=ASOF, settings=_settings(), alerts=alerts, slot="open",
-        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC), client=_FakeClient(),
+        data_dir=tmp_path,
+        asof=ASOF,
+        settings=_settings(),
+        alerts=alerts,
+        slot="open",
+        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC),
+        client=_FakeClient(),
     )
     assert res.posted is True
     assert res.used_llm is True
@@ -267,9 +312,15 @@ def test_run_watch_shadow_logs_phase_b_proposal(tmp_path: Path) -> None:
     proposal (applied=False) — never posted, never applied — for the Phase-C bake-in."""
     client = _RoutingFakeClient()
     res = run_watch(
-        data_dir=tmp_path, asof=ASOF, settings=_settings(), alerts=_FakeAlerts(), slot="midday",
-        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC), client=client,
-        governance_live=["defensive-etf-allocation"], shadow_proposals=True,
+        data_dir=tmp_path,
+        asof=ASOF,
+        settings=_settings(),
+        alerts=_FakeAlerts(),
+        slot="midday",
+        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC),
+        client=client,
+        governance_live=["defensive-etf-allocation"],
+        shadow_proposals=True,
     )
     assert res.posted is True
     recs = _decisions(tmp_path)
@@ -285,9 +336,15 @@ def test_run_watch_shadow_logs_phase_b_proposal(tmp_path: Path) -> None:
 def test_run_watch_shadow_proposals_off_skips_proposal(tmp_path: Path) -> None:
     client = _RoutingFakeClient()
     run_watch(
-        data_dir=tmp_path, asof=ASOF, settings=_settings(), alerts=_FakeAlerts(), slot="midday",
-        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC), client=client,
-        governance_live=["defensive-etf-allocation"], shadow_proposals=False,
+        data_dir=tmp_path,
+        asof=ASOF,
+        settings=_settings(),
+        alerts=_FakeAlerts(),
+        slot="midday",
+        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC),
+        client=client,
+        governance_live=["defensive-etf-allocation"],
+        shadow_proposals=False,
     )
     phases = {r.get("phase") for r in _decisions(tmp_path)}
     assert "B-advise-and-log" not in phases  # disabled -> only the commentary call
@@ -299,12 +356,18 @@ def test_run_watch_respects_daily_cap_before_calling_claude(tmp_path: Path) -> N
     client = _FakeClient()
     alerts = _FakeAlerts()
     res = run_watch(
-        data_dir=tmp_path, asof=ASOF, settings=_settings(), alerts=alerts, slot="midday",
-        now=datetime(2026, 6, 3, 18, 0, tzinfo=UTC), client=client, max_posts=4,
+        data_dir=tmp_path,
+        asof=ASOF,
+        settings=_settings(),
+        alerts=alerts,
+        slot="midday",
+        now=datetime(2026, 6, 3, 18, 0, tzinfo=UTC),
+        client=client,
+        max_posts=4,
     )
     assert res.posted is False
     assert "cap" in (res.suppressed_reason or "")
-    assert alerts.slack == []          # nothing posted
+    assert alerts.slack == []  # nothing posted
     assert client.messages.calls == []  # Claude never called — cost is bounded
     assert _decisions(tmp_path)[-1]["suppressed"]  # suppression is observable
 
@@ -314,8 +377,14 @@ def test_run_watch_respects_min_gap(tmp_path: Path) -> None:
     _seed_state(tmp_path, ASOF, posts_today=1, last_post_at=now)
     client = _FakeClient()
     res = run_watch(
-        data_dir=tmp_path, asof=ASOF, settings=_settings(), alerts=_FakeAlerts(), slot="midday",
-        now=now, client=client, min_gap_min=30,
+        data_dir=tmp_path,
+        asof=ASOF,
+        settings=_settings(),
+        alerts=_FakeAlerts(),
+        slot="midday",
+        now=now,
+        client=client,
+        min_gap_min=30,
     )
     assert res.posted is False
     assert "min-gap" in (res.suppressed_reason or "")
@@ -337,19 +406,31 @@ def test_run_watch_suppresses_duplicate_content(tmp_path: Path) -> None:
 def test_run_watch_dry_run_does_not_post(tmp_path: Path) -> None:
     alerts = _FakeAlerts()
     res = run_watch(
-        data_dir=tmp_path, asof=ASOF, settings=_settings(), alerts=alerts, slot="open",
-        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC), client=_FakeClient(), dry_run=True,
+        data_dir=tmp_path,
+        asof=ASOF,
+        settings=_settings(),
+        alerts=alerts,
+        slot="open",
+        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC),
+        client=_FakeClient(),
+        dry_run=True,
     )
     assert res.posted is False
     assert alerts.slack == []
     # still logged (the Claude call happened and is on the audit trail)
-    assert any(r.get("phase") == "watch-intraday" and r.get("comment") for r in _decisions(tmp_path))
+    assert any(
+        r.get("phase") == "watch-intraday" and r.get("comment") for r in _decisions(tmp_path)
+    )
 
 
 def test_run_watch_template_fallback_without_llm(tmp_path: Path) -> None:
     alerts = _FakeAlerts()
     res = run_watch(
-        data_dir=tmp_path, asof=ASOF, settings=_settings(key=None), alerts=alerts, slot="midday",
+        data_dir=tmp_path,
+        asof=ASOF,
+        settings=_settings(key=None),
+        alerts=alerts,
+        slot="midday",
         now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC),
     )
     assert res.used_llm is False
@@ -359,8 +440,13 @@ def test_run_watch_template_fallback_without_llm(tmp_path: Path) -> None:
 
 def test_run_watch_never_raises_on_alerts_failure(tmp_path: Path) -> None:
     res = run_watch(
-        data_dir=tmp_path, asof=ASOF, settings=_settings(), alerts=_RaisingAlerts(), slot="open",
-        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC), client=_FakeClient(),
+        data_dir=tmp_path,
+        asof=ASOF,
+        settings=_settings(),
+        alerts=_RaisingAlerts(),
+        slot="open",
+        now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC),
+        client=_FakeClient(),
     )
     assert res.posted is False  # fail-open: a Slack hiccup can never crash a tick
 
@@ -368,7 +454,11 @@ def test_run_watch_never_raises_on_alerts_failure(tmp_path: Path) -> None:
 def test_run_watch_failopen_on_empty_dir(tmp_path: Path) -> None:
     # no key, no client, empty data dir — must produce a result and never raise
     res = run_watch(
-        data_dir=tmp_path, asof=ASOF, settings=_settings(key=None), alerts=_FakeAlerts(), slot="open",
+        data_dir=tmp_path,
+        asof=ASOF,
+        settings=_settings(key=None),
+        alerts=_FakeAlerts(),
+        slot="open",
         now=datetime(2026, 6, 3, 14, 0, tzinfo=UTC),
     )
     assert res.body is not None
@@ -393,7 +483,9 @@ def test_watch_module_imports_no_order_or_governance_write_paths() -> None:
         "governance refresh",
     ]
     for sym in forbidden:
-        assert sym not in src, f"watch.py must never reference an order/governance-write path: {sym!r}"
+        assert sym not in src, (
+            f"watch.py must never reference an order/governance-write path: {sym!r}"
+        )
 
 
 def test_watch_subcommand_registered() -> None:

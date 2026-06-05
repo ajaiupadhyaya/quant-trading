@@ -125,7 +125,9 @@ def _read_jobs(data_dir: Path, asof: date) -> list[tuple[str, str, int]]:
             m = json.loads(marker.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        out.append((str(m.get("job", marker.name)), str(m.get("kind", "?")), int(m.get("exit_code", -1))))
+        out.append(
+            (str(m.get("job", marker.name)), str(m.get("kind", "?")), int(m.get("exit_code", -1)))
+        )
     return out
 
 
@@ -156,7 +158,9 @@ def gather_digest_data(
             prev_equity = float(last["last_equity"]) if "last_equity" in eq.columns else None
             cash = float(last["cash"]) if "cash" in eq.columns else None
 
-    positions = live_positions if live_positions is not None else _latest_positions_snapshot(data_dir)
+    positions = (
+        live_positions if live_positions is not None else _latest_positions_snapshot(data_dir)
+    )
 
     # Orders submitted (or would-be, in dry-run) for asof.
     orders: list[dict[str, Any]] = []
@@ -229,10 +233,12 @@ def render_facts(d: DigestData) -> str:
 
     if d.orders:
         any_dry = any(o["dry_run"] for o in d.orders)
-        tag = " (all DRY-RUN)" if all(o["dry_run"] for o in d.orders) else (" (some DRY-RUN)" if any_dry else "")
-        order_str = "; ".join(
-            f"{o['side'].upper()} {o['qty']} {o['symbol']}" for o in d.orders
+        tag = (
+            " (all DRY-RUN)"
+            if all(o["dry_run"] for o in d.orders)
+            else (" (some DRY-RUN)" if any_dry else "")
         )
+        order_str = "; ".join(f"{o['side'].upper()} {o['qty']} {o['symbol']}" for o in d.orders)
         lines.append(f"Orders today ({len(d.orders)}){tag}: {order_str}")
     else:
         lines.append("Orders today: none (no rebalance fired)")
@@ -294,7 +300,10 @@ def narrate(facts: str, *, settings: Any, client: Any | None = None) -> str | No
 
 def _slack_blocks(asof: date, body: str) -> list[dict[str, Any]]:
     return [
-        {"type": "header", "text": {"type": "plain_text", "text": f"📊 quant daily digest — {asof.isoformat()}"}},
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": f"📊 quant daily digest — {asof.isoformat()}"},
+        },
         {"type": "section", "text": {"type": "mrkdwn", "text": body[:2900]}},
     ]
 

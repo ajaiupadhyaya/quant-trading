@@ -31,11 +31,23 @@ _TRADING_DAYS = 252
 # concentration by asset class (not just per-symbol). Unknown symbols (e.g. the
 # multi-factor single-stock universe) bucket to "other".
 _SECTOR_MAP: dict[str, str] = {
-    "SPY": "equity", "EFA": "equity", "EEM": "equity", "QQQ": "equity", "IWM": "equity",
+    "SPY": "equity",
+    "EFA": "equity",
+    "EEM": "equity",
+    "QQQ": "equity",
+    "IWM": "equity",
     "VNQ": "real_estate",
-    "TLT": "bond", "IEF": "bond", "SHY": "bond", "LQD": "bond", "HYG": "bond", "AGG": "bond",
-    "GLD": "gold", "IAU": "gold",
-    "DBC": "commodity", "USO": "commodity", "SLV": "commodity",
+    "TLT": "bond",
+    "IEF": "bond",
+    "SHY": "bond",
+    "LQD": "bond",
+    "HYG": "bond",
+    "AGG": "bond",
+    "GLD": "gold",
+    "IAU": "gold",
+    "DBC": "commodity",
+    "USO": "commodity",
+    "SLV": "commodity",
 }
 
 
@@ -327,4 +339,6 @@ def build_portfolio_risk_gate(
 
     ok = not violations
     severity = "ok" if ok else ("block" if mode is RiskGateMode.BLOCK else "warn")
-    return RiskGateResult(mode=mode, ok=ok, severity=severity, violations=tuple(violations), risk=risk)
+    return RiskGateResult(
+        mode=mode, ok=ok, severity=severity, violations=tuple(violations), risk=risk
+    )

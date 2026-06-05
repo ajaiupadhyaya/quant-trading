@@ -158,23 +158,35 @@ def test_propose_clamps_tilts_to_live_strategies(tmp_path: Path) -> None:
 def test_propose_clamps_throttle_one_way(tmp_path: Path) -> None:
     bad = dict(PROPOSAL_INPUT, risk_throttle=2.5)  # never allowed to raise risk
     p = propose(
-        "f", "c", settings=_settings(), asof=ASOF, live_slugs=LIVE,
-        client=_FakeClient(name="submit_proposals", data=bad), data_dir=tmp_path,
+        "f",
+        "c",
+        settings=_settings(),
+        asof=ASOF,
+        live_slugs=LIVE,
+        client=_FakeClient(name="submit_proposals", data=bad),
+        data_dir=tmp_path,
     )
     assert p is not None and p.risk_throttle == 1.0
 
 
 def test_propose_no_key_returns_none(tmp_path: Path) -> None:
     assert (
-        propose("f", "c", settings=_settings(key=None), asof=ASOF, live_slugs=LIVE, data_dir=tmp_path)
+        propose(
+            "f", "c", settings=_settings(key=None), asof=ASOF, live_slugs=LIVE, data_dir=tmp_path
+        )
         is None
     )
 
 
 def test_propose_logs_phase_b_applies_nothing(tmp_path: Path) -> None:
     propose(
-        "f", "c", settings=_settings(), asof=ASOF, live_slugs=LIVE,
-        client=_FakeClient(name="submit_proposals", data=PROPOSAL_INPUT), data_dir=tmp_path,
+        "f",
+        "c",
+        settings=_settings(),
+        asof=ASOF,
+        live_slugs=LIVE,
+        client=_FakeClient(name="submit_proposals", data=PROPOSAL_INPUT),
+        data_dir=tmp_path,
     )
     log = tmp_path / "analyst" / "decisions.jsonl"
     rec = json.loads(log.read_text(encoding="utf-8").strip().splitlines()[-1])
@@ -207,7 +219,13 @@ def test_propose_uses_model_override(tmp_path: Path) -> None:
     """The intraday shadow log overrides the model with a cheaper one."""
     client = _FakeClient(name="submit_proposals", data=PROPOSAL_INPUT)
     propose(
-        "f", "c", settings=_settings(), asof=ASOF, live_slugs=LIVE,
-        client=client, data_dir=tmp_path, model="claude-haiku-4-5",
+        "f",
+        "c",
+        settings=_settings(),
+        asof=ASOF,
+        live_slugs=LIVE,
+        client=client,
+        data_dir=tmp_path,
+        model="claude-haiku-4-5",
     )
     assert client.messages.calls[0]["model"] == "claude-haiku-4-5"

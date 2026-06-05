@@ -106,9 +106,7 @@ class AdvisorBrief:
 
     def render(self) -> str:
         """Slack/markdown-friendly rendering of the brief."""
-        posture_note = (
-            "full size" if self.suggested_risk_posture >= 0.999 else "suggested DE-RISK"
-        )
+        posture_note = "full size" if self.suggested_risk_posture >= 0.999 else "suggested DE-RISK"
         lines = [
             f"*{self.headline}*",
             f"- *Regime:* {self.regime_read}",

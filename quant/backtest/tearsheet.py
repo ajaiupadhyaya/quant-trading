@@ -364,9 +364,7 @@ def write_tearsheet(
             "latest": latest_params,
             "windows": windows_payload,
         }
-        (out_dir / "chosen_params.json").write_text(
-            json.dumps(payload, indent=2), encoding="utf-8"
-        )
+        (out_dir / "chosen_params.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     return html_path
 

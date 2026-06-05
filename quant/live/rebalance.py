@@ -588,9 +588,7 @@ def run_rebalance(
         )
     else:
         violation_detail = "; ".join(v.detail for v in pretrade.violations)
-        safety_results.append(
-            CheckResult(ok=False, name="pretrade_risk", detail=violation_detail)
-        )
+        safety_results.append(CheckResult(ok=False, name="pretrade_risk", detail=violation_detail))
         if not dry_run:
             logger.error(
                 "safety: pre-trade risk violation — refusing to submit. {}", violation_detail

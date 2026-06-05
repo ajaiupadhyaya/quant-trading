@@ -189,8 +189,10 @@ def _finite(x: Any) -> float | None:
 
 def _standardize(col: pd.Series, window: int, min_obs: int) -> pd.Series:
     """Trailing rolling z-score. Verbatim port of regime.features._standardize."""
-    roll = col.rolling(window=window, min_periods=min_obs) if window > 0 else col.expanding(
-        min_periods=min_obs
+    roll = (
+        col.rolling(window=window, min_periods=min_obs)
+        if window > 0
+        else col.expanding(min_periods=min_obs)
     )
     mean: pd.Series = roll.mean()
     std: pd.Series = roll.std(ddof=0)
@@ -489,9 +491,9 @@ def _vol_block(
     vix_level = _finite(vix_aligned.iloc[loc]) if vix_aligned is not None else None
     vix_z = (
         _finite(
-            _standardize(
-                vix_aligned, config.standardize_window, config.min_standardize_obs
-            ).iloc[loc]
+            _standardize(vix_aligned, config.standardize_window, config.min_standardize_obs).iloc[
+                loc
+            ]
         )
         if vix_aligned is not None
         else None

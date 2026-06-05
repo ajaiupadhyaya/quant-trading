@@ -102,7 +102,11 @@ def test_loader_never_fetches_network(
 
     monkeypatch.setattr(bars, "_fetch_alpaca", _boom)
     monkeypatch.setattr(bars, "_fetch_yfinance", _boom)
-    monkeypatch.setattr(sig.macro, "get_series", lambda code: macro_series(18.0, pd.bdate_range("2022-01-03", periods=600)))
+    monkeypatch.setattr(
+        sig.macro,
+        "get_series",
+        lambda code: macro_series(18.0, pd.bdate_range("2022-01-03", periods=600)),
+    )
 
     rec = load_market_signals(asof=date(2024, 6, 27))
     assert rec.computable is True

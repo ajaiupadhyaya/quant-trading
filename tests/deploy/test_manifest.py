@@ -40,7 +40,9 @@ def test_intraday_watch_jobs_are_readonly_and_page_safe() -> None:
         assert j.catch_up == CatchUpPolicy.SAME_DAY
         assert j.timing_critical is False  # runs under the 'batch' lock, never trades
         assert j.commit_paths == ()  # the watch commits nothing
-        assert j.commands == (("analyst", "watch", "--slot", j.name.removeprefix("intraday-watch-")),)
+        assert j.commands == (
+            ("analyst", "watch", "--slot", j.name.removeprefix("intraday-watch-")),
+        )
     # the power-hour slot must close out before the 15:55 rebalance window
     ph = next(j for j in watch if j.name == "intraday-watch-power-hour")
     assert ph.max_lateness == time(15, 30)

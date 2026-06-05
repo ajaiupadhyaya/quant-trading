@@ -42,8 +42,13 @@ def test_score_in_unit_range() -> None:
 
 def _item(headline: str, summary: str = "", created: str = "2026-06-03T12:00:00+00:00") -> NewsItem:
     return NewsItem(
-        id=headline[:8], created_at=created, headline=headline, summary=summary,
-        source="benzinga", symbols=("SPY",), url=None,
+        id=headline[:8],
+        created_at=created,
+        headline=headline,
+        summary=summary,
+        source="benzinga",
+        symbols=("SPY",),
+        url=None,
     )
 
 

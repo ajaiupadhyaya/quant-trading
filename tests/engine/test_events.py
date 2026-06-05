@@ -45,7 +45,9 @@ def test_vol_spike_on_jump_and_on_absolute_level() -> None:
 
 
 def test_breadth_collapse() -> None:
-    assert "breadth_collapse" in _codes(mk_state(breadth=0.8), mk_state(breadth=0.2))  # absolute low
+    assert "breadth_collapse" in _codes(
+        mk_state(breadth=0.8), mk_state(breadth=0.2)
+    )  # absolute low
     assert "breadth_collapse" in _codes(mk_state(breadth=0.9), mk_state(breadth=0.6))  # -0.3 drop
 
 

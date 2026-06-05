@@ -46,7 +46,9 @@ def test_session_phase_weekend_is_closed() -> None:
 
 
 def test_build_state_failopen_on_empty_data_dir(tmp_path: Path) -> None:
-    s = build_market_state(tmp_path, asof=date(2026, 6, 3), now_utc=datetime(2026, 6, 3, 14, tzinfo=UTC))
+    s = build_market_state(
+        tmp_path, asof=date(2026, 6, 3), now_utc=datetime(2026, 6, 3, 14, tzinfo=UTC)
+    )
     assert s.halt_active is False
     assert s.composite_label is None  # no signals logged
     assert "signals" in s.degraded
@@ -115,8 +117,15 @@ def test_macro_nowcast_flows_into_state(tmp_path: Path) -> None:
     from quant.macro.nowcast import compute_macro_nowcast
 
     nowcast = compute_macro_nowcast(
-        date(2026, 6, 3), t10y3m=-0.4, hy_oas=4.5, nfci=0.1, claims=230_000,
-        claims_year_low=210_000, sahm=0.2, baa=5.6, aaa=4.7,
+        date(2026, 6, 3),
+        t10y3m=-0.4,
+        hy_oas=4.5,
+        nfci=0.1,
+        claims=230_000,
+        claims_year_low=210_000,
+        sahm=0.2,
+        baa=5.6,
+        aaa=4.7,
     )
     s = build_market_state(tmp_path, asof=date(2026, 6, 3), macro_nowcast=nowcast)
     assert s.macro_cycle_label == "late-cycle"
@@ -141,9 +150,19 @@ def test_vol_surface_flows_into_state(tmp_path: Path) -> None:
     asof = date(2026, 6, 3)
 
     def mk(dte, strike, right, vol):
-        return OptionQuote(asof + timedelta(days=dte), strike, right, bs_price(750, strike, dte / 365, vol, 0.045, 0.013, right))
+        return OptionQuote(
+            asof + timedelta(days=dte),
+            strike,
+            right,
+            bs_price(750, strike, dte / 365, vol, 0.045, 0.013, right),
+        )
 
-    quotes = [mk(28, 750, "call", 0.16), mk(28, 712.5, "put", 0.22), mk(28, 787.5, "call", 0.14), mk(88, 750, "call", 0.17)]
+    quotes = [
+        mk(28, 750, "call", 0.16),
+        mk(28, 712.5, "put", 0.22),
+        mk(28, 787.5, "call", 0.14),
+        mk(88, 750, "call", 0.17),
+    ]
     vs = compute_vol_surface(quotes, 750.0, asof)
     s = build_market_state(tmp_path, asof=asof, vol_surface=vs)
     assert s.iv_regime == "normal"

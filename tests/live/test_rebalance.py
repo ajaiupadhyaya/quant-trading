@@ -771,9 +771,7 @@ def test_pretrade_violation_refuses_live_submit(
     assert report.skipped_reason is not None and "pretrade_risk" in report.skipped_reason
 
 
-def test_submit_failure_is_recorded_not_silent(
-    fake_settings: Settings, patched_bars: None
-) -> None:
+def test_submit_failure_is_recorded_not_silent(fake_settings: Settings, patched_bars: None) -> None:
     """A broker submit error is logged AND recorded, never silently dropped."""
 
     class _RaisingStubClient(_StubAlpacaClient):

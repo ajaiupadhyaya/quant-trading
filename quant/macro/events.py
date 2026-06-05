@@ -121,11 +121,14 @@ def upcoming_events(asof: date, *, horizon_days: int = 21) -> list[ScheduledEven
         opex = _opex(y, m)
         quad = m in (3, 6, 9, 12)
         cand.append(
-            ScheduledEvent("Quad-witching" if quad else "OpEx", opex.isoformat(),
-                           "high" if quad else "medium")
+            ScheduledEvent(
+                "Quad-witching" if quad else "OpEx", opex.isoformat(), "high" if quad else "medium"
+            )
         )
         if m in (3, 6, 9, 12):
-            cand.append(ScheduledEvent("Quarter-end", _last_business_day(y, m).isoformat(), "medium"))
+            cand.append(
+                ScheduledEvent("Quarter-end", _last_business_day(y, m).isoformat(), "medium")
+            )
 
     for yr in {asof.year, end.year}:
         e = _election_day(yr)

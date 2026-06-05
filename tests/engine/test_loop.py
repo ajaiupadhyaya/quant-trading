@@ -123,7 +123,9 @@ def test_claude_session_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         equity_fn=lambda: None,
         slack=SpySlack(),
         claude_fn=lambda a, b, c: calls.append(1) or "x",
-        config=EngineConfig(claude_min_gap_s=0.0, claude_max_per_session=1, event_dedup_window_s=0.0),
+        config=EngineConfig(
+            claude_min_gap_s=0.0, claude_max_per_session=1, event_dedup_window_s=0.0
+        ),
     )
     assert len(calls) == 1  # capped at 1/session despite gap satisfied
 
@@ -168,9 +170,7 @@ def test_claude_gate_persists_across_runs(tmp_path: Path, monkeypatch: pytest.Mo
     assert len(calls) == 1  # second run respected the persisted min-gap
 
 
-def test_failsafe_continues_on_cycle_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_failsafe_continues_on_cycle_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = {"n": 0}
 
     def flaky_build(*a: object, **k: object):

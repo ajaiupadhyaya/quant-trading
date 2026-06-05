@@ -50,7 +50,5 @@ def test_max_runtime_bounded() -> None:
 
 def test_signals_logs_are_gitignored() -> None:
     for rel in ("data/research/signals.jsonl", "data/research/signals_latest.json"):
-        out = subprocess.run(
-            ["git", "check-ignore", rel], cwd=REPO, capture_output=True, text=True
-        )
+        out = subprocess.run(["git", "check-ignore", rel], cwd=REPO, capture_output=True, text=True)
         assert out.returncode == 0, f"{rel} is not gitignored"

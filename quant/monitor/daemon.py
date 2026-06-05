@@ -251,9 +251,7 @@ def run_loop(
                 else None
             )
             live_equity = (
-                live_equity_fn()
-                if (tick_inputs is None and live_equity_fn is not None)
-                else None
+                live_equity_fn() if (tick_inputs is None and live_equity_fn is not None) else None
             )
             now = now_fn() if now_fn is not None else None
             res = run_once(

@@ -60,8 +60,7 @@ def test_recession_onset_no_refire_when_already_high() -> None:
 
 def test_nowcast_detectors_quiet_on_first_cycle() -> None:
     codes = {
-        e.code
-        for e in detect_events(None, mk_state(hy_oas=9.0, recession_risk_label="high"), CFG)
+        e.code for e in detect_events(None, mk_state(hy_oas=9.0, recession_risk_label="high"), CFG)
     }
     assert "credit_stress" not in codes
     assert "recession_onset" not in codes

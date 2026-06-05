@@ -53,7 +53,9 @@ def test_compute_event_risk_stressed_on_backwardation() -> None:
 
 def test_compute_event_risk_calm_when_quiet() -> None:
     # A date far from any high-impact event, loose conditions, contango.
-    r = compute_event_risk(date(2026, 8, 12), epu=90, nfci=-0.6, finstress=-0.8, vix=14.0, vix3m=16.0)
+    r = compute_event_risk(
+        date(2026, 8, 12), epu=90, nfci=-0.6, finstress=-0.8, vix=14.0, vix3m=16.0
+    )
     assert r.in_event_window is False
     assert r.risk_label == "calm"
 

@@ -63,8 +63,12 @@ def test_gate_each_metric_trips_independently() -> None:
 def test_gate_none_metrics_never_violate() -> None:
     g = build_portfolio_risk_gate(
         _risk(
-            ann_vol=None, var_95=None, cvar_95=None, beta_to_benchmark=None,
-            computable=False, sector_exposure={},
+            ann_vol=None,
+            var_95=None,
+            cvar_95=None,
+            beta_to_benchmark=None,
+            computable=False,
+            sector_exposure={},
         ),
         limits=PortfolioRiskLimits(),
     )
@@ -74,12 +78,19 @@ def test_gate_none_metrics_never_violate() -> None:
 
 def test_gate_uncomputable_fail_closed_only_when_enabled() -> None:
     degraded = _risk(
-        ann_vol=None, var_95=None, cvar_95=None, beta_to_benchmark=None,
-        computable=False, sector_exposure={},
+        ann_vol=None,
+        var_95=None,
+        cvar_95=None,
+        beta_to_benchmark=None,
+        computable=False,
+        sector_exposure={},
     )
-    assert build_portfolio_risk_gate(
-        degraded, limits=PortfolioRiskLimits(fail_closed_on_uncomputable=False)
-    ).ok is True
+    assert (
+        build_portfolio_risk_gate(
+            degraded, limits=PortfolioRiskLimits(fail_closed_on_uncomputable=False)
+        ).ok
+        is True
+    )
     g = build_portfolio_risk_gate(
         degraded, limits=PortfolioRiskLimits(fail_closed_on_uncomputable=True)
     )

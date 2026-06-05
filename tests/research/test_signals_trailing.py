@@ -86,9 +86,7 @@ def test_future_rows_do_not_leak() -> None:
     # And a wildly different future must not change the as-of read.
     poisoned = panel.copy()
     poisoned.iloc[t + 1 :] = poisoned.iloc[t + 1 :] * 5.0
-    poisoned_sig = build_market_signals(
-        closes=poisoned, vix=vix, dgs10=d10, dgs2=d2, asof=asof
-    )
+    poisoned_sig = build_market_signals(closes=poisoned, vix=vix, dgs10=d10, dgs2=d2, asof=asof)
     assert to_json_dict(poisoned_sig) == to_json_dict(cut)
 
 

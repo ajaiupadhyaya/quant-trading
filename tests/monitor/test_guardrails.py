@@ -53,7 +53,9 @@ def test_equity_health_ok_when_positive() -> None:
     out = evaluate_equity_health(1_000_000.0, source="live", had_positive_history=False)
     assert out.severity == "ok"
     assert out.name == "equity_health"
-    assert evaluate_equity_health(50_000.0, source="local", had_positive_history=True).severity == "ok"
+    assert (
+        evaluate_equity_health(50_000.0, source="local", had_positive_history=True).severity == "ok"
+    )
 
 
 def test_equity_health_halts_on_live_zero() -> None:

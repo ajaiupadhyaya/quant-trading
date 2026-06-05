@@ -109,15 +109,15 @@ def test_compute_vol_forecast_empty_is_unavailable() -> None:
 def test_live_vol_forecast_failopen(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     from quant.data import macro as macro_mod
 
-    monkeypatch.setattr(
-        macro_mod, "get_series", lambda code: (_ for _ in ()).throw(RuntimeError())
-    )
+    monkeypatch.setattr(macro_mod, "get_series", lambda code: (_ for _ in ()).throw(RuntimeError()))
     f = live_vol_forecast(SimpleNamespace(data_dir=tmp_path), ASOF)  # empty cache → no bars
     assert f.forecast_vol_ann is None  # degraded, never raises
 
 
 def test_render_populated() -> None:
-    f = compute_vol_forecast(_sim_garch(800, seed=2), ASOF, symbol="SPY", vix=16.0, oos_skill="beats EWMA")
+    f = compute_vol_forecast(
+        _sim_garch(800, seed=2), ASOF, symbol="SPY", vix=16.0, oos_skill="beats EWMA"
+    )
     out = render_vol_forecast(f)
     assert "SPY HAR 1d-ahead vol=" in out
     assert "regime=" in out

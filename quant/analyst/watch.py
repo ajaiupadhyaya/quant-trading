@@ -343,7 +343,10 @@ def _slack_blocks(asof: date, slot: str, body: str) -> list[dict[str, Any]]:
     return [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": f"🟢 quant intraday [{slot}] — {asof.isoformat()}"},
+            "text": {
+                "type": "plain_text",
+                "text": f"🟢 quant intraday [{slot}] — {asof.isoformat()}",
+            },
         },
         {"type": "section", "text": {"type": "mrkdwn", "text": body[:2900]}},
     ]
@@ -382,16 +385,31 @@ def run_watch(
         reason = f"daily cap reached ({state.posts_today}/{max_posts})"
         _append_decision(
             data_dir,
-            {"at": now.isoformat(), "asof": asof.isoformat(), "phase": _PHASE,
-             "applied": False, "slot": slot, "suppressed": reason},
+            {
+                "at": now.isoformat(),
+                "asof": asof.isoformat(),
+                "phase": _PHASE,
+                "applied": False,
+                "slot": slot,
+                "suppressed": reason,
+            },
         )
         return WatchResult(body=None, used_llm=False, posted=False, suppressed_reason=reason)
-    if state.last_post_at is not None and (now - state.last_post_at).total_seconds() < min_gap_min * 60:
+    if (
+        state.last_post_at is not None
+        and (now - state.last_post_at).total_seconds() < min_gap_min * 60
+    ):
         reason = f"within min-gap ({min_gap_min}m)"
         _append_decision(
             data_dir,
-            {"at": now.isoformat(), "asof": asof.isoformat(), "phase": _PHASE,
-             "applied": False, "slot": slot, "suppressed": reason},
+            {
+                "at": now.isoformat(),
+                "asof": asof.isoformat(),
+                "phase": _PHASE,
+                "applied": False,
+                "slot": slot,
+                "suppressed": reason,
+            },
         )
         return WatchResult(body=None, used_llm=False, posted=False, suppressed_reason=reason)
 
@@ -445,8 +463,14 @@ def run_watch(
         reason = "duplicate content"
         _append_decision(
             data_dir,
-            {"at": now.isoformat(), "asof": asof.isoformat(), "phase": _PHASE,
-             "applied": False, "slot": slot, "suppressed": reason},
+            {
+                "at": now.isoformat(),
+                "asof": asof.isoformat(),
+                "phase": _PHASE,
+                "applied": False,
+                "slot": slot,
+                "suppressed": reason,
+            },
         )
         return WatchResult(body=body, used_llm=used_llm, posted=False, suppressed_reason=reason)
 
@@ -454,7 +478,9 @@ def run_watch(
     if not dry_run:
         try:
             posted = bool(
-                alerts.send_slack(_slack_text(asof, slot, body), blocks=_slack_blocks(asof, slot, body))
+                alerts.send_slack(
+                    _slack_text(asof, slot, body), blocks=_slack_blocks(asof, slot, body)
+                )
             )
         except Exception as exc:  # fail-open: a Slack hiccup must never crash a tick
             logger.error("watch: Slack post failed ({!r})", exc)

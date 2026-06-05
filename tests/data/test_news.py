@@ -29,7 +29,9 @@ def test_to_item_parses_and_skips_headless() -> None:
 
 
 def test_fetch_parses_and_dedups(monkeypatch: pytest.MonkeyPatch) -> None:
-    resp = SimpleNamespace(data={"news": [_raw("1", "A surges"), _raw("1", "A surges"), _raw("2", "B falls")]})
+    resp = SimpleNamespace(
+        data={"news": [_raw("1", "A surges"), _raw("1", "A surges"), _raw("2", "B falls")]}
+    )
     monkeypatch.setattr(nm, "_with_timeout", lambda fn, seconds: resp)
     settings = SimpleNamespace(alpaca_api_key="k", alpaca_secret_key="s")
     items = fetch_news(settings, ["SPY"])
@@ -37,7 +39,9 @@ def test_fetch_parses_and_dedups(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_fetch_failopen_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(nm, "_with_timeout", lambda fn, seconds: (_ for _ in ()).throw(RuntimeError()))
+    monkeypatch.setattr(
+        nm, "_with_timeout", lambda fn, seconds: (_ for _ in ()).throw(RuntimeError())
+    )
     settings = SimpleNamespace(alpaca_api_key="k", alpaca_secret_key="s")
     assert fetch_news(settings, ["SPY"]) == []
 

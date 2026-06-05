@@ -100,9 +100,7 @@ def test_nonfinite_inputs_sanitized() -> None:
 def test_live_macro_nowcast_failopen(monkeypatch: pytest.MonkeyPatch) -> None:
     from quant.data import macro as macro_mod
 
-    monkeypatch.setattr(
-        macro_mod, "get_series", lambda code: (_ for _ in ()).throw(RuntimeError())
-    )
+    monkeypatch.setattr(macro_mod, "get_series", lambda code: (_ for _ in ()).throw(RuntimeError()))
     n = live_macro_nowcast(SimpleNamespace(), ASOF, config=MacroNowcastConfig())
     assert n.recession_risk is None and n.n_components == 0
     assert n.cycle_label is None  # FRED down → degraded but no exception
@@ -124,7 +122,9 @@ def test_live_macro_nowcast_computes_claims_year_low(monkeypatch: pytest.MonkeyP
 
 def test_render() -> None:
     assert render_macro_nowcast(None) == "Macro nowcast: unavailable"
-    n = compute_macro_nowcast(ASOF, t10y3m=-0.4, hy_oas=4.5, nfci=0.1, claims=230_000, claims_year_low=210_000, sahm=0.2)
+    n = compute_macro_nowcast(
+        ASOF, t10y3m=-0.4, hy_oas=4.5, nfci=0.1, claims=230_000, claims_year_low=210_000, sahm=0.2
+    )
     out = render_macro_nowcast(n)
     assert "cycle=late-cycle" in out
     assert "HY_OAS=4.5%" in out

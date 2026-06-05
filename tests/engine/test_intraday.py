@@ -39,7 +39,9 @@ def test_intraday_return_and_breadth() -> None:
 
 
 def test_parkinson_range_vol_matches_formula() -> None:
-    snap = _snap(SPY={"price": 100.0, "prev_close": 100.0, "high": 105.0, "low": 95.0, "minute_ts": "t"})
+    snap = _snap(
+        SPY={"price": 100.0, "prev_close": 100.0, "high": 105.0, "low": 95.0, "minute_ts": "t"}
+    )
     s = compute_intraday_signals(snap)
     expected = (math.log(105.0 / 95.0) / (2 * math.sqrt(math.log(2)))) * math.sqrt(252)
     assert abs(s.range_vol - expected) < 1e-9
@@ -47,7 +49,13 @@ def test_parkinson_range_vol_matches_formula() -> None:
 
 def test_dispersion_and_asof_from_market() -> None:
     snap = _snap(
-        SPY={"price": 101.0, "prev_close": 100.0, "high": 101.0, "low": 100.0, "minute_ts": "spy-ts"}
+        SPY={
+            "price": 101.0,
+            "prev_close": 100.0,
+            "high": 101.0,
+            "low": 100.0,
+            "minute_ts": "spy-ts",
+        }
     )
     s = compute_intraday_signals(snap)
     assert s.dispersion is not None and s.dispersion >= 0
@@ -60,21 +68,27 @@ def test_failopen_on_none_and_empty() -> None:
 
 
 def test_missing_prev_close_is_skipped() -> None:
-    snap = {"SPY": {"price": 100.0, "prev_close": None, "high": 101.0, "low": 99.0, "minute_ts": "t"}}
+    snap = {
+        "SPY": {"price": 100.0, "prev_close": None, "high": 101.0, "low": 99.0, "minute_ts": "t"}
+    }
     s = compute_intraday_signals(snap)
     assert s.spy_ret is None  # no valid return without prev_close
     assert s.n_symbols == 0
 
 
 def test_zero_or_negative_prev_close_guarded() -> None:
-    snap = {"SPY": {"price": 100.0, "prev_close": 0.0, "high": 101.0, "low": 99.0, "minute_ts": "t"}}
+    snap = {
+        "SPY": {"price": 100.0, "prev_close": 0.0, "high": 101.0, "low": 99.0, "minute_ts": "t"}
+    }
     assert compute_intraday_signals(snap).spy_ret is None
 
 
 def test_fetch_failopen_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     # The data client import/call raising must degrade to None, never raise.
     settings = SimpleNamespace(alpaca_api_key="k", alpaca_secret_key="s")
-    monkeypatch.setattr(it, "_with_timeout", lambda fn, seconds: (_ for _ in ()).throw(RuntimeError()))
+    monkeypatch.setattr(
+        it, "_with_timeout", lambda fn, seconds: (_ for _ in ()).throw(RuntimeError())
+    )
     assert it.fetch_intraday_snapshot(settings, ["SPY"]) is None
 
 

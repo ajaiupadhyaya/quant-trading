@@ -86,8 +86,6 @@ def test_default_asof_is_today(
     assert seen["asof"] == date.today()
 
 
-def test_signals_show_errors_when_empty(
-    tmp_data_dir: Path, fake_env: object
-) -> None:
+def test_signals_show_errors_when_empty(tmp_data_dir: Path, fake_env: object) -> None:
     res = CliRunner().invoke(cli, ["research", "signals-show"])
     assert res.exit_code != 0  # human query command MAY raise (not in jobs.toml)

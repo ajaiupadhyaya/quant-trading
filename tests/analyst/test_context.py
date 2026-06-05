@@ -159,7 +159,12 @@ def test_render_includes_vol_surface() -> None:
     from quant.options.surface import OptionQuote, compute_vol_surface
 
     def mk(dte, strike, right, vol):
-        return OptionQuote(ASOF + timedelta(days=dte), strike, right, bs_price(750, strike, dte / 365, vol, 0.045, 0.013, right))
+        return OptionQuote(
+            ASOF + timedelta(days=dte),
+            strike,
+            right,
+            bs_price(750, strike, dte / 365, vol, 0.045, 0.013, right),
+        )
 
     quotes = [mk(28, 750, "call", 0.16), mk(28, 712.5, "put", 0.22), mk(28, 787.5, "call", 0.14)]
     vs = compute_vol_surface(quotes, 750.0, ASOF)

@@ -58,7 +58,9 @@ def test_event_detectors_quiet_on_first_cycle() -> None:
     codes = {
         e.code
         for e in detect_events(
-            None, mk_state(in_event_window=True, vix_term_structure=0.9, financial_conditions=0.3), CFG
+            None,
+            mk_state(in_event_window=True, vix_term_structure=0.9, financial_conditions=0.3),
+            CFG,
         )
     }
     assert "event_window" not in codes
@@ -78,9 +80,15 @@ def _clock(start: datetime, step: float):
 
 def _er(label: str = "watch") -> EventRisk:
     return EventRisk(
-        next_event="Jobs report", next_event_date="2026-06-05", days_to_event=2,
-        in_event_window=True, policy_uncertainty=329.0, policy_uncertainty_elevated=True,
-        financial_conditions=-0.49, financial_stress=-0.69, vix_term_structure=1.21,
+        next_event="Jobs report",
+        next_event_date="2026-06-05",
+        days_to_event=2,
+        in_event_window=True,
+        policy_uncertainty=329.0,
+        policy_uncertainty_elevated=True,
+        financial_conditions=-0.49,
+        financial_stress=-0.69,
+        vix_term_structure=1.21,
         risk_label=label,
     )
 
