@@ -17,7 +17,7 @@ symbol-level shock overrides its class-level shock for that symbol.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -106,19 +106,22 @@ def _hypothetical_shock(sym: str, shocks: dict[str, float]) -> float | None:
     return None
 
 
-def _evaluate(weights: dict[str, float], shock_for_symbol: Callable[[str], float | None]) -> dict:
-    """Apply ``shock_for_symbol(sym) -> float | None`` across weights.
+def _shock_for(scen: Scenario, sym: str, returns: pd.DataFrame) -> float | None:
+    """Resolve one scenario's shock for one symbol (None => no shock/no data)."""
+    if isinstance(scen, HistoricalScenario):
+        return _historical_shock(sym, returns, scen.start, scen.end)
+    return _hypothetical_shock(sym, scen.shocks)
 
-    Returns the raw pieces; the caller wraps them into a ScenarioResult (so
-    name/kind are added once). An asset whose shock is None contributes 0 and is
-    recorded in missing_symbols.
-    """
+
+def _evaluate(scen: Scenario, weights: dict[str, float], returns: pd.DataFrame) -> ScenarioResult:
+    """Apply ``scen``'s shocks across ``weights``. An asset whose shock is None
+    contributes 0 and is recorded in ``missing_symbols``."""
     pnl = 0.0
     by_class: dict[str, float] = {}
     missing: list[str] = []
     any_shocked = False
     for sym, w in weights.items():
-        s = shock_for_symbol(sym)
+        s = _shock_for(scen, sym, returns)
         if s is None:
             missing.append(sym)
             s = 0.0
@@ -128,12 +131,14 @@ def _evaluate(weights: dict[str, float], shock_for_symbol: Callable[[str], float
         pnl += contrib
         bucket = _SECTOR_MAP.get(sym.upper(), "other")
         by_class[bucket] = by_class.get(bucket, 0.0) + contrib
-    return {
-        "pnl_pct": pnl if any_shocked else None,
-        "by_class": {k: v for k, v in sorted(by_class.items(), key=lambda kv: kv[1])},
-        "missing_symbols": tuple(sorted(missing)),
-        "computable": any_shocked,
-    }
+    return ScenarioResult(
+        name=scen.name,
+        kind=scen.kind,
+        pnl_pct=pnl if any_shocked else None,
+        by_class={k: v for k, v in sorted(by_class.items(), key=lambda kv: kv[1])},
+        missing_symbols=tuple(sorted(missing)),
+        computable=any_shocked,
+    )
 
 
 def compute_stress(
@@ -146,14 +151,7 @@ def compute_stress(
     results: list[ScenarioResult] = []
     degraded: list[str] = []
     for scen in scenarios:
-        if isinstance(scen, HistoricalScenario):
-            pieces = _evaluate(
-                nonzero,
-                lambda sym, s=scen: _historical_shock(sym, returns, s.start, s.end),
-            )
-        else:
-            pieces = _evaluate(nonzero, lambda sym, s=scen: _hypothetical_shock(sym, s.shocks))
-        res = ScenarioResult(name=scen.name, kind=scen.kind, **pieces)
+        res = _evaluate(scen, nonzero, returns)
         results.append(res)
         if not res.computable:
             degraded.append(scen.name)
