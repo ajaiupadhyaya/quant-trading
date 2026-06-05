@@ -28,10 +28,12 @@ from typing import Any
 
 import pandas as pd
 
+from quant.backtest.impact import trailing_dollar_adv
 from quant.data.bars import BarRequest, get_bars
 from quant.execution.alpaca import AlpacaClient
 from quant.execution.netting import net_orders
 from quant.execution.orders import OrderSide, OrderTemplate
+from quant.execution.policy import ExecutionPolicyConfig, apply_execution_policy
 from quant.execution.reconciler import reconcile
 from quant.live.bookkeeping import (
     append_equity_row,
@@ -127,6 +129,23 @@ def _latest_reference_prices(bars: pd.DataFrame, symbols: set[str]) -> dict[str,
     return prices
 
 
+def _dollar_adv_for(bars: pd.DataFrame, symbols: set[str], asof: date) -> dict[str, float]:
+    """Trailing dollar-ADV per symbol from a strategy's bars (PIT: strictly-prior).
+
+    Reuses the backtest impact helper so live participation control and backtest
+    impact accounting share one definition. ``window`` is fixed at 21 to match
+    ``backtest.impact``'s calibration; a symbol with no estimable ADV is omitted
+    (the policy treats a missing key as fail-open passthrough).
+    """
+    fill_ts = pd.Timestamp(asof)
+    adv: dict[str, float] = {}
+    for symbol in sorted(symbols):
+        value = trailing_dollar_adv(bars, symbol, fill_ts, window=21)
+        if value > 0.0:
+            adv[symbol] = value
+    return adv
+
+
 def _latest_chosen_params(data_dir: Path, slug: str) -> dict[str, Any]:
     """Read ``data/backtests/<slug>/chosen_params.json`` and return its ``latest`` field.
 
@@ -218,6 +237,21 @@ def _write_portfolio_risk_gate_artifact(
     write_json_atomic(path, payload)
 
 
+def _write_execution_plan_artifact(
+    data_dir: Path, *, asof: date, rows: list[dict[str, Any]]
+) -> None:
+    """Write the impact-aware execution plan (atomic JSON). One row per order the
+    policy considered: original/capped/deferred qty, participation, and the
+    resulting order_type/limit_price. Observability for the participation caps and
+    marketable-limit re-pricing the live executor applied."""
+    from quant.util.atomic import write_json_atomic
+
+    payload = {"asof": asof.isoformat(), "orders": rows}
+    path = data_dir / "live" / f"execution_plan.{asof.isoformat()}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(path, payload)
+
+
 def run_rebalance(
     *,
     asof: date | None = None,
@@ -231,6 +265,7 @@ def run_rebalance(
     include_quarantined: bool = False,
     record_bookkeeping: bool = True,
     winddown_participation: float = 0.10,
+    exec_policy: ExecutionPolicyConfig | None = None,
 ) -> RebalanceReport:
     """Execute one rebalance pass. Returns a structured report for the CLI to render."""
     from quant.live.safety import (
@@ -424,6 +459,11 @@ def run_rebalance(
 
     all_trade_rows: list[dict[str, object]] = []
     intended: list[OrderTemplate] = []
+    # Per-symbol trailing dollar-ADV, accumulated from each strategy's bars, used
+    # by the impact-aware execution policy after netting. Disabled by default
+    # (exec_policy=None ⇒ identity), so this is observability-only until enabled.
+    combined_dollar_adv: dict[str, float] = {}
+    exec_policy = exec_policy or ExecutionPolicyConfig()
 
     for slug in enabled:
         if slug in halted:
@@ -493,10 +533,9 @@ def run_rebalance(
 
         previous = last_strategy_positions(settings.data_dir, slug)
         orders = reconcile(target=target, current=previous, strategy_slug=slug)
-        reference_prices = _latest_reference_prices(
-            bars,
-            set(target) | set(previous) | {order.symbol for order in orders},
-        )
+        order_symbols = set(target) | set(previous) | {order.symbol for order in orders}
+        reference_prices = _latest_reference_prices(bars, order_symbols)
+        combined_dollar_adv.update(_dollar_adv_for(bars, order_symbols, asof))
 
         # Collect — do NOT submit inline. Net submission happens after both loops.
         intended.extend(orders)
@@ -585,16 +624,31 @@ def run_rebalance(
     # already recorded intent, so reconciliation stays consistent.
     netted = net_orders(intended)
 
+    combined_reference_prices: dict[str, float] = {}
+    for outcome in report.outcomes:
+        combined_reference_prices.update(outcome.reference_prices)
+
+    # Impact-aware execution policy: cap each netted order to a max participation
+    # of trailing dollar-ADV (residual carried to the next session by reconcile)
+    # and optionally re-price high-participation orders as marketable limits. The
+    # risk gates below then evaluate exactly what will be submitted. Disabled by
+    # default (exec_policy=None ⇒ identity), so the netted batch is unchanged
+    # until consciously enabled.
+    netted, exec_plan_rows = apply_execution_policy(
+        netted,
+        dollar_adv=combined_dollar_adv,
+        reference_prices=combined_reference_prices,
+        cfg=exec_policy,
+    )
+    if exec_plan_rows:
+        _write_execution_plan_artifact(settings.data_dir, asof=asof, rows=exec_plan_rows)
+
     # Guard 4: pre-trade portfolio risk gate on the NETTED orders, evaluated
     # against authoritative account equity (gross-exposure + per-symbol
     # concentration). Computed always for observability; a violation REFUSES the
     # entire live batch (fail-closed), while a dry-run records it without blocking.
     # Mandatory hard gate before the live cutover.
     from quant.risk.pretrade import build_pretrade_report
-
-    combined_reference_prices: dict[str, float] = {}
-    for outcome in report.outcomes:
-        combined_reference_prices.update(outcome.reference_prices)
     pretrade = build_pretrade_report(
         equity=account.equity, orders=netted, reference_prices=combined_reference_prices
     )

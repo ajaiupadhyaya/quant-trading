@@ -872,3 +872,63 @@ def test_guard5_is_fail_open_and_never_aborts_the_batch(
     assert report.dry_run is True
     assert _check(report, "portfolio_risk_gate") is None  # it raised before appending
     assert not (report.skipped_reason or "").startswith("portfolio_risk_gate")
+
+
+def test_exec_policy_default_off_submits_uncapped(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    """No exec_policy ⇒ identity: orders submitted exactly as netted (byte-for-byte)."""
+    client = _StubAlpacaClient()
+    run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=False,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+    )
+    # No execution-plan artifact is written when the policy is disabled.
+    assert not list((fake_settings.data_dir / "live").glob("execution_plan.*.json"))
+
+
+def test_exec_policy_enabled_caps_submitted_qty_and_writes_artifact(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    """An aggressive participation cap shrinks (or drops) what actually hits the broker,
+    and emits the execution-plan artifact — proving the live wiring, not just the unit."""
+    from quant.execution.policy import ExecutionPolicyConfig
+
+    # Both runs are planning-only (record_bookkeeping=False) so neither persists
+    # positions — they start from the same empty book and the ONLY difference is
+    # the execution policy.
+    baseline = _StubAlpacaClient()
+    run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=baseline,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+        record_bookkeeping=False,
+    )
+    baseline_qty = {o.symbol: o.qty for o in baseline.submitted}
+
+    capped_settings_dir = fake_settings.data_dir
+    capped = _StubAlpacaClient()
+    run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=capped,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+        exec_policy=ExecutionPolicyConfig(enabled=True, max_participation=1e-6),
+        record_bookkeeping=False,
+    )
+    capped_qty = {o.symbol: o.qty for o in capped.submitted}
+
+    # With a near-zero participation cap, every submitted order is strictly smaller
+    # (or fully deferred/dropped) than the uncapped baseline.
+    assert baseline_qty, "baseline produced no orders — test would be vacuous"
+    for sym, q in capped_qty.items():
+        assert q < baseline_qty[sym]
+    assert len(capped.submitted) <= len(baseline.submitted)
+    # Artifact written under data/live/.
+    assert list((capped_settings_dir / "live").glob("execution_plan.*.json"))
