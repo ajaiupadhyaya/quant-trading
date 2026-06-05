@@ -45,6 +45,7 @@ def _evidence(slug: str = "trend", **overrides: object) -> ValidationEvidence:
         "chosen_params_path": "data/backtests/trend/chosen_params.json",
         "walkforward_path": "data/backtests/trend/walkforward.parquet",
         "provenance": "unit test",
+        "evidence_schema_version": 1,
     }
     values.update(overrides)
     return ValidationEvidence(
@@ -66,6 +67,7 @@ def _evidence(slug: str = "trend", **overrides: object) -> ValidationEvidence:
         chosen_params_path=str(values["chosen_params_path"]),
         walkforward_path=str(values["walkforward_path"]),
         provenance=str(values["provenance"]),
+        evidence_schema_version=int(values["evidence_schema_version"]),  # type: ignore[call-overload]
     )
 
 
@@ -174,3 +176,148 @@ def test_strategy_states_reject_non_list_reason_codes(tmp_path: Path) -> None:
 
     with pytest.raises(GovernanceError, match="Malformed governance artifact"):
         load_strategy_states(path)
+
+
+# --- evidence-schema shield: new-field IO + atomicity ------------------------
+
+
+def test_strategy_states_round_trips_shield_fields_nondefault(tmp_path: Path) -> None:
+    path = tmp_path / "strategy_states.json"
+    state = StrategyState(
+        slug="defensive-etf-allocation",
+        state=GovernanceState.LIVE,
+        evaluated_at=datetime(2026, 6, 6),
+        validation_age_days=0,
+        reason_codes=["schema_shield_retained_live", "failed_gate_deflated_sharpe"],
+        reason="shielded",
+        code_enabled_live=True,
+        shielded=True,
+        shield_consecutive=2,
+        evidence_schema_version=1,
+        shield_first_at=date(2026, 6, 6),
+    )
+    write_strategy_states(path, {"defensive-etf-allocation": state})
+    loaded = load_strategy_states(path)["defensive-etf-allocation"]
+    assert loaded.shielded is True
+    assert loaded.shield_consecutive == 2
+    assert loaded.evidence_schema_version == 1
+    assert loaded.shield_first_at == date(2026, 6, 6)
+
+
+def test_legacy_strategy_states_loads_shield_defaults(tmp_path: Path) -> None:
+    """A pre-shield version:1 file (no new keys) loads with safe defaults."""
+    path = tmp_path / "strategy_states.json"
+    legacy = {
+        "version": 1,
+        "strategies": {
+            "defensive-etf-allocation": {
+                "slug": "defensive-etf-allocation",
+                "state": "live",
+                "evaluated_at": "2026-05-27T00:00:00",
+                "validation_age_days": 0,
+                "reason_codes": [],
+                "reason": "Fresh validation evidence passes all required gates.",
+                "code_enabled_live": True,
+                "manual_block": False,
+            }
+        },
+    }
+    path.write_text(json.dumps(legacy))
+    loaded = load_strategy_states(path)["defensive-etf-allocation"]
+    assert loaded.state is GovernanceState.LIVE
+    assert loaded.shielded is False
+    assert loaded.shield_consecutive == 0
+    assert loaded.evidence_schema_version == 1
+    assert loaded.shield_first_at is None
+
+
+def test_strategy_states_reject_bool_as_shield_consecutive(tmp_path: Path) -> None:
+    path = tmp_path / "strategy_states.json"
+    state = StrategyState(
+        slug="trend",
+        state=GovernanceState.LIVE,
+        evaluated_at=datetime(2026, 5, 26),
+        validation_age_days=6,
+        reason_codes=[],
+        reason="ok",
+        code_enabled_live=True,
+    )
+    write_strategy_states(path, {"trend": state})
+    payload = json.loads(path.read_text())
+    payload["strategies"]["trend"]["shield_consecutive"] = True  # bool, not int
+    path.write_text(json.dumps(payload))
+    with pytest.raises(GovernanceError, match="Malformed governance artifact"):
+        load_strategy_states(path)
+
+
+def test_strategy_states_reject_malformed_shield_first_at(tmp_path: Path) -> None:
+    path = tmp_path / "strategy_states.json"
+    state = StrategyState(
+        slug="trend",
+        state=GovernanceState.LIVE,
+        evaluated_at=datetime(2026, 5, 26),
+        validation_age_days=6,
+        reason_codes=[],
+        reason="ok",
+        code_enabled_live=True,
+    )
+    write_strategy_states(path, {"trend": state})
+    payload = json.loads(path.read_text())
+    payload["strategies"]["trend"]["shield_first_at"] = "not-a-date"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(GovernanceError, match="Malformed governance artifact"):
+        load_strategy_states(path)
+
+
+def test_validation_manifest_round_trips_schema_version(tmp_path: Path) -> None:
+    path = tmp_path / "validation_manifest.json"
+    write_validation_manifest(path, {"trend": _evidence(evidence_schema_version=2)})
+    assert load_validation_manifest(path)["trend"].evidence_schema_version == 2
+
+
+def test_legacy_manifest_loads_schema_version_default(tmp_path: Path) -> None:
+    path = tmp_path / "validation_manifest.json"
+    write_validation_manifest(path, {"trend": _evidence()})
+    payload = json.loads(path.read_text())
+    del payload["strategies"]["trend"]["evidence_schema_version"]
+    path.write_text(json.dumps(payload))
+    assert load_validation_manifest(path)["trend"].evidence_schema_version == 1
+
+
+def test_manifest_rejects_bool_as_schema_version(tmp_path: Path) -> None:
+    path = tmp_path / "validation_manifest.json"
+    write_validation_manifest(path, {"trend": _evidence()})
+    payload = json.loads(path.read_text())
+    payload["strategies"]["trend"]["evidence_schema_version"] = True
+    path.write_text(json.dumps(payload))
+    with pytest.raises(GovernanceError, match="Malformed governance artifact"):
+        load_validation_manifest(path)
+
+
+def test_strategy_states_write_is_atomic_on_replace_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the rename fails mid-write, the prior file is left intact (not truncated)."""
+    import quant.util.atomic as atomic_mod
+
+    path = tmp_path / "strategy_states.json"
+    good = StrategyState(
+        slug="trend",
+        state=GovernanceState.LIVE,
+        evaluated_at=datetime(2026, 5, 26),
+        validation_age_days=6,
+        reason_codes=[],
+        reason="ok",
+        code_enabled_live=True,
+    )
+    write_strategy_states(path, {"trend": good})
+    original = path.read_text()
+
+    def boom(src: object, dst: object) -> None:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(atomic_mod.os, "replace", boom)
+    with pytest.raises(OSError):
+        write_strategy_states(path, {"trend": good})
+    # Prior file is byte-identical; the failed rename never truncated it.
+    assert path.read_text() == original

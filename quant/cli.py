@@ -183,6 +183,7 @@ def backtest(strategy: str, quick: bool, start: str, end: str | None) -> None:
         slug=strategy,
         strategy_name=strategy_cls.spec.name,
         out_dir=out_dir,
+        write_chosen_params=not quick,
     )
     console.print(f"[green]Wrote {html_path}[/green]")
 
@@ -309,8 +310,11 @@ def _write_validation_report_json(
 ) -> Path:
     import json
 
+    from quant.backtest.validation import EVIDENCE_SCHEMA_VERSION
+
     n_tested = sum(1 for r in report.regime_breakdown if r.n_days >= 30)
     payload = {
+        "evidence_schema_version": int(EVIDENCE_SCHEMA_VERSION),
         "slug": slug,
         "run_date": run_date.isoformat(),
         "data_start": data_start.isoformat(),
@@ -454,6 +458,7 @@ def validate(
         strategy_name=strategy_cls.spec.name,
         out_dir=out_dir,
         validation=report,
+        write_chosen_params=not quick,
     )
     validation_json = _write_validation_report_json(
         out_dir=out_dir,
@@ -950,11 +955,21 @@ def governance_status() -> None:
             )
             continue
         age = "" if state.validation_age_days is None else f"{state.validation_age_days}d"
-        why_no_trade = "eligible" if state.state is GovernanceState.LIVE else state.reason
+        # A shielded LIVE incumbent is loud: it is trading on retained authority
+        # across a methodology bump and needs human review, not "eligible".
+        if state.shielded:
+            governance_cell = f"{state.state.value} ⚠SHIELDED ({state.shield_consecutive})"
+            why_no_trade = state.reason
+        elif state.state is GovernanceState.LIVE:
+            governance_cell = state.state.value
+            why_no_trade = "eligible"
+        else:
+            governance_cell = state.state.value
+            why_no_trade = state.reason
         table.add_row(
             spec.slug,
             "yes" if spec.enabled_live else "no",
-            state.state.value,
+            governance_cell,
             age,
             f"{allocation.get(spec.slug, 0.0) * 100:.1f}%",
             drift_flags.get(spec.slug, "unknown"),
@@ -1324,6 +1339,507 @@ def research_leaderboard(metric: str) -> None:
     console.print(table)
 
 
+@research.command(
+    "signals",
+    help="Compute today's trailing-only quant signal battery and append it to "
+    "data/research/signals.jsonl. Read-only/advisory; always exits 0.",
+)
+@click.option("--asof", default=None, help="ISO date; default today.")
+@click.option("--dry-run", is_flag=True, default=False, help="Compute + print, do not log.")
+def research_signals(asof: str | None, dry_run: bool) -> None:
+    # Whole body guarded: this runs as an unattended job, so it MUST NOT raise
+    # (a non-zero exit pages off-box and suppresses the tick heartbeat).
+    try:
+        from quant.research.signals import (
+            append_signals,
+            load_market_signals,
+            render_signals,
+            signals_path,
+            to_json_dict,
+        )
+        from quant.util.atomic import write_json_atomic
+
+        settings = Settings()  # type: ignore[call-arg]
+        d = date.fromisoformat(asof) if asof else date.today()
+        rec = load_market_signals(settings.data_dir, d)
+        console.print(render_signals(rec))
+        if not dry_run and rec.computable:
+            append_signals(signals_path(settings.data_dir), rec)
+            write_json_atomic(
+                settings.data_dir / "research" / "signals_latest.json", to_json_dict(rec)
+            )
+            console.print(f"[dim]appended {signals_path(settings.data_dir)}[/dim]")
+    except Exception as exc:  # advisory job: degrade, never page
+        console.print("Research signals: unavailable")
+        logger.info("research signals CLI failed ({!r})", exc)
+
+
+@research.command("signals-show", help="Print the latest logged signal record as JSON.")
+def research_signals_show() -> None:
+    from quant.research.signals import read_latest_signals, signals_path, to_json_dict
+
+    settings = Settings()  # type: ignore[call-arg]
+    rec = read_latest_signals(signals_path(settings.data_dir))
+    if rec is None:
+        raise click.ClickException("No signals logged yet.")
+    console.print_json(json.dumps(to_json_dict(rec), sort_keys=True))
+
+
+@cli.group(help="Continuous market-state engine — always-on, READ-ONLY; never trades or halts.")
+def engine() -> None:
+    pass
+
+
+@engine.command(
+    "run",
+    help="Run the continuous engine loop: maintain live MarketState + emit events. "
+    "Read-only/advisory — places no orders, sets no halt. --once/--max-cycles bound it.",
+)
+@click.option("--once", is_flag=True, default=False, help="Run a single cycle and exit.")
+@click.option(
+    "--max-cycles", type=int, default=None, help="Stop after N cycles (default: forever)."
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False, help="Compute + log, post nothing, no Claude."
+)
+def engine_run(once: bool, max_cycles: int | None, dry_run: bool) -> None:
+    from quant.engine import run_engine
+
+    settings = Settings()  # type: ignore[call-arg]
+    run_engine(
+        settings,
+        once=once,
+        max_cycles=max_cycles,
+        dry_run=dry_run,
+        console_print=lambda s: console.print(f"[dim]{s}[/dim]"),
+    )
+
+
+@engine.command("state", help="Print the latest persisted MarketState snapshot.")
+def engine_state() -> None:
+    from quant.engine.loop import engine_dir
+
+    settings = Settings()  # type: ignore[call-arg]
+    path = engine_dir(settings.data_dir) / "state.json"
+    if not path.exists():
+        raise click.ClickException("No engine state yet — run `quant engine run --once`.")
+    console.print_json(path.read_text(encoding="utf-8"))
+
+
+@engine.command("status", help="Print the engine heartbeat + the most recent events.")
+def engine_status() -> None:
+    from quant.engine.loop import engine_dir
+
+    settings = Settings()  # type: ignore[call-arg]
+    edir = engine_dir(settings.data_dir)
+    hb = edir / "heartbeat.json"
+    if hb.exists():
+        console.print("[bold]heartbeat[/bold]")
+        console.print_json(hb.read_text(encoding="utf-8"))
+    else:
+        console.print("[yellow]no heartbeat yet[/yellow]")
+    events = edir / "events.jsonl"
+    if events.exists():
+        lines = [ln for ln in events.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        console.print(f"[bold]recent events[/bold] ({len(lines)} total)")
+        for ln in lines[-10:]:
+            console.print(f"  {ln}")
+
+
+@cli.group(help="Market news + local sentiment (read-only; no LLM in scoring).")
+def news() -> None:
+    pass
+
+
+@news.command("sentiment", help="Fetch recent headlines and print the local sentiment read.")
+@click.option("--hours", type=int, default=4, show_default=True, help="Lookback window.")
+@click.option("--limit", type=int, default=50, show_default=True, help="Max headlines.")
+def news_sentiment(hours: int, limit: int) -> None:
+    from quant.data.news import fetch_news
+    from quant.nlp.sentiment import render_sentiment, score_news, score_text
+
+    settings = Settings()  # type: ignore[call-arg]
+    items = fetch_news(settings, lookback_minutes=hours * 60, limit=limit)
+    s = score_news(items)
+    console.print(render_sentiment(s))
+    for it in sorted(items, key=lambda i: score_text(i.headline))[:8]:
+        console.print(f"  [{score_text(it.headline):+.2f}] {it.headline[:100]}")
+
+
+@cli.group(help="Macro / policy / event-risk (scheduled events + FRED uncertainty).")
+def macro() -> None:
+    pass
+
+
+@macro.command(
+    "eventrisk", help="Print the current macro/policy/event-risk read + upcoming events."
+)
+def macro_eventrisk() -> None:
+    from quant.macro.events import live_event_risk, render_event_risk, upcoming_events
+
+    settings = Settings()  # type: ignore[call-arg]
+    today = date.today()
+    console.print(render_event_risk(live_event_risk(settings, today)))
+    console.print("[bold]upcoming events[/bold]")
+    for ev in upcoming_events(today, horizon_days=30):
+        console.print(f"  {ev.date}  [{ev.impact}]  {ev.name}")
+
+
+@macro.command("nowcast", help="Print the macro / business-cycle nowcast (FRED curve/credit/Sahm).")
+def macro_nowcast() -> None:
+    from quant.macro.nowcast import live_macro_nowcast, render_macro_nowcast
+
+    settings = Settings()  # type: ignore[call-arg]
+    n = live_macro_nowcast(settings, date.today())
+    console.print(render_macro_nowcast(n))
+    console.print(
+        f"  recession_signal={n.recession_signal}  components={n.n_components}  "
+        f"breakeven10={n.breakeven_10y}  claims={n.initial_claims}"
+    )
+
+
+@cli.group(help="Fundamentals: cross-sectional value/quality on the mega-cap universe (SEC EDGAR).")
+def fundamentals() -> None:
+    pass
+
+
+@fundamentals.command(
+    "status", help="Print the live PIT fundamentals read + per-name value/quality factors."
+)
+@click.option("--asof", default=None, help="Query date (YYYY-MM-DD). Default: today.")
+@click.option(
+    "--symbols", default=None, help="Comma-separated tickers. Default: mega-cap universe."
+)
+def fundamentals_status(asof: str | None, symbols: str | None) -> None:
+    from quant.fundamentals.factors import (
+        FundamentalsConfig,
+        compute_fundamentals,
+        fundamental_rows,
+        render_fundamentals,
+    )
+
+    settings = Settings()  # type: ignore[call-arg]
+    asof_date = date.fromisoformat(asof) if asof else date.today()
+    cfg = (
+        FundamentalsConfig(
+            universe=tuple(s.strip().upper() for s in symbols.split(",") if s.strip())
+        )
+        if symbols
+        else FundamentalsConfig()
+    )
+    rows = fundamental_rows(settings, asof_date, config=cfg)
+    console.print(render_fundamentals(compute_fundamentals(rows, asof=asof_date, config=cfg)))
+    console.print("[bold]per-name factors[/bold] (E/P, B/M, gross-profit, asset-growth)")
+    for r in rows:
+        ey = f"{r.earnings_yield:+.1%}" if r.earnings_yield is not None else "  n/a"
+        btm = f"{r.book_to_market:.2f}" if r.book_to_market is not None else " n/a"
+        gp = f"{r.gross_profitability:.2f}" if r.gross_profitability is not None else " n/a"
+        ag = f"{r.asset_growth:+.1%}" if r.asset_growth is not None else "  n/a"
+        console.print(f"  {r.symbol:<6} EY={ey}  BM={btm}  GP={gp}  AG={ag}")
+
+
+@cli.group(help="Forecasting models (Phase 8, research/shadow) — HAR-RV vol, evaluated OOS.")
+def forecast() -> None:
+    pass
+
+
+@forecast.command("vol", help="Live one-day-ahead HAR-RV volatility forecast (annualized).")
+@click.option("--symbol", default="SPY", show_default=True, help="Underlying symbol.")
+def forecast_vol(symbol: str) -> None:
+    from quant.forecast.vol import OOS_SKILL_SPY, live_vol_forecast, render_vol_forecast
+
+    settings = Settings()  # type: ignore[call-arg]
+    skill = OOS_SKILL_SPY if symbol.upper() == "SPY" else None
+    f = live_vol_forecast(settings, date.today(), symbol=symbol.upper(), oos_skill=skill)
+    console.print(render_vol_forecast(f))
+
+
+@forecast.command(
+    "vol-eval",
+    help="Walk-forward OOS eval: HAR vs EWMA/RW/rolling (QLIKE + MSE + Diebold-Mariano).",
+)
+@click.option("--symbol", default="SPY", show_default=True)
+@click.option("--min-train", default=504, show_default=True, type=int, help="Initial train days.")
+def forecast_vol_eval(symbol: str, min_train: int) -> None:
+    import pandas as pd
+
+    from quant.data import bars
+    from quant.forecast.vol import walk_forward_eval
+
+    settings = Settings()  # type: ignore[call-arg]
+    path = bars._cache_path(symbol.upper(), settings.data_dir)
+    if not path.exists():
+        raise click.ClickException(
+            f"No cached bars for {symbol.upper()} — run `quant data refresh`."
+        )
+    close = pd.read_parquet(path)["close"].dropna().to_numpy()
+    ev = walk_forward_eval(close, min_train=min_train)
+    console.print(
+        f"[bold]{symbol.upper()} vol-forecast OOS[/bold] — {ev.n_oos} days, winner: {ev.winner}"
+    )
+    for _m, s in sorted(ev.scores.items(), key=lambda kv: kv[1].mean_qlike):
+        console.print(
+            f"  {s.model:<8} QLIKE mean={s.mean_qlike:.4f} med={s.median_qlike:.4f}  "
+            f"MSE={s.mean_mse:.2e}  n={s.n}"
+        )
+    if ev.dm_stat is not None and ev.dm_pvalue is not None:
+        sig = ev.dm_pvalue < 0.05
+        verdict = (
+            "HAR beats EWMA"
+            if (ev.dm_stat < 0 and sig)
+            else "EWMA beats HAR"
+            if (ev.dm_stat > 0 and sig)
+            else "no significant difference"
+        )
+        console.print(f"  DM(HAR vs EWMA): stat={ev.dm_stat:+.3f} p={ev.dm_pvalue:.4f} → {verdict}")
+
+
+def _factor_closes(settings: Settings) -> Any:
+    import pandas as pd
+
+    from quant.data import bars
+    from quant.forecast.factor import FACTOR_UNIVERSE
+
+    frames = {}
+    for sym in FACTOR_UNIVERSE:
+        path = bars._cache_path(sym, settings.data_dir)
+        if path.exists():
+            df = pd.read_parquet(path)
+            if "close" in df.columns and len(df):
+                frames[sym] = df["close"]
+    if not frames:
+        raise click.ClickException(
+            "No cached bars for the factor universe — run `quant data refresh`."
+        )
+    return pd.DataFrame(frames).sort_index()
+
+
+@forecast.command(
+    "factor", help="Current cross-sectional factor scores + top/bottom names (research)."
+)
+@click.option("--top", default=8, show_default=True, type=int, help="Names to list each side.")
+def forecast_factor(top: int) -> None:
+    from quant.forecast.factor import compute_factor_scores, render_factor_scores
+
+    settings = Settings()  # type: ignore[call-arg]
+    closes = _factor_closes(settings)
+    f = compute_factor_scores(closes, date.today(), data_dir=settings.data_dir, top_n=top)
+    console.print(render_factor_scores(f))
+    console.print(
+        "[dim]RESEARCH ONLY — the equal-weight composite had NEGATIVE OOS IC on large-caps "
+        "2010-26 (factor winter; only momentum positive). Not a trade signal. See `factor-eval`.[/dim]"
+    )
+
+
+@forecast.command(
+    "factor-eval", help="Purged walk-forward cross-sectional IC: composite vs ridge (honest OOS)."
+)
+@click.option(
+    "--model", default="composite", show_default=True, type=click.Choice(["composite", "ridge"])
+)
+def forecast_factor_eval(model: str) -> None:
+    from quant.forecast.factor import walk_forward_factor_eval
+
+    settings = Settings()  # type: ignore[call-arg]
+    closes = _factor_closes(settings)
+    ev = walk_forward_factor_eval(closes, data_dir=settings.data_dir, model=model)
+    console.print(f"[bold]factor model OOS[/bold] ({model}) — {ev.n_periods} monthly periods")
+    if ev.mean_ic is not None:
+        console.print(f"  mean IC={ev.mean_ic:+.4f} (t={ev.ic_tstat:+.2f}, IR={ev.ic_ir:+.3f})")
+    if ev.mean_rank_ic is not None:
+        console.print(
+            f"  rank IC={ev.mean_rank_ic:+.4f} (t={ev.rank_ic_tstat:+.2f}, hit={ev.hit_rate:.0%})"
+        )
+    if ev.mean_tertile_spread is not None:
+        console.print(f"  top-minus-bottom tertile (21d fwd)={ev.mean_tertile_spread:+.2%}")
+    if ev.per_factor_ic:
+        ranked = sorted(ev.per_factor_ic.items(), key=lambda kv: -kv[1])
+        console.print("  per-factor mean IC: " + ", ".join(f"{k}={v:+.4f}" for k, v in ranked))
+    console.print(
+        "[dim]Universe is today's large-caps (survivorship-biased) → absolute IC is optimistic; "
+        "research-only, not promoted to any tilt.[/dim]"
+    )
+
+
+@forecast.command(
+    "regime", help="Live macro-conditioned regime read (HMM + credit cycle) + change-point."
+)
+def forecast_regime() -> None:
+    from quant.forecast.regime import OOS_VERDICT, live_macro_regime, render_macro_regime
+
+    settings = Settings()  # type: ignore[call-arg]
+    r = live_macro_regime(settings, date.today(), oos_verdict=OOS_VERDICT)
+    console.print(render_macro_regime(r))
+    console.print(
+        "[dim]RESEARCH ONLY — credit-conditioning's OOS IC gain was NOT robust (+0.037 at a cheap "
+        "config -> ~0.000 at the production config); not wired into the analyst/MarketState. The "
+        "existing market-only regime stands; the change-point detector is a separate validated tool. "
+        "See `regime-eval`.[/dim]"
+    )
+
+
+@forecast.command(
+    "regime-eval",
+    help="Honest A/B: does adding the credit cycle improve OOS regime predictiveness?",
+)
+@click.option("--start", default="2000-01-01", show_default=True)
+def forecast_regime_eval(start: str) -> None:
+    from quant.forecast.regime import _load_macro_inputs, compare_regime_models
+
+    settings = Settings()  # type: ignore[call-arg]
+    s0 = pd.Timestamp(start).date()
+    end = date.today()
+    inp = _load_macro_inputs(settings.data_dir, s0, end)
+    spy_close, vix = inp["spy_close"], inp["vix"]
+    dgs10, dgs2, baa, aaa = inp["dgs10"], inp["dgs2"], inp["baa"], inp["aaa"]
+    if (
+        spy_close is None
+        or vix is None
+        or dgs10 is None
+        or dgs2 is None
+        or baa is None
+        or aaa is None
+    ):
+        console.print(
+            "[red]regime-eval: missing cached inputs (need SPY + VIX + DGS10/2 + BAA/AAA).[/red]"
+        )
+        return
+    console.print("[dim]Refitting both HMMs walk-forward over the full history — ~1-2 min...[/dim]")
+    cmp = compare_regime_models(
+        spy_close=spy_close, vix=vix, dgs10=dgs10, dgs2=dgs2, baa=baa, aaa=aaa
+    )
+    for m in (cmp.market, cmp.macro):
+        ic = f"{m.crisis_fwd_vol_ic:+.4f}" if m.crisis_fwd_vol_ic is not None else "n/a"
+        sep = f"{m.fwd_vol_separation:+.3f}" if m.fwd_vol_separation is not None else "n/a"
+        console.print(
+            f"[bold]{m.name}[/bold] (feats={m.n_features}, n={m.n}): "
+            f"crisis→fwd-vol IC={ic}, fwd-vol sep={sep}, "
+            f"de-risk dd {m.dd_baseline:.1%}→{m.dd_derisked:.1%} ({m.dd_reduction:+.1%})"
+        )
+    if cmp.ic_improvement is not None:
+        console.print(f"  IC improvement (macro minus market): {cmp.ic_improvement:+.4f}")
+    console.print(f"[bold]VERDICT:[/bold] {cmp.verdict}")
+
+
+@forecast.command(
+    "changepoint", help="Bayesian online change-point detector (BOCPD) on SPY returns."
+)
+@click.option("--symbol", default="SPY", show_default=True)
+def forecast_changepoint(symbol: str) -> None:
+    import numpy as np
+
+    from quant.data import bars
+    from quant.forecast.regime import compute_change_points
+    from quant.regime.features import _extract_close
+
+    spy = bars.get_bars(
+        bars.BarRequest(
+            symbols=[symbol.upper()], start=date(date.today().year - 12, 1, 1), end=date.today()
+        )
+    )
+    close = _extract_close(spy, symbol.upper())
+    ret = pd.Series(np.log(close.astype(float).to_numpy()), index=close.index).diff().dropna()
+    r = compute_change_points(ret)
+    if r.cp_prob is None:
+        console.print("Change-point: unavailable (insufficient history).")
+        return
+    console.print(
+        f"[bold]{symbol.upper()} change-point[/bold] (asof {r.asof}): "
+        f"cp_prob={r.cp_prob:.1%} (P run-length≤5), expected run={r.expected_run_length:.0f}d"
+    )
+    if r.recent_cp_dates:
+        console.print("  recent break-probability spikes: " + ", ".join(r.recent_cp_dates))
+    console.print(
+        "[dim]Training-free, PIT online detector — flags SHARP breaks (e.g. COVID); a slow "
+        "grind-bear (2022) is caught by the standing-regime HMM instead. Advisory only.[/dim]"
+    )
+
+
+def _regime_and_cp_series(settings: Settings, close: pd.Series) -> tuple[Any, Any]:
+    """Build the macro-regime crisis-prob + change-point series for the ensemble (heavy)."""
+    import numpy as np
+
+    from quant.data import macro
+    from quant.forecast.regime import (
+        MacroRegimeConfig,
+        build_macro_regime_features,
+        change_point_series,
+    )
+    from quant.regime.detect import DetectConfig, run_detection
+
+    feats = build_macro_regime_features(
+        spy_close=close,
+        vix=macro.get_series(macro.FRED_SERIES["vix"]),
+        dgs10=macro.get_series(macro.FRED_SERIES["tenyear"]),
+        dgs2=macro.get_series(macro.FRED_SERIES["twoyear"]),
+        baa=macro.get_series(macro.FRED_SERIES["baa"]),
+        aaa=macro.get_series(macro.FRED_SERIES["aaa"]),
+        macro_config=MacroRegimeConfig(use_credit=True),
+    )
+    series = run_detection(
+        feats, DetectConfig(refit_freq="QS", train_window_days=252 * 3, n_restarts=3)
+    )
+    ret = pd.Series(np.log(close.astype(float).to_numpy()), index=close.index).diff().dropna()
+    cp = change_point_series(ret)["cp_prob"]
+    return series["p_crisis"], cp
+
+
+@forecast.command("ensemble", help="Live stacked forward-21d vol forecast (HAR+regime+cp). Slow.")
+def forecast_ensemble() -> None:
+    from quant.forecast.ensemble import live_stack, render_stack
+
+    settings = Settings()  # type: ignore[call-arg]
+    console.print("[dim]Fitting the stack (runs the regime walk-forward) — ~1-2 min...[/dim]")
+    f = live_stack(settings, date.today())
+    console.print(render_stack(f))
+    console.print(
+        "[dim]RESEARCH ONLY — the learned stack LOST to HAR-alone OOS (QLIKE +16%, DM p=0.003) "
+        "and even to a naive average; the regime crisis-prob got ~0 weight. HAR stays the "
+        "advisory vol champion; this is not wired into MarketState/analyst. See `ensemble-eval`.[/dim]"
+    )
+
+
+@forecast.command(
+    "ensemble-eval",
+    help="Honest nested purged walk-forward: does the stack beat HAR-alone + naive avg?",
+)
+@click.option("--start", default="2005-01-01", show_default=True)
+def forecast_ensemble_eval(start: str) -> None:
+    from quant.data import bars
+    from quant.forecast.ensemble import StackConfig, build_base_panel, walk_forward_stack
+    from quant.regime.features import _extract_close
+
+    settings = Settings()  # type: ignore[call-arg]
+    s0 = pd.Timestamp(start).date()
+    spy = bars.get_bars(bars.BarRequest(symbols=["SPY"], start=s0, end=date.today()))
+    close = _extract_close(spy, "SPY")
+    console.print(
+        "[dim]Running the regime walk-forward + nested purged stack eval — ~1-2 min...[/dim]"
+    )
+    p_crisis, cp = _regime_and_cp_series(settings, close)
+    panel = build_base_panel(close, p_crisis=p_crisis, cp_prob=cp, config=StackConfig())
+    ev = walk_forward_stack(panel, StackConfig())
+    console.print(
+        f"[bold]vol ensemble OOS[/bold] — {ev.n_oos} test points, best base = {ev.best_base}"
+    )
+    order = ("rw21", "ewma", "har", "regime", "cp", "eq3", "stack")
+    console.print(
+        "  mean QLIKE: "
+        + ", ".join(f"{k}={ev.mean_qlike[k]:.4f}" for k in order if k in ev.mean_qlike)
+    )
+    if ev.avg_weights:
+        console.print(
+            "  avg learned weights: "
+            + ", ".join(f"{k}={v:.2f}" for k, v in ev.avg_weights.items() if abs(v) > 1e-3)
+        )
+    if ev.dm_stack_vs_best:
+        console.print(
+            f"  DM stack-vs-{ev.best_base}: stat={ev.dm_stack_vs_best[0]:+.2f} "
+            f"p={ev.dm_stack_vs_best[1]:.3f}  (stat<0 → stack better)"
+        )
+    console.print(f"[bold]VERDICT:[/bold] {ev.verdict}")
+
+
 @cli.group(help="Market-wide regime detection (HMM/Kalman) — an observed, gated signal.")
 def regime() -> None:
     pass
@@ -1529,6 +2045,62 @@ def risk_pretrade() -> None:
     console.print(f"[{color}]Pre-trade risk {status}[/{color}]; wrote {out}")
 
 
+@risk.command(
+    "portfolio",
+    help="Portfolio risk of the LIVE book: VaR/CVaR, vol, beta, exposure. Read-only analysis.",
+)
+@click.option("--lookback", default=180, show_default=True, type=int, help="Trading-day window.")
+def risk_portfolio(lookback: int) -> None:
+    from quant.risk.portfolio import live_portfolio_risk
+
+    settings = Settings()  # type: ignore[call-arg]
+    asof = date.today()
+    positions: dict[str, int] = {}
+    equity = 0.0
+    try:
+        client = AlpacaClient(settings=settings)
+        equity = float(client.account().equity)
+        positions = {p.symbol: int(p.qty) for p in client.positions()}
+    except Exception as exc:
+        raise click.ClickException(f"Alpaca unavailable: {exc!r}") from exc
+
+    if not positions:
+        console.print("[yellow]Book is flat — no portfolio risk to report.[/yellow]")
+        return
+
+    pr = live_portfolio_risk(positions, equity, asof=asof, lookback_days=lookback)
+    if pr is None:
+        console.print("[yellow]Could not compute portfolio risk (no bar history?).[/yellow]")
+        return
+
+    out = settings.data_dir / "risk" / "portfolio_risk.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(
+            {
+                "asof": asof.isoformat(),
+                "equity": equity,
+                "n_positions": pr.n_positions,
+                "gross_exposure": pr.gross_exposure,
+                "net_exposure": pr.net_exposure,
+                "ann_vol": pr.ann_vol,
+                "var_95": pr.var_95,
+                "cvar_95": pr.cvar_95,
+                "beta_to_benchmark": pr.beta_to_benchmark,
+                "top_name_weight": pr.top_name_weight,
+                "lookback_days": pr.lookback_days,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    console.rule(f"portfolio risk — {asof.isoformat()}")
+    console.print(pr.render())
+    console.print(f"[dim]wrote {out}[/dim]")
+
+
 @cli.group(
     help="Position sizing — an observed, comparison-only overlay (vol-target/Kelly/dd/regime)."
 )
@@ -1673,6 +2245,21 @@ def sizing_compare(
 @cli.group(help="Options/Greeks engine + protective hedging overlay — observed-only.")
 def hedge() -> None:
     pass
+
+
+@hedge.command(
+    "surface", help="Live SPY implied-vol surface: ATM IV, term structure, put skew (read-only)."
+)
+def hedge_surface() -> None:
+    from quant.options.surface import live_vol_surface, render_vol_surface
+
+    settings = Settings()  # type: ignore[call-arg]
+    v = live_vol_surface(settings, date.today())
+    console.print(render_vol_surface(v))
+    console.print(
+        f"  spot={v.spot}  near={v.near_dte}d ATM_IV={v.atm_iv_30d}  far={v.far_dte}d "
+        f"ATM_IV={v.atm_iv_90d}  quotes={v.n_quotes}/{v.n_expiries}exp"
+    )
 
 
 def _spy_close_series(spy_bars: pd.DataFrame) -> pd.Series:
@@ -1901,6 +2488,77 @@ def _best_effort_positions(settings: Settings) -> tuple[list[Any] | None, str]:
         return None, f"alpaca unavailable: {exc!r}"
 
 
+def _best_effort_equity(settings: Settings) -> float | None:
+    """Fetch the broker's authoritative account equity; None on any failure.
+
+    Feeds the guard's equity-health guardrail so a healthy flat book ($1M, no
+    positions) is distinguishable from a dead local equity feed."""
+    try:
+        return float(AlpacaClient(settings=settings).account().equity)
+    except Exception:  # equity read is best-effort; the guardrail handles None
+        return None
+
+
+def _best_effort_news(settings: Settings) -> Any:
+    """Recent-news sentiment for the analyst context; empty read on any failure."""
+    try:
+        from quant.nlp.sentiment import live_news_sentiment
+
+        return live_news_sentiment(settings)
+    except Exception:  # news is optional context
+        return None
+
+
+def _best_effort_event_risk(settings: Settings, asof: date) -> Any:
+    """Macro/policy/event-risk read for the analyst context; None on any failure."""
+    try:
+        from quant.macro.events import live_event_risk
+
+        return live_event_risk(settings, asof)
+    except Exception:  # event risk is optional context
+        return None
+
+
+def _best_effort_fundamentals(settings: Settings, asof: date) -> Any:
+    """Cross-sectional fundamentals read for the analyst context; None on failure."""
+    try:
+        from quant.fundamentals.factors import live_fundamentals
+
+        return live_fundamentals(settings, asof)
+    except Exception:  # fundamentals are optional context
+        return None
+
+
+def _best_effort_nowcast(settings: Settings, asof: date) -> Any:
+    """Macro / business-cycle nowcast for the analyst context; None on failure."""
+    try:
+        from quant.macro.nowcast import live_macro_nowcast
+
+        return live_macro_nowcast(settings, asof)
+    except Exception:  # the nowcast is optional context
+        return None
+
+
+def _best_effort_vol_surface(settings: Settings, asof: date) -> Any:
+    """Implied-vol surface (IV/term/skew) for the analyst context; None on failure."""
+    try:
+        from quant.options.surface import live_vol_surface
+
+        return live_vol_surface(settings, asof)
+    except Exception:  # the vol surface is optional context
+        return None
+
+
+def _best_effort_vol_forecast(settings: Settings, asof: date) -> Any:
+    """HAR-RV vol forecast (validated OOS) for the analyst context; None on failure."""
+    try:
+        from quant.forecast.vol import OOS_SKILL_SPY, live_vol_forecast
+
+        return live_vol_forecast(settings, asof, symbol="SPY", oos_skill=OOS_SKILL_SPY)
+    except Exception:  # the forecast is optional context
+        return None
+
+
 def _render_guardrail_table(report: Any) -> Table:
     table = Table(title="Guardrails", show_header=True)
     table.add_column("Guardrail")
@@ -1930,6 +2588,7 @@ def guard_check() -> None:
         asof=date.today(),
         config=config,
         alpaca_positions=positions,
+        live_equity=_best_effort_equity(settings),
         symbols=_enabled_universe_symbols(),
     )
     report = evaluate_guardrails(inputs, config)
@@ -1967,11 +2626,15 @@ def guard_run(interval: float, once: bool, dry_run: bool, max_ticks: int | None)
         pos, _ = _best_effort_positions(settings)
         return pos
 
+    def live_equity_fn() -> float | None:
+        return _best_effort_equity(settings)
+
     if once:
         res = run_once(
             settings.data_dir,
             config,
             alpaca_positions=positions_fn(),
+            live_equity=live_equity_fn(),
             symbols=symbols,
             dry_run=dry_run,
         )
@@ -1987,6 +2650,23 @@ def guard_run(interval: float, once: bool, dry_run: bool, max_ticks: int | None)
         f"[bold]Monitor daemon starting (interval={interval}s, dry_run={dry_run}). "
         "Ctrl-C to stop. The daemon can HALT but never resumes.[/bold]"
     )
+    from quant.deploy.alerts import AlertClient, AlertConfig
+
+    _alerts = AlertClient(
+        AlertConfig(
+            healthcheck_tick_url=settings.healthcheck_tick_url,
+            healthcheck_guard_url=settings.healthcheck_guard_url,
+            pushover_app_token=settings.pushover_app_token,
+            pushover_user_key=settings.pushover_user_key,
+            slack_webhook_url=settings.slack_webhook_url,
+        )
+    )
+    # Box-recovery signal: the guard is KeepAlive, so it (re)starts on boot/crash.
+    # A one-line Slack ping on start is the positive counterpart to the off-box
+    # dead-man's-switch — "the box is back and the safety daemon is live."
+    _alerts.send_slack(
+        f":white_check_mark: quant guard online ({'dry-run' if dry_run else 'LIVE'}) — monitoring resumed."
+    )
     run_loop(
         settings.data_dir,
         config,
@@ -1994,9 +2674,386 @@ def guard_run(interval: float, once: bool, dry_run: bool, max_ticks: int | None)
         dry_run=dry_run,
         max_ticks=max_ticks,
         alpaca_positions_fn=positions_fn,
+        live_equity_fn=live_equity_fn,
         symbols=symbols,
         console_print=lambda s: console.print(s),
+        heartbeat_ping=lambda: _alerts.ping_success(settings.healthcheck_guard_url),
     )
+
+
+@cli.group(help="Deployment ops: the local tick scheduler (M4 host).")
+def ops() -> None:
+    pass
+
+
+@ops.command("tick", help="One scheduler tick: run any due jobs. Called by launchd every 60s.")
+def ops_tick() -> None:
+    from quant.deploy.alerts import AlertClient, AlertConfig
+    from quant.deploy.dispatcher import Dispatcher
+    from quant.deploy.manifest import load_manifest
+    from quant.governance.halt import load_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    alerts = AlertClient(
+        AlertConfig(
+            healthcheck_tick_url=settings.healthcheck_tick_url,
+            healthcheck_guard_url=settings.healthcheck_guard_url,
+            pushover_app_token=settings.pushover_app_token,
+            pushover_user_key=settings.pushover_user_key,
+            slack_webhook_url=settings.slack_webhook_url,
+        )
+    )
+    manifest_path = Path(__file__).resolve().parent / "deploy" / "jobs.toml"
+    disp = Dispatcher(
+        data_dir=settings.data_dir,
+        manifest=load_manifest(manifest_path),
+        alerts=alerts,
+        halt_active=lambda: load_halt(settings.data_dir).active,
+        tick_url=settings.healthcheck_tick_url,
+    )
+    raise SystemExit(disp.tick())
+
+
+@ops.command("run-job", help="Manually run one manifest job now (recovery for MISSED_CRITICAL).")
+@click.argument("name")
+@click.option("--force", is_flag=True, help="Run even if outside the window / already marked.")
+def ops_run_job(name: str, force: bool) -> None:
+    from quant.deploy.dispatcher import Dispatcher, _expand
+    from quant.deploy.manifest import load_manifest
+
+    settings = Settings()  # type: ignore[call-arg]
+    manifest = load_manifest(Path(__file__).resolve().parent / "deploy" / "jobs.toml")
+    job = next((j for j in manifest.jobs if j.name == name), None)
+    if job is None:
+        raise click.ClickException(f"unknown job: {name}")
+    if not force:
+        raise click.ClickException("refusing to run off-schedule without --force")
+    disp = Dispatcher(data_dir=settings.data_dir, manifest=manifest)
+    for args in _expand(job):
+        rc = disp.runner(args, Path(__file__).resolve().parents[1])
+        if rc != 0:
+            raise SystemExit(rc)
+
+
+@cli.group(help="Analyst layer — a daily Claude-written digest delivered to Slack (read-only).")
+def analyst() -> None:
+    pass
+
+
+@analyst.command(
+    "digest", help="Build today's digest and post it to Slack. Read-only — never trades or halts."
+)
+@click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")
+@click.option(
+    "--dry-run", is_flag=True, default=False, help="Print the digest; do not post to Slack."
+)
+def analyst_digest(asof: str | None, dry_run: bool) -> None:
+    from quant.analyst import run_digest
+    from quant.deploy.alerts import AlertClient, AlertConfig
+    from quant.governance.halt import load_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    session_date = date.fromisoformat(asof) if asof else date.today()
+
+    alerts = AlertClient(
+        AlertConfig(
+            healthcheck_tick_url=settings.healthcheck_tick_url,
+            healthcheck_guard_url=settings.healthcheck_guard_url,
+            pushover_app_token=settings.pushover_app_token,
+            pushover_user_key=settings.pushover_user_key,
+            slack_webhook_url=settings.slack_webhook_url,
+        )
+    )
+
+    # Best-effort live snapshot from Alpaca; the digest degrades gracefully without it.
+    account: dict[str, float] | None = None
+    live_positions: list[tuple[str, int]] | None = None
+    try:
+        client = AlpacaClient(settings=settings)
+        acct = client.account()
+        account = {"equity": acct.equity, "last_equity": acct.last_equity, "cash": acct.cash}
+        live_positions = [(p.symbol, int(p.qty)) for p in client.positions()]
+    except Exception as exc:  # digest is best-effort — a broker hiccup must not fail it
+        console.print(f"[yellow]analyst: Alpaca snapshot unavailable — {exc!r}[/yellow]")
+
+    governance_live, _ = _doctor_governance_live_slugs(settings.data_dir)
+    artifact_dir = Path(__file__).resolve().parents[1] / "docs" / "analyst"
+    result = run_digest(
+        data_dir=settings.data_dir,
+        asof=session_date,
+        settings=settings,
+        alerts=alerts,
+        artifact_dir=artifact_dir,
+        dry_run=dry_run,
+        account=account,
+        live_positions=live_positions,
+        governance_live=governance_live,
+        halt_active=load_halt(settings.data_dir).active,
+    )
+
+    console.rule(f"analyst digest — {session_date.isoformat()}")
+    console.print(result.body)
+    console.rule()
+    src = "Claude" if result.used_llm else "template (no ANTHROPIC_API_KEY or call failed)"
+    if dry_run:
+        where = "DRY-RUN (not sent)"
+    elif result.delivered:
+        where = "posted to Slack"
+    else:
+        where = "Slack not configured / post failed"
+    console.print(f"[dim]source: {src} · {where} · artifact: {result.artifact_path}[/dim]")
+
+
+@analyst.command(
+    "brief",
+    help="Claude decision-maker (Phase A): richer read-only context → structured brief → Slack. "
+    "Advisory only — places no orders, sets no halt, changes no allocation.",
+)
+@click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")
+@click.option(
+    "--dry-run", is_flag=True, default=False, help="Print the brief; do not post to Slack."
+)
+def analyst_brief(asof: str | None, dry_run: bool) -> None:
+    from quant.analyst import gather_digest_data, render_facts
+    from quant.analyst.advisor import advise
+    from quant.analyst.context import gather_analyst_context, render_context
+    from quant.deploy.alerts import AlertClient, AlertConfig
+    from quant.governance.halt import load_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    session_date = date.fromisoformat(asof) if asof else date.today()
+    alerts = AlertClient(
+        AlertConfig(
+            healthcheck_tick_url=settings.healthcheck_tick_url,
+            healthcheck_guard_url=settings.healthcheck_guard_url,
+            pushover_app_token=settings.pushover_app_token,
+            pushover_user_key=settings.pushover_user_key,
+            slack_webhook_url=settings.slack_webhook_url,
+        )
+    )
+
+    # Best-effort live Alpaca snapshot; everything degrades gracefully without it.
+    account: dict[str, float] | None = None
+    live_positions: list[tuple[str, int]] | None = None
+    try:
+        client = AlpacaClient(settings=settings)
+        acct = client.account()
+        account = {"equity": acct.equity, "last_equity": acct.last_equity, "cash": acct.cash}
+        live_positions = [(p.symbol, int(p.qty)) for p in client.positions()]
+    except Exception as exc:  # best-effort — a broker hiccup must not fail the brief
+        console.print(f"[yellow]analyst: Alpaca snapshot unavailable — {exc!r}[/yellow]")
+
+    governance_live, _ = _doctor_governance_live_slugs(settings.data_dir)
+    data = gather_digest_data(
+        settings.data_dir,
+        session_date,
+        dry_run=dry_run,
+        account=account,
+        live_positions=live_positions,
+        governance_live=governance_live,
+        halt_active=load_halt(settings.data_dir).active,
+    )
+    facts = render_facts(data)
+    positions_dict = dict(live_positions) if live_positions else None
+    equity_val = account.get("equity") if account else None
+    ctx = gather_analyst_context(
+        settings.data_dir,
+        session_date,
+        positions=positions_dict,
+        equity=equity_val,
+        news=_best_effort_news(settings),
+        event_risk=_best_effort_event_risk(settings, session_date),
+        fundamentals=_best_effort_fundamentals(settings, session_date),
+        macro_nowcast=_best_effort_nowcast(settings, session_date),
+        vol_surface=_best_effort_vol_surface(settings, session_date),
+        vol_forecast=_best_effort_vol_forecast(settings, session_date),
+    )
+    context_text = render_context(ctx)
+
+    brief = advise(
+        facts,
+        context_text,
+        settings=settings,
+        asof=session_date,
+        data_dir=settings.data_dir,
+    )
+    body = brief.render() if brief is not None else facts
+
+    artifact_dir = Path(__file__).resolve().parents[1] / "docs" / "analyst"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact = artifact_dir / f"brief-{session_date.isoformat()}.md"
+    src_label = "Claude (Phase A advisor)" if brief is not None else "context + facts (no LLM)"
+    artifact.write_text(
+        f"# Analyst brief — {session_date.isoformat()}\n\n{body}\n\n"
+        f"---\n\n**Context**\n\n```\n{context_text}\n```\n\n"
+        f"**Facts**\n\n```\n{facts}\n```\n\n_Source: {src_label}. Advisory only — nothing applied._\n",
+        encoding="utf-8",
+    )
+
+    delivered = False
+    if not dry_run:
+        text = f"🧭 quant analyst brief — {session_date.isoformat()}\n\n{body}"
+        delivered = alerts.send_slack(text)
+
+    console.rule(f"analyst brief — {session_date.isoformat()}")
+    console.print(body)
+    console.rule()
+    where = "DRY-RUN (not sent)" if dry_run else ("posted to Slack" if delivered else "not sent")
+    console.print(f"[dim]source: {src_label} · {where} · artifact: {artifact}[/dim]")
+
+
+@analyst.command(
+    "watch",
+    help="Intraday Claude watch: a short READ-ONLY commentary on the live book, posted to "
+    "Slack (slots: open/midday/power-hour). Advisory only — places no orders, sets no halt, "
+    "changes no allocation; bounded + non-spammy.",
+)
+@click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")
+@click.option(
+    "--dry-run", is_flag=True, default=False, help="Print the note; do not post to Slack."
+)
+@click.option("--slot", default="midday", help="Intraday slot label (e.g. open/midday/power-hour).")
+def analyst_watch(asof: str | None, dry_run: bool, slot: str) -> None:
+    from quant.analyst import run_watch
+    from quant.analyst.context import gather_analyst_context, render_context
+    from quant.deploy.alerts import AlertClient, AlertConfig
+    from quant.governance.halt import load_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    session_date = date.fromisoformat(asof) if asof else date.today()
+    alerts = AlertClient(
+        AlertConfig(
+            healthcheck_tick_url=settings.healthcheck_tick_url,
+            healthcheck_guard_url=settings.healthcheck_guard_url,
+            pushover_app_token=settings.pushover_app_token,
+            pushover_user_key=settings.pushover_user_key,
+            slack_webhook_url=settings.slack_webhook_url,
+        )
+    )
+
+    # Best-effort live Alpaca snapshot; everything degrades gracefully without it.
+    account: dict[str, float] | None = None
+    live_positions: list[tuple[str, int]] | None = None
+    try:
+        client = AlpacaClient(settings=settings)
+        acct = client.account()
+        account = {"equity": acct.equity, "last_equity": acct.last_equity, "cash": acct.cash}
+        live_positions = [(p.symbol, int(p.qty)) for p in client.positions()]
+    except Exception as exc:  # best-effort — a broker hiccup must not fail the watch
+        console.print(f"[yellow]watch: Alpaca snapshot unavailable — {exc!r}[/yellow]")
+
+    governance_live, _ = _doctor_governance_live_slugs(settings.data_dir)
+    positions_dict = dict(live_positions) if live_positions else None
+    equity_val = account.get("equity") if account else None
+    ctx = gather_analyst_context(
+        settings.data_dir,
+        session_date,
+        positions=positions_dict,
+        equity=equity_val,
+        news=_best_effort_news(settings),
+        event_risk=_best_effort_event_risk(settings, session_date),
+        fundamentals=_best_effort_fundamentals(settings, session_date),
+        macro_nowcast=_best_effort_nowcast(settings, session_date),
+        vol_surface=_best_effort_vol_surface(settings, session_date),
+        vol_forecast=_best_effort_vol_forecast(settings, session_date),
+    )
+    context_text = render_context(ctx)
+
+    result = run_watch(
+        data_dir=settings.data_dir,
+        asof=session_date,
+        settings=settings,
+        alerts=alerts,
+        slot=slot,
+        dry_run=dry_run,
+        account=account,
+        live_positions=live_positions,
+        governance_live=governance_live,
+        halt_active=load_halt(settings.data_dir).active,
+        context_text=context_text,
+    )
+
+    console.rule(f"analyst watch [{slot}] — {session_date.isoformat()}")
+    console.print(result.body or "(suppressed — nothing posted)")
+    console.rule()
+    src = "Claude" if result.used_llm else "template (no LLM)"
+    if result.suppressed_reason:
+        where = f"suppressed: {result.suppressed_reason}"
+    elif dry_run:
+        where = "DRY-RUN (not sent)"
+    else:
+        where = "posted to Slack" if result.posted else "not sent"
+    console.print(f"[dim]source: {src} · {where} · advisory only — nothing applied[/dim]")
+
+
+@analyst.command(
+    "propose",
+    help="Claude decision-maker Phase B: structured advisory proposals (de-risk throttle, "
+    "allocation tilts, halt recommendation), governance-clamped and logged. Applies NOTHING.",
+)
+@click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")
+def analyst_propose(asof: str | None) -> None:
+    from quant.analyst import gather_digest_data, render_facts
+    from quant.analyst.advisor import propose
+    from quant.analyst.context import gather_analyst_context, render_context
+    from quant.governance.halt import load_halt
+
+    settings = Settings()  # type: ignore[call-arg]
+    session_date = date.fromisoformat(asof) if asof else date.today()
+
+    account: dict[str, float] | None = None
+    live_positions: list[tuple[str, int]] | None = None
+    try:
+        client = AlpacaClient(settings=settings)
+        acct = client.account()
+        account = {"equity": acct.equity, "last_equity": acct.last_equity, "cash": acct.cash}
+        live_positions = [(p.symbol, int(p.qty)) for p in client.positions()]
+    except Exception as exc:  # best-effort
+        console.print(f"[yellow]analyst: Alpaca snapshot unavailable — {exc!r}[/yellow]")
+
+    governance_live, _ = _doctor_governance_live_slugs(settings.data_dir)
+    data = gather_digest_data(
+        settings.data_dir,
+        session_date,
+        account=account,
+        live_positions=live_positions,
+        governance_live=governance_live,
+        halt_active=load_halt(settings.data_dir).active,
+    )
+    facts = render_facts(data)
+    positions_dict = dict(live_positions) if live_positions else None
+    equity_val = account.get("equity") if account else None
+    ctx = gather_analyst_context(
+        settings.data_dir,
+        session_date,
+        positions=positions_dict,
+        equity=equity_val,
+        news=_best_effort_news(settings),
+        event_risk=_best_effort_event_risk(settings, session_date),
+        fundamentals=_best_effort_fundamentals(settings, session_date),
+        macro_nowcast=_best_effort_nowcast(settings, session_date),
+        vol_surface=_best_effort_vol_surface(settings, session_date),
+        vol_forecast=_best_effort_vol_forecast(settings, session_date),
+    )
+    context_text = render_context(ctx)
+
+    proposals = propose(
+        facts,
+        context_text,
+        settings=settings,
+        asof=session_date,
+        live_slugs=governance_live,
+        data_dir=settings.data_dir,
+    )
+    console.rule(f"analyst proposals (advise-and-log) — {session_date.isoformat()}")
+    if proposals is not None:
+        console.print(proposals.render())
+        console.print(
+            "[dim]Phase B: clamped by governance, logged to data/analyst/decisions.jsonl, "
+            "applied to NOTHING.[/dim]"
+        )
+    else:
+        console.print("[yellow](no proposals — no ANTHROPIC_API_KEY or the call failed)[/yellow]")
 
 
 if __name__ == "__main__":  # pragma: no cover

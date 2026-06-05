@@ -52,6 +52,9 @@ class ValidationEvidence:
     provenance: str
     manual_block: bool = False
     manual_block_reason: str | None = None
+    # Methodology version of the gate computation that produced this evidence.
+    # Absent in pre-shield sidecars/manifests -> defaults to 1 on read.
+    evidence_schema_version: int = 1
 
     def gate_map(self) -> dict[str, bool]:
         return {
@@ -76,9 +79,22 @@ class StrategyState:
     reason: str = ""
     code_enabled_live: bool = False
     manual_block: bool = False
+    # Evidence-schema shield surfacing/state (see the shield design spec).
+    # shielded: this state was retained LIVE by the shield on this refresh.
+    # shield_consecutive: display-only count of consecutive shielded refreshes.
+    # evidence_schema_version: the BLESSED methodology version (last passing or,
+    #   while shielded, the version under which the incumbent last legitimately
+    #   passed). shield_first_at: calendar-wall anchor for the shielded run.
+    shielded: bool = False
+    shield_consecutive: int = 0
+    evidence_schema_version: int = 1
+    shield_first_at: date | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["state"] = self.state.value
         payload["evaluated_at"] = self.evaluated_at.isoformat()
+        payload["shield_first_at"] = (
+            self.shield_first_at.isoformat() if self.shield_first_at is not None else None
+        )
         return payload

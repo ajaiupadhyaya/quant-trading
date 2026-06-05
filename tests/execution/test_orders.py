@@ -10,14 +10,14 @@ from quant.execution.orders import OrderSide, OrderTemplate, make_client_order_i
 
 def test_make_client_order_id_format() -> None:
     coid = make_client_order_id("momentum", "AAPL", date(2026, 5, 23))
-    # <slug>-<YYYYMMDD>-<symbol>-<uuid8>
-    assert re.match(r"^momentum-20260523-AAPL-[0-9a-f]{8}$", coid)
+    # <slug>-<YYYYMMDD>-<symbol> (deterministic; no uuid suffix)
+    assert re.match(r"^momentum-20260523-AAPL$", coid)
 
 
-def test_make_client_order_id_is_unique_across_calls() -> None:
+def test_make_client_order_id_is_deterministic_across_calls() -> None:
     a = make_client_order_id("momentum", "AAPL", date(2026, 5, 23))
     b = make_client_order_id("momentum", "AAPL", date(2026, 5, 23))
-    assert a != b
+    assert a == b
 
 
 def test_order_template_round_trip() -> None:

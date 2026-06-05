@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import enum
-import uuid
 from dataclasses import dataclass
 from datetime import date
 
@@ -27,9 +26,13 @@ class OrderTemplate:
 
 
 def make_client_order_id(strategy_slug: str, symbol: str, dt: date) -> str:
-    """Format: <slug>-<YYYYMMDD>-<symbol>-<uuid8>.
+    """Deterministic id: ``<slug>-<YYYYMMDD>-<symbol>``.
 
-    The slug prefix is how we attribute fills back to a specific strategy when
-    multiple strategies share a single Alpaca account.
+    Deterministic per (strategy, symbol, session-date) so a resubmission of the
+    same logical order on the same day collides on client_order_id and Alpaca
+    rejects the duplicate — broker-level idempotency that guards against a
+    crash-then-retry double-submit. The slug prefix still attributes fills to a
+    strategy. (Alpaca caps client_order_id at 48 chars; slugs+symbols here are
+    well under that.)
     """
-    return f"{strategy_slug}-{dt:%Y%m%d}-{symbol}-{uuid.uuid4().hex[:8]}"
+    return f"{strategy_slug}-{dt:%Y%m%d}-{symbol}"

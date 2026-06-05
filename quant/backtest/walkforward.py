@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from itertools import product
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pandas as pd
 from dateutil.relativedelta import relativedelta
 
@@ -73,6 +74,10 @@ class WalkforwardResult:
     oos_trades: pd.DataFrame
     per_window_params: list[tuple[WalkforwardWindow, dict[str, Any]]]
     combined_result: BacktestResult
+    # Annualized Sharpe of every (contributing window, grid combo) evaluated
+    # during model selection. This is the true multiple-testing trial set the
+    # Deflated Sharpe deflates against (NOT the CPCV resample paths).
+    grid_trial_sharpes: np.ndarray = field(default_factory=lambda: np.array([], dtype=float))
 
 
 def _iter_grid(param_grid: dict[str, Sequence[Any]]) -> Iterator[dict[str, Any]]:
@@ -88,6 +93,38 @@ def _iter_grid(param_grid: dict[str, Sequence[Any]]) -> Iterator[dict[str, Any]]
         yield dict(zip(keys, combo, strict=True))
 
 
+@dataclass(frozen=True)
+class _GridSearch:
+    """Result of a single-window grid search: the winner plus EVERY trial Sharpe."""
+
+    best_params: dict[str, Any]
+    trial_sharpes: list[float]  # annualized, one per grid combo (selection trials)
+
+
+def _grid_search(
+    strategy_factory: StrategyFactory,
+    param_grid: dict[str, Sequence[Any]],
+    bars: pd.DataFrame,
+    window: WalkforwardWindow,
+    config: BacktestConfig,
+) -> _GridSearch:
+    """Grid-search ``param_grid`` on the train window; return best + all trial Sharpes."""
+    best_params: dict[str, Any] = {}
+    best_score: float = float("-inf")
+    trial_sharpes: list[float] = []
+
+    for params in _iter_grid(param_grid):
+        strat = strategy_factory(params, bars)
+        result = run_backtest(strat, bars, config, window.train_start, window.train_end)
+        score = sharpe(result.returns)
+        trial_sharpes.append(score)
+        if score > best_score:
+            best_score = score
+            best_params = params
+
+    return _GridSearch(best_params=best_params, trial_sharpes=trial_sharpes)
+
+
 def select_best_params(
     strategy_factory: StrategyFactory,
     param_grid: dict[str, Sequence[Any]],
@@ -96,18 +133,7 @@ def select_best_params(
     config: BacktestConfig,
 ) -> dict[str, Any]:
     """Grid-search ``param_grid`` on the train window, return best by Sharpe."""
-    best_params: dict[str, Any] = {}
-    best_score: float = float("-inf")
-
-    for params in _iter_grid(param_grid):
-        strat = strategy_factory(params, bars)
-        result = run_backtest(strat, bars, config, window.train_start, window.train_end)
-        score = sharpe(result.returns)
-        if score > best_score:
-            best_score = score
-            best_params = params
-
-    return best_params
+    return _grid_search(strategy_factory, param_grid, bars, window, config).best_params
 
 
 def run_walkforward(
@@ -125,6 +151,7 @@ def run_walkforward(
     oos_equity_pieces: list[pd.Series] = []
     oos_trades_pieces: list[pd.DataFrame] = []
     per_window_params: list[tuple[WalkforwardWindow, dict[str, Any]]] = []
+    grid_trial_sharpes: list[float] = []
 
     cumulative_equity: float = config.starting_equity
 
@@ -136,7 +163,8 @@ def run_walkforward(
             window.test_start,
             window.test_end,
         )
-        best = select_best_params(strategy_factory, param_grid, bars, window, config)
+        search = _grid_search(strategy_factory, param_grid, bars, window, config)
+        best = search.best_params
 
         test_config = BacktestConfig(
             starting_equity=cumulative_equity,
@@ -155,6 +183,8 @@ def run_walkforward(
         oos_equity_pieces.append(test_result.equity_curve)
         oos_trades_pieces.append(test_result.trades)
         per_window_params.append((window, best))
+        # Record this window's selection trials only once it contributes to OOS.
+        grid_trial_sharpes.extend(search.trial_sharpes)
         cumulative_equity = test_result.ending_equity
 
     trades_columns: list[str] = [
@@ -214,4 +244,5 @@ def run_walkforward(
         oos_trades=oos_trades,
         per_window_params=per_window_params,
         combined_result=combined,
+        grid_trial_sharpes=np.asarray(grid_trial_sharpes, dtype=float),
     )

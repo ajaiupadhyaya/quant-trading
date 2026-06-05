@@ -12,12 +12,27 @@ from quant.util.logging import logger
 
 FRED_SERIES: dict[str, str] = {
     "vix": "VIXCLS",
+    "vix3m": "VXVCLS",  # 3-month VIX (term-structure numerator)
     "tenyear": "DGS10",
     "twoyear": "DGS2",
     "unemployment": "UNRATE",
     "cpi": "CPIAUCSL",
     "fedfunds": "DFF",
     "gdp": "GDPC1",
+    # policy / macro-risk environment (Phase 7C)
+    "epu": "USEPUINDXD",  # US Economic Policy Uncertainty (daily)
+    "nfci": "NFCI",  # Chicago Fed financial conditions (neg=loose, pos=tight)
+    "finstress": "STLFSI4",  # St Louis Fed financial stress index
+    # macro / cycle nowcast (roadmap track C) — all FRED-native units (percent / level)
+    "threemonth": "DGS3MO",  # 3-month T-bill (front of the curve)
+    "term_10y3m": "T10Y3M",  # 10y-3m spread (the Fed's recession-model curve)
+    "term_10y2y": "T10Y2Y",  # 10y-2y spread
+    "baa": "DBAA",  # Moody's Baa corporate yield (daily)
+    "aaa": "DAAA",  # Moody's Aaa corporate yield (daily) — BAA-AAA = default-risk spread
+    "hy_oas": "BAMLH0A0HYM2",  # ICE BofA US High Yield option-adjusted spread (percent)
+    "claims": "ICSA",  # initial jobless claims (weekly, SA, level)
+    "breakeven10": "T10YIE",  # 10-year breakeven inflation (percent)
+    "sahm": "SAHMREALTIME",  # Sahm Rule recession indicator (real-time)
 }
 
 

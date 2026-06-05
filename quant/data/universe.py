@@ -12,6 +12,33 @@ from quant.util.logging import logger
 
 ETF_UNIVERSE: list[str] = ["SPY", "TLT", "IEF", "GLD", "DBC", "VNQ", "EFA", "EEM"]
 
+# Curated mega-cap operating companies — the only names in our trading universe
+# that have SEC EDGAR fundamentals (ETFs do not). Used by the multi-factor
+# strategy and by the live fundamentals read (roadmap Phase 7.B) as a proxy for
+# the broad equity market's valuation/quality posture.
+MEGACAP_UNIVERSE: list[str] = [
+    "AAPL",
+    "MSFT",
+    "GOOGL",
+    "AMZN",
+    "META",
+    "NVDA",
+    "TSLA",
+    "BRK-B",
+    "JPM",
+    "V",
+    "JNJ",
+    "WMT",
+    "PG",
+    "MA",
+    "HD",
+    "XOM",
+    "BAC",
+    "DIS",
+    "ADBE",
+    "CRM",
+]
+
 _WIKIPEDIA_SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 
 

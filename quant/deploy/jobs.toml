@@ -1,0 +1,165 @@
+# Source of truth for the M4 tick scheduler (replaces .github/workflows/*.yml crons).
+# Times are America/New_York. commands = args appended after `uv run quant`.
+
+[[job]]
+name = "premarket-health"
+trigger_et = "09:00"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "14:00"
+max_runtime_s = 1200
+commands = [
+  ["data", "refresh", "--start", "2018-01-01"],
+  ["doctor"],
+  ["governance", "status"],
+  ["rebalance", "--dry-run"],
+]
+commit_paths = []
+
+[[job]]
+name = "daily-rebalance"
+close_offset_min = 5
+days = "WEEKDAYS_TRADING"
+catch_up = "NONE"
+timing_critical = true
+max_lateness = "16:00"
+max_runtime_s = 600
+commands = [
+  ["data", "refresh", "--start", "2018-01-01"],
+  ["risk", "pretrade"],
+  ["doctor"],
+  # PAPER-LIVE as of cutover 2026-06-02: places REAL paper orders (fake money).
+  # The premarket-health job above still runs `rebalance --dry-run` as a preview.
+  # Re-add "--dry-run" here to return to a no-orders shakedown.
+  ["rebalance"],
+]
+commit_paths = ["data/live/", "data/raw/", "data/ops/health/", "data/risk/"]
+
+[[job]]
+name = "posttrade-reconciliation"
+trigger_et = "17:30"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "23:59"
+max_runtime_s = 600
+commands = [["__script__", "scripts/reconcile_live.py"]]
+commit_paths = ["docs/live-recon/"]
+
+[[job]]
+name = "daily-digest"
+trigger_et = "17:45"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "23:00"
+max_runtime_s = 600
+# Read-only Claude-written digest → Slack (E2). Runs after reconciliation;
+# never trades. Commits the markdown artifact so git history is the digest log.
+commands = [["analyst", "digest"]]
+commit_paths = ["docs/analyst/"]
+
+[[job]]
+name = "daily-brief"
+trigger_et = "17:50"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "23:30"
+max_runtime_s = 600
+# Read-only Claude decision-maker (Phase A): richer context (regime + validation
+# evidence + allocation + macro + execution) → structured advisory brief → Slack.
+# Runs after the digest; never trades, sets no halt, applies nothing.
+commands = [["analyst", "brief"]]
+commit_paths = ["docs/analyst/"]
+
+[[job]]
+name = "nightly-backtest"
+trigger_et = "22:00"
+days = "TRADING_DAY_EVENING"
+catch_up = "SAME_DAY"
+max_lateness = "09:00"
+max_lateness_next_day = true
+max_runtime_s = 7200
+commands = [["__backtest_matrix__", "--quick"]]
+commit_paths = ["data/backtests/"]
+
+[[job]]
+name = "weekly-grid-search"
+trigger_et = "02:00"
+days = "SATURDAY"
+catch_up = "SAME_DAY"
+max_lateness = "23:59"
+max_lateness_next_day = true
+max_runtime_s = 28800
+commands = [["__backtest_matrix__", "--full"]]
+commit_paths = ["data/backtests/"]
+
+[[job]]
+name = "weekly-validation-governance"
+trigger_et = "04:00"
+days = "SATURDAY"
+catch_up = "SAME_DAY"
+max_lateness = "23:59"
+max_lateness_next_day = true
+max_runtime_s = 28800
+commands = [["__validate_matrix__"], ["governance", "refresh"], ["governance", "status"]]
+commit_paths = ["data/backtests/", "data/governance/"]
+
+# Intraday READ-ONLY Claude analyst watch (Sprint 1 of the continuous analyst).
+# `analyst watch` posts a short commentary on the live book to Slack; it places
+# NO orders, sets no halt, changes no allocation (import-guard tested), is bounded
+# (20s client timeout, <=4 posts/day, de-duped), and commits nothing. Three fixed
+# RTH slots. catch_up=SAME_DAY with a SHORT max_lateness so a slot delayed by lock
+# contention degrades to MISSED (a soft healthcheck ping) instead of either posting
+# stale hours-late commentary OR firing the MISSED_CRITICAL emergency page (which
+# catch_up=NONE would do regardless of timing_critical). NOT timing_critical: runs
+# under the shared 'batch' lock, never the rebalance path, and the 15:00 slot
+# finishes well before the 15:55 close rebalance.
+[[job]]
+name = "intraday-watch-open"
+trigger_et = "10:15"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "10:45"
+max_runtime_s = 120
+commands = [["analyst", "watch", "--slot", "open"]]
+commit_paths = []
+
+[[job]]
+name = "intraday-watch-midday"
+trigger_et = "12:30"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "13:00"
+max_runtime_s = 120
+commands = [["analyst", "watch", "--slot", "midday"]]
+commit_paths = []
+
+[[job]]
+name = "intraday-watch-power-hour"
+trigger_et = "15:00"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "15:30"
+max_runtime_s = 120
+commands = [["analyst", "watch", "--slot", "power-hour"]]
+commit_paths = []
+
+# Pre-open READ-ONLY quant signals battery (the autonomous quant-engine half).
+# `research signals` computes a trailing-only stats battery (trend/vol/correlation/
+# mean-reversion/rates + a composite risk-posture score) over the ETF universe and
+# appends it to the host-local data/research/signals.jsonl, feeding the Claude
+# analyst better context. It is CACHE-ONLY and hard time-bounded in-loader (20s
+# bars / 10s per macro series via _with_timeout — NOT reliant on max_runtime_s),
+# places NO orders, changes no allocation/governance, commits nothing, and the CLI
+# always exits 0 (degrades to "unavailable"). Runs at 09:15, strictly after
+# premarket-health (09:00) so the bar cache is warm. catch_up=SAME_DAY (NOT NONE)
+# so a missed slot is a soft ping, never the MISSED_CRITICAL emergency page. NOT
+# timing_critical: shares the 'batch' lock, never the rebalance path.
+[[job]]
+name = "premarket-signals"
+trigger_et = "09:15"
+days = "WEEKDAYS_TRADING"
+catch_up = "SAME_DAY"
+max_lateness = "14:00"
+max_runtime_s = 120
+commands = [["research", "signals"]]
+commit_paths = []

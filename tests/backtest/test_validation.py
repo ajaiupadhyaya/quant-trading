@@ -118,3 +118,27 @@ def test_report_passed_true_when_all_gates_true() -> None:
         gate_regime=True,
     )
     assert report.passed is True
+
+
+def test_run_validation_deflates_against_grid_trials_not_cpcv(wf_result_and_bars) -> None:
+    """DSR's trial set is the walk-forward grid (windows x combos), per-period.
+
+    Regression for the DSR trial-count correction: previously the CPCV resample
+    paths were (incorrectly) used as the model-selection trial set.
+    """
+    wf, bars, factory = wf_result_and_bars
+    report = run_validation(
+        wf_result=wf,
+        bars=bars,
+        strategy_factory=factory,
+        chosen_params={"slot": 0},
+        backtest_config=BacktestConfig(starting_equity=100_000.0),
+        cpcv_config=CPCVConfig(n_groups=4, k_test=2, embargo_days=0),
+        bootstrap_resamples=50,
+        seed=0,
+    )
+    assert len(wf.grid_trial_sharpes) == len(wf.per_window_params) * 3
+    assert len(report.trial_sharpes) == len(wf.grid_trial_sharpes)
+    # The grid trial set is larger than the CPCV path set it replaced.
+    assert len(report.trial_sharpes) > len(report.cpcv_path_sharpes)
+    np.testing.assert_allclose(report.trial_sharpes, wf.grid_trial_sharpes / np.sqrt(252.0))

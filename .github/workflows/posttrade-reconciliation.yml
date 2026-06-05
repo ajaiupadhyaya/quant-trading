@@ -1,8 +1,8 @@
+# SCHEDULE RETIRED 2026-06 — executor migrated to the M4 tick scheduler.
+# Source of truth for timing/commands: quant/deploy/jobs.toml.
+# Kept for manual workflow_dispatch fallback + history.
 name: posttrade-reconciliation
-
 on:
-  schedule:
-    - cron: "30 21 * * 1-5"
   workflow_dispatch: {}
 
 concurrency:

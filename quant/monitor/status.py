@@ -39,7 +39,9 @@ def write_status(data_dir: Path, status: MonitorStatus) -> Path:
         ],
         "heartbeat": status.heartbeat,
     }
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    from quant.util.atomic import write_json_atomic
+
+    write_json_atomic(path, payload)
     return path
 
 

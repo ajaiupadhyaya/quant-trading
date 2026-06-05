@@ -19,6 +19,15 @@ from quant.options.overlay import (
 from quant.options.policy import build_hedge
 from quant.options.pricing import Greeks, bs_greeks, bs_price, implied_vol
 from quant.options.structures import build_structure, collar, protective_put, put_spread
+from quant.options.surface import (
+    OptionQuote,
+    VolSurface,
+    VolSurfaceConfig,
+    compute_vol_surface,
+    live_vol_surface,
+    parse_occ_symbol,
+    render_vol_surface,
+)
 
 __all__ = [
     "DEFAULT_REGIME_INTENSITY",
@@ -29,6 +38,9 @@ __all__ = [
     "HedgeLedger",
     "HedgeStructure",
     "OptionLeg",
+    "OptionQuote",
+    "VolSurface",
+    "VolSurfaceConfig",
     "apply_hedge",
     "bs_greeks",
     "bs_price",
@@ -36,10 +48,14 @@ __all__ = [
     "build_structure",
     "collar",
     "compare_hedge",
+    "compute_vol_surface",
     "cvar",
     "implied_vol",
+    "live_vol_surface",
+    "parse_occ_symbol",
     "protective_put",
     "put_spread",
+    "render_vol_surface",
     "rolling_beta",
     "worst_day",
 ]

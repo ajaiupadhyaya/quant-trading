@@ -341,17 +341,52 @@ def test_backtest_command_runs_registered_strategy(
             mock_alpaca.return_value = {"AAA": df, "BBB": df}
             result = runner.invoke(cli, ["backtest", "cli-toy", "--quick"])
         assert result.exit_code == 0, result.output
-        # Check the tear-sheet AND chosen_params.json were written:
+        # The tear-sheet is refreshed, but a --quick run (empty grid) must NOT
+        # write chosen_params.json — doing so would blank the blessed tuned
+        # params that live trading reads. See test_quick_backtest_* below.
         out_dir = tmp_data_dir / "backtests" / "cli-toy"
         assert (out_dir / "tearsheet.html").exists()
-        params_path = out_dir / "chosen_params.json"
-        assert params_path.exists()
-        import json
+        assert not (out_dir / "chosen_params.json").exists()
+    finally:
+        REGISTRY.pop("cli-toy", None)
 
-        payload = json.loads(params_path.read_text())
-        assert "latest" in payload
-        assert "windows" in payload
-        assert isinstance(payload["windows"], list)
+
+def test_quick_backtest_preserves_blessed_chosen_params(
+    tmp_data_dir: Path,
+    fake_env: None,
+) -> None:
+    """Regression: the nightly ``backtest --quick`` refresh must never clobber a
+    blessed chosen_params.json — live rebalance reads its ``latest`` field."""
+    import json
+
+    REGISTRY["cli-toy"] = _CLIToyStrategy
+    try:
+        out_dir = tmp_data_dir / "backtests" / "cli-toy"
+        out_dir.mkdir(parents=True)
+        blessed = {
+            "slug": "cli-toy",
+            "strategy_name": "CLI Toy",
+            "n_windows": 19,
+            "latest": {"risk_on_count": 3, "risk_on_cap": 0.4, "spy_ma_days": 150},
+            "windows": [],
+        }
+        params_path = out_dir / "chosen_params.json"
+        params_path.write_text(json.dumps(blessed, indent=2))
+
+        runner = CliRunner()
+        with patch("quant.data.bars._fetch_alpaca") as mock_alpaca:
+            dates = pd.bdate_range("2010-01-01", "2024-12-31")
+            df = pd.DataFrame(
+                {"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0, "volume": 1},
+                index=pd.DatetimeIndex(dates, name="timestamp"),
+            )
+            mock_alpaca.return_value = {"AAA": df, "BBB": df}
+            result = runner.invoke(cli, ["backtest", "cli-toy", "--quick"])
+
+        assert result.exit_code == 0, result.output
+        assert (out_dir / "tearsheet.html").exists()  # tear-sheet still refreshed
+        # The blessed params survive untouched (NOT blanked to {}).
+        assert json.loads(params_path.read_text()) == blessed
     finally:
         REGISTRY.pop("cli-toy", None)
 
@@ -550,3 +585,70 @@ def test_regime_label_command(tmp_path, monkeypatch):
     result = CliRunner().invoke(cli, ["regime", "label"])
     assert result.exit_code == 0, result.output
     assert "calm-bull" in result.output
+
+
+# --- evidence-schema shield (CLI) -------------------------------------------
+
+
+def test_validation_sidecar_stamps_schema_version(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from quant.backtest.validation import EVIDENCE_SCHEMA_VERSION
+    from quant.cli import _write_validation_report_json
+
+    report = SimpleNamespace(
+        regime_breakdown=[],
+        gate_deflated_sharpe=True,
+        gate_probabilistic_sharpe=True,
+        gate_bootstrap_lower=True,
+        gate_regime=True,
+        gate_holdout=True,
+        deflated_sharpe=0.5,
+        probabilistic_sharpe=0.9,
+        bootstrap_ci=None,
+        n_positive_regimes=3,
+        holdout=None,
+    )
+    path = _write_validation_report_json(
+        out_dir=tmp_path,
+        slug="trend",
+        run_date=date(2026, 6, 6),
+        data_start=date(2010, 1, 1),
+        data_end=date(2026, 6, 5),
+        bootstrap_resamples=200,
+        bootstrap_seed=7,
+        validation_command="quant validate trend",
+        report=report,
+        provenance="test",
+    )
+    payload = json.loads(path.read_text())
+    assert payload["evidence_schema_version"] == EVIDENCE_SCHEMA_VERSION
+
+
+def test_governance_status_renders_shield_marker(tmp_data_dir: Path, fake_env: None) -> None:
+    from datetime import datetime
+
+    from quant.governance.models import GovernanceState, StrategyState
+    from quant.governance.store import strategy_states_path, write_strategy_states
+
+    write_strategy_states(
+        strategy_states_path(tmp_data_dir),
+        {
+            "trend": StrategyState(
+                slug="trend",
+                state=GovernanceState.LIVE,
+                evaluated_at=datetime(2026, 6, 6),
+                validation_age_days=0,
+                reason_codes=["schema_shield_retained_live", "failed_gate_deflated_sharpe"],
+                reason="Incumbent retained LIVE by evidence-schema shield.",
+                code_enabled_live=True,
+                shielded=True,
+                shield_consecutive=1,
+                evidence_schema_version=1,
+                shield_first_at=date(2026, 6, 6),
+            )
+        },
+    )
+    result = CliRunner().invoke(cli, ["governance", "status"])
+    assert result.exit_code == 0
+    assert "SHIELDED" in result.output

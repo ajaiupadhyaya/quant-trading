@@ -1,13 +1,8 @@
+# SCHEDULE RETIRED 2026-06 — executor migrated to the M4 tick scheduler.
+# Source of truth for timing/commands: quant/deploy/jobs.toml.
+# Kept for manual workflow_dispatch fallback + history.
 name: weekly-grid-search
-
-# Saturdays 06:00 UTC. Re-runs walk-forward with each strategy's full
-# param_grid and commits the refreshed chosen_params.json so live rebalance
-# picks up the latest best-by-Sharpe-per-window params automatically.
-# Splitting this off the nightly job keeps nightly fast (defaults only) and
-# this job slow-but-thorough on the weekend.
 on:
-  schedule:
-    - cron: "0 6 * * 6"
   workflow_dispatch: {}
 
 concurrency:

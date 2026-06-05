@@ -50,3 +50,20 @@ resources.md
 
 # Local isolated worktrees
 .worktrees/
+
+# E1 scheduler run-state (host-local, not committed)
+data/ops/scheduler/
+data/ops/monitor_status.json
+
+# E2 analyst decision audit log (host-local JSONL; committed brief-*.md is the
+# human-readable trail). Append-only machine log, grows unbounded.
+data/analyst/decisions.jsonl
+# Intraday watch per-session post counter/fingerprint (host-local run state).
+data/analyst/watch_state.json
+# Research quant-signals battery: host-local append-only machine log + latest
+# snapshot (advisory; grows unbounded, like decisions.jsonl).
+data/research/signals.jsonl
+data/research/signals_latest.json
+# Continuous engine (Phase 6) run-state: hot MarketState snapshot + append-only
+# state/event audit logs + heartbeat (host-local, advisory, grows unbounded).
+data/engine/

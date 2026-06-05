@@ -21,6 +21,7 @@ from quant.monitor.guardrails import (
     evaluate_account_drawdown,
     evaluate_bar_freshness,
     evaluate_drift,
+    evaluate_equity_health,
     evaluate_guardrails,
     evaluate_reconciliation,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "evaluate_account_drawdown",
     "evaluate_bar_freshness",
     "evaluate_drift",
+    "evaluate_equity_health",
     "evaluate_guardrails",
     "evaluate_reconciliation",
     "format_heartbeat",

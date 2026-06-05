@@ -2,29 +2,38 @@
   "strategies": {
     "defensive-etf-allocation": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-05-27T00:00:00",
+      "evaluated_at": "2026-06-03T00:00:00",
+      "evidence_schema_version": 2,
       "manual_block": false,
       "reason": "Fresh validation evidence passes all required gates.",
       "reason_codes": [],
+      "shield_consecutive": 0,
+      "shield_first_at": null,
+      "shielded": false,
       "slug": "defensive-etf-allocation",
       "state": "live",
       "validation_age_days": 0
     },
     "momentum": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-05-27T00:00:00",
+      "evaluated_at": "2026-06-03T00:00:00",
+      "evidence_schema_version": 1,
       "manual_block": false,
       "reason": "Required gate failed: bootstrap_lower.",
       "reason_codes": [
         "failed_gate_bootstrap_lower"
       ],
+      "shield_consecutive": 0,
+      "shield_first_at": null,
+      "shielded": false,
       "slug": "momentum",
       "state": "quarantined",
-      "validation_age_days": 1
+      "validation_age_days": 8
     },
     "multi-factor": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-05-27T00:00:00",
+      "evaluated_at": "2026-06-03T00:00:00",
+      "evidence_schema_version": 1,
       "manual_block": false,
       "reason": "Required gate failed: deflated_sharpe. Required gate failed: probabilistic_sharpe. Required gate failed: bootstrap_lower. Required gate failed: regime.",
       "reason_codes": [
@@ -33,13 +42,17 @@
         "failed_gate_bootstrap_lower",
         "failed_gate_regime"
       ],
+      "shield_consecutive": 0,
+      "shield_first_at": null,
+      "shielded": false,
       "slug": "multi-factor",
       "state": "quarantined",
-      "validation_age_days": 0
+      "validation_age_days": 7
     },
     "pairs": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-05-27T00:00:00",
+      "evaluated_at": "2026-06-03T00:00:00",
+      "evidence_schema_version": 1,
       "manual_block": false,
       "reason": "Required gate failed: deflated_sharpe. Required gate failed: probabilistic_sharpe. Required gate failed: bootstrap_lower. Required gate failed: regime.",
       "reason_codes": [
@@ -48,13 +61,17 @@
         "failed_gate_bootstrap_lower",
         "failed_gate_regime"
       ],
+      "shield_consecutive": 0,
+      "shield_first_at": null,
+      "shielded": false,
       "slug": "pairs",
       "state": "quarantined",
-      "validation_age_days": 0
+      "validation_age_days": 7
     },
     "risk-parity": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-05-27T00:00:00",
+      "evaluated_at": "2026-06-03T00:00:00",
+      "evidence_schema_version": 1,
       "manual_block": false,
       "reason": "Required gate failed: deflated_sharpe. Required gate failed: probabilistic_sharpe. Required gate failed: bootstrap_lower.",
       "reason_codes": [
@@ -62,21 +79,28 @@
         "failed_gate_probabilistic_sharpe",
         "failed_gate_bootstrap_lower"
       ],
+      "shield_consecutive": 0,
+      "shield_first_at": null,
+      "shielded": false,
       "slug": "risk-parity",
       "state": "quarantined",
-      "validation_age_days": 0
+      "validation_age_days": 7
     },
     "trend": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-05-27T00:00:00",
+      "evaluated_at": "2026-06-03T00:00:00",
+      "evidence_schema_version": 1,
       "manual_block": false,
       "reason": "Required gate failed: bootstrap_lower.",
       "reason_codes": [
         "failed_gate_bootstrap_lower"
       ],
+      "shield_consecutive": 0,
+      "shield_first_at": null,
+      "shielded": false,
       "slug": "trend",
       "state": "quarantined",
-      "validation_age_days": 1
+      "validation_age_days": 8
     }
   },
   "version": 1

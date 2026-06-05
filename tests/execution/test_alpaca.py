@@ -72,6 +72,24 @@ def test_submit_order_includes_client_order_id_prefix(
     assert submitted.qty == 10
 
 
+def test_submit_order_coid_uses_asof_not_today(
+    fake_env: None, mock_trading_client: MagicMock
+) -> None:
+    """The client_order_id must embed the rebalance's `asof` session date, not
+    date.today(), so the deterministic-COID idempotency backstop aligns with the
+    already_traded_today guard (which queries the broker for `asof`)."""
+    from datetime import date
+
+    with patch("quant.execution.alpaca.TradingClient", return_value=mock_trading_client):
+        client = AlpacaClient()
+        coid = client.submit_order(
+            OrderTemplate(symbol="SPY", qty=3, side=OrderSide.BUY, strategy_slug="trend"),
+            asof=date(2026, 6, 1),
+            dry_run=True,
+        )
+    assert coid == "trend-20260601-SPY"
+
+
 def test_submit_order_dry_run_does_not_call_api(
     fake_env: None, mock_trading_client: MagicMock
 ) -> None:

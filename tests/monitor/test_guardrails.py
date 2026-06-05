@@ -8,6 +8,7 @@ from quant.monitor.guardrails import (
     evaluate_account_drawdown,
     evaluate_bar_freshness,
     evaluate_drift,
+    evaluate_equity_health,
     evaluate_guardrails,
     evaluate_reconciliation,
 )
@@ -48,6 +49,36 @@ def test_account_drawdown_halt_on_breach() -> None:
     assert evaluate_account_drawdown(0.0, budget).severity == "ok"
 
 
+def test_equity_health_ok_when_positive() -> None:
+    out = evaluate_equity_health(1_000_000.0, source="live", had_positive_history=False)
+    assert out.severity == "ok"
+    assert out.name == "equity_health"
+    assert (
+        evaluate_equity_health(50_000.0, source="local", had_positive_history=True).severity == "ok"
+    )
+
+
+def test_equity_health_halts_on_live_zero() -> None:
+    # A live account reporting $0 is a real wipeout / dead feed, never "ok".
+    out = evaluate_equity_health(0.0, source="live", had_positive_history=False)
+    assert out.severity == "halt"
+    assert evaluate_equity_health(-5.0, source="live", had_positive_history=True).severity == "halt"
+
+
+def test_equity_health_halts_on_collapse_after_positive_history() -> None:
+    out = evaluate_equity_health(0.0, source="local", had_positive_history=True)
+    assert out.severity == "halt"
+
+
+def test_equity_health_warns_on_pure_data_gap() -> None:
+    # No source / never-positive local series: surfaced as warn, but never halts
+    # (fail-open on a monitoring gap is preserved).
+    assert evaluate_equity_health(0.0, source="none", had_positive_history=False).severity == "warn"
+    assert (
+        evaluate_equity_health(0.0, source="local", had_positive_history=False).severity == "warn"
+    )
+
+
 def test_reconciliation_severity() -> None:
     assert evaluate_reconciliation(None, halt_on_breach=False).severity == "ok"
     ok = CheckResult(ok=True, name="reconciliation", detail="fine")
@@ -77,6 +108,7 @@ def test_evaluate_guardrails_aggregates_worst() -> None:
     assert {o.name for o in report.outcomes} == {
         "drift",
         "account_drawdown",
+        "equity_health",
         "reconciliation",
         "bar_freshness",
     }

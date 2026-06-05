@@ -1,0 +1,24 @@
+{
+  "asof": "2026-06-03",
+  "mode": "warn",
+  "ok": true,
+  "risk": {
+    "ann_vol": 0.11813693322480082,
+    "beta_to_benchmark": 0.7023281886530602,
+    "computable": true,
+    "cvar_95": 0.017057948539435517,
+    "degraded_metrics": [],
+    "gross_exposure": 0.999209483233517,
+    "lookback_days": 180,
+    "n_positions": 3,
+    "net_exposure": 0.999209483233517,
+    "sector_exposure": {
+      "commodity": 0.3333127036453709,
+      "equity": 0.6658967795881461
+    },
+    "top_name_weight": 0.3333127036453709,
+    "var_95": 0.011647089257225835
+  },
+  "severity": "ok",
+  "violations": []
+}

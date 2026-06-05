@@ -1,11 +1,8 @@
+# SCHEDULE RETIRED 2026-06 — executor migrated to the M4 tick scheduler.
+# Source of truth for timing/commands: quant/deploy/jobs.toml.
+# Kept for manual workflow_dispatch fallback + history.
 name: nightly-backtest
-
-# 22:00 ET = 02:00 UTC the next day. Re-runs the full walk-forward backtest
-# pipeline so the tear-sheets committed to the repo stay in sync with the
-# latest bar cache. Tear-sheets only — no order submission.
 on:
-  schedule:
-    - cron: "0 2 * * 2-6"
   workflow_dispatch: {}
 
 concurrency:

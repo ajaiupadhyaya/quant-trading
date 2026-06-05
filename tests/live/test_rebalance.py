@@ -42,7 +42,9 @@ class _StubAlpacaClient:
     def positions(self) -> list:  # type: ignore[type-arg]
         return []
 
-    def submit_order(self, order: OrderTemplate, *, dry_run: bool = False) -> str:
+    def submit_order(
+        self, order: OrderTemplate, *, asof: date | None = None, dry_run: bool = False
+    ) -> str:
         self.submitted.append(order)
         self.dry_run_flags.append(dry_run)
         return f"{order.strategy_slug}-stub-{order.symbol}"
@@ -495,10 +497,12 @@ def test_orphan_winddown_partial_failure_snapshot_reflects_intent(
     class _PartialFailClient(_StubAlpacaClientWithPositions):
         """Raises on submit_order for IEF; succeeds for everything else."""
 
-        def submit_order(self, order: OrderTemplate, *, dry_run: bool = False) -> str:
+        def submit_order(
+            self, order: OrderTemplate, *, asof: date | None = None, dry_run: bool = False
+        ) -> str:
             if order.symbol == "IEF":
                 raise RuntimeError("simulated IEF submit failure")
-            return super().submit_order(order, dry_run=dry_run)
+            return super().submit_order(order, asof=asof, dry_run=dry_run)
 
     client = _PartialFailClient(equity=100_000.0, alpaca_positions=positions)
 
@@ -716,3 +720,131 @@ def test_netting_resolves_live_vs_orphan_conflict(
     # The report must record the wind-down outcome for "trend".
     wd_slugs = [o.slug for o in report.winddown_outcomes]
     assert "trend" in wd_slugs, f"expected 'trend' in winddown_outcomes, got {wd_slugs}"
+
+
+def _check(report: Any, name: str) -> Any:
+    return next((c for c in report.safety_checks if getattr(c, "name", None) == name), None)
+
+
+def test_pretrade_risk_check_is_recorded(fake_settings: Settings, patched_bars: None) -> None:
+    """Every rebalance records a pretrade_risk safety check on the netted book."""
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+    )
+    pretrade = _check(report, "pretrade_risk")
+    assert pretrade is not None
+    # The real momentum book is vol-targeted well under the 1.0x gross cap.
+    assert pretrade.ok is True
+
+
+def test_pretrade_violation_refuses_live_submit(
+    fake_settings: Settings, patched_bars: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pre-trade risk violation is fail-closed: NO live orders are submitted."""
+    from quant.risk.pretrade import PretradeReport, RiskViolation
+
+    def _failing_report(**_kwargs: Any) -> PretradeReport:
+        return PretradeReport(
+            equity=100_000.0,
+            gross_exposure=2.5,
+            symbol_weights={"SPY": 2.5},
+            violations=[RiskViolation(code="gross_exposure", detail="gross 250% exceeds 100%")],
+        )
+
+    monkeypatch.setattr("quant.risk.pretrade.build_pretrade_report", _failing_report)
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=False,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+    )
+    assert client.submitted == []  # refused — nothing reached the broker
+    pretrade = _check(report, "pretrade_risk")
+    assert pretrade is not None and pretrade.ok is False
+    assert report.skipped_reason is not None and "pretrade_risk" in report.skipped_reason
+
+
+def test_submit_failure_is_recorded_not_silent(fake_settings: Settings, patched_bars: None) -> None:
+    """A broker submit error is logged AND recorded, never silently dropped."""
+
+    class _RaisingStubClient(_StubAlpacaClient):
+        def submit_order(
+            self, order: OrderTemplate, *, asof: date | None = None, dry_run: bool = False
+        ) -> str:
+            self.submitted.append(order)  # record the attempt, then fail
+            raise RuntimeError("broker 500")
+
+    client = _RaisingStubClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=False,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+    )
+    if not client.submitted:
+        pytest.skip("strategy emitted no orders; cannot exercise submit-failure path")
+    failures = _check(report, "submit_failures")
+    assert failures is not None and failures.ok is False
+    assert str(len(client.submitted)) in failures.detail or any(
+        o.symbol in failures.detail for o in client.submitted
+    )
+
+
+def test_guard5_records_portfolio_risk_gate_check(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    """Guard 5 (WARN) records a portfolio_risk_gate CheckResult + a per-run artifact,
+    and never aborts the batch even when it finds a violation."""
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+    )
+    gate = _check(report, "portfolio_risk_gate")
+    assert gate is not None  # the gate ran and recorded a check
+    # WARN mode never aborts — even if the (synthetic) book violates a limit.
+    assert not (report.skipped_reason or "").startswith("portfolio_risk_gate")
+    artifact = fake_settings.data_dir / "risk" / "portfolio_risk_gate.2024-06-28.json"
+    assert artifact.exists()
+    import json as _json
+
+    payload = _json.loads(artifact.read_text())
+    assert payload["mode"] == "warn"
+    assert {"asof", "ok", "severity", "violations", "risk"} <= set(payload)
+
+
+def test_guard5_is_fail_open_and_never_aborts_the_batch(
+    fake_settings: Settings, patched_bars: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Guard 5 bug must never clear `netted` or abort the rebalance (fail-open)."""
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("guard5 boom")
+
+    # Guard 5 imports build_portfolio_risk_gate lazily at call time, so patching the
+    # module attribute makes the gate raise mid-run.
+    monkeypatch.setattr("quant.risk.portfolio.build_portfolio_risk_gate", _boom)
+
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+    )
+    # The run completed normally and Guard 5 neither recorded a check nor aborted.
+    assert report.dry_run is True
+    assert _check(report, "portfolio_risk_gate") is None  # it raised before appending
+    assert not (report.skipped_reason or "").startswith("portfolio_risk_gate")
