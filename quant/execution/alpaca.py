@@ -13,12 +13,21 @@ from datetime import UTC, date, datetime
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide as AlpacaSide
-from alpaca.trading.enums import QueryOrderStatus, TimeInForce
-from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest
+from alpaca.trading.enums import QueryOrderStatus
+from alpaca.trading.enums import TimeInForce as AlpacaTIF
+from alpaca.trading.requests import GetOrdersRequest, LimitOrderRequest, MarketOrderRequest
 
-from quant.execution.orders import OrderSide, OrderTemplate, make_client_order_id
+from quant.execution.orders import (
+    OrderSide,
+    OrderTemplate,
+    OrderType,
+    TimeInForce,
+    make_client_order_id,
+)
 from quant.util.config import Settings
 from quant.util.logging import logger
+
+_TIF_MAP = {TimeInForce.DAY: AlpacaTIF.DAY, TimeInForce.GTC: AlpacaTIF.GTC}
 
 
 @dataclass(frozen=True)
@@ -154,7 +163,11 @@ class AlpacaClient:
     def submit_order(
         self, order: OrderTemplate, *, asof: date | None = None, dry_run: bool = False
     ) -> str:
-        """Submit a market order. Returns the client_order_id.
+        """Submit the order described by ``order``. Returns the client_order_id.
+
+        Honors the template's ``order_type``/``limit_price``/``time_in_force``.
+        Defaults (MARKET / DAY / no limit) reproduce the historical market+DAY
+        request byte-for-byte; no live path emits non-default fields today.
 
         ``asof`` is the rebalance session date stamped into the deterministic
         client_order_id; it must match the date the idempotency guard
@@ -163,19 +176,33 @@ class AlpacaClient:
         """
         coid = make_client_order_id(order.strategy_slug, order.symbol, asof or date.today())
         side = AlpacaSide.BUY if order.side is OrderSide.BUY else AlpacaSide.SELL
-        req = MarketOrderRequest(
-            symbol=order.symbol,
-            qty=order.qty,
-            side=side,
-            time_in_force=TimeInForce.DAY,
-            client_order_id=coid,
-        )
+        tif = _TIF_MAP[order.time_in_force]
+        req: MarketOrderRequest | LimitOrderRequest
+        if order.order_type is OrderType.LIMIT:
+            req = LimitOrderRequest(
+                symbol=order.symbol,
+                qty=order.qty,
+                side=side,
+                time_in_force=tif,
+                client_order_id=coid,
+                limit_price=order.limit_price,
+            )
+        else:
+            req = MarketOrderRequest(
+                symbol=order.symbol,
+                qty=order.qty,
+                side=side,
+                time_in_force=tif,
+                client_order_id=coid,
+            )
         if dry_run:
             logger.info(
-                "[DRY-RUN] would submit {} {} {} (coid={})",
+                "[DRY-RUN] would submit {} {} {} {}{} (coid={})",
                 order.side,
                 order.qty,
                 order.symbol,
+                order.order_type,
+                f"@{order.limit_price}" if order.limit_price is not None else "",
                 coid,
             )
             return coid
