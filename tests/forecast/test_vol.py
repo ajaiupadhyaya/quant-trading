@@ -112,12 +112,21 @@ def test_walk_forward_include_garch_adds_competitors() -> None:
     assert ev.winner in set(ev.scores)
 
 
-def test_compute_vol_forecast_uses_har_and_annualizes() -> None:
+def test_compute_vol_forecast_uses_gjr_primary_and_annualizes() -> None:
+    # Long series -> GJR-GARCH is the promoted advisory-primary (beats HAR OOS).
     f = compute_vol_forecast(_sim_garch(800, seed=1), ASOF, symbol="SPY", vix=16.0)
-    assert f.model == "har"
+    assert f.model == "gjr"
     assert f.forecast_vol_ann is not None and 0.0 < f.forecast_vol_ann < 2.0
     assert f.regime in {"calm", "normal", "elevated", "stressed"}
     assert f.vix is not None and abs(f.vix - 0.16) < 1e-9  # 16.0 normalised to 0.16
+
+
+def test_compute_vol_forecast_falls_back_to_har_on_short_series() -> None:
+    # Below the GJR min-obs threshold the cascade falls back to HAR exactly as
+    # before the promotion (behavior-preserving fallback).
+    f = compute_vol_forecast(_sim_garch(180, seed=8), ASOF, symbol="SPY")
+    assert f.model in {"har", "ewma"}  # GJR can't fit < 250 obs
+    assert f.forecast_vol_ann is not None and f.forecast_vol_ann > 0.0
 
 
 def test_compute_vol_forecast_empty_is_unavailable() -> None:
@@ -139,6 +148,6 @@ def test_render_populated() -> None:
         _sim_garch(800, seed=2), ASOF, symbol="SPY", vix=16.0, oos_skill="beats EWMA"
     )
     out = render_vol_forecast(f)
-    assert "SPY HAR 1d-ahead vol=" in out
+    assert "SPY GJR 1d-ahead vol=" in out  # GJR-GARCH is now the advisory-primary
     assert "regime=" in out
     assert "[beats EWMA]" in out

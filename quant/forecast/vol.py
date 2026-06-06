@@ -29,10 +29,12 @@ from quant.forecast.garch import GarchModel, fit_garch, garch_forecast_next
 _TRADING_DAYS = 252
 _VAR_FLOOR = 1e-8  # daily-variance floor (~1bp daily vol) — guards log/division only
 
-# Validated offline (walk_forward_eval on SPY 2010-2026, 3624 OOS days): HAR-RV
-# beat EWMA/RiskMetrics on mean QLIKE + MSE, Diebold-Mariano p=0.012. The forecast
-# is advisory/shadow on the strength of this; promotion to sizing is a separate gate.
-OOS_SKILL_SPY = "HAR>EWMA OOS DM p=0.01"
+# Validated offline (walk_forward_eval include_garch=True on SPY, 3967 OOS days):
+# GJR-GARCH WON the six-model one-day-ahead QLIKE race (1.531) and beat the HAR
+# incumbent with Diebold-Mariano p=0.045 — so GJR-GARCH is promoted to advisory-
+# PRIMARY (HAR earlier beat EWMA at p=0.01 and is now the fallback). Still
+# advisory/shadow: promotion to *sizing* is a separate, deliberate gate.
+OOS_SKILL_SPY = "GJR-GARCH>HAR OOS DM p=0.05"
 
 # HAR horizons (days): daily, weekly, monthly.
 _HAR_W = 5
@@ -56,7 +58,7 @@ class VolForecast:
 
     asof: str  # ISO
     symbol: str
-    model: str  # "har" | "ewma"
+    model: str  # "gjr" | "garch" | "har" | "ewma"
     forecast_vol_ann: float | None  # annualized vol implied by the variance forecast
     realized_vol_ann: float | None  # trailing 21d realized vol (for comparison)
     vix: float | None  # implied (FRED), where available
@@ -318,15 +320,27 @@ def compute_vol_forecast(
     vix: float | None = None,
     oos_skill: str | None = None,
 ) -> VolForecast:
-    """Pure: build a one-day-ahead vol forecast from a close series. HAR if it
-    fits, else EWMA. Annualised for comparison to trailing realized vol + VIX."""
-    rv = realized_variance(log_returns(close))
+    """Pure: build a one-day-ahead vol forecast from a close series.
+
+    Cascade GJR-GARCH -> HAR -> EWMA: GJR-GARCH is the OOS-validated primary
+    (beats HAR, DM p=0.045 on SPY); HAR (itself beating EWMA) is the fallback when
+    the series is too short to fit GJR; EWMA is the final floor. Annualised for
+    comparison to trailing realized vol + VIX. Advisory only — drives no sizing.
+    """
+    returns = log_returns(close)
+    rv = realized_variance(returns)
     model_name = "ewma"
     var_next: float | None = None
-    har = fit_har(rv) if rv.size > 60 else None
-    if har is not None:
-        var_next = har_forecast_next(har, rv)
-        model_name = "har"
+    # Promoted primary: GJR-GARCH (captures the leverage effect; won the OOS race).
+    gjr = fit_garch(returns, kind="gjr") if returns.size >= 250 else None
+    if gjr is not None:
+        var_next = garch_forecast_next(gjr, returns)
+        model_name = "gjr"
+    if var_next is None:
+        har = fit_har(rv) if rv.size > 60 else None
+        if har is not None:
+            var_next = har_forecast_next(har, rv)
+            model_name = "har"
     if var_next is None and rv.size > 0:
         var_next = float(ewma_forecast_series(rv)[-1])
         model_name = "ewma"
