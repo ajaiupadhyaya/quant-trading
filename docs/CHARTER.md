@@ -44,7 +44,7 @@ close.
 | 3 — Robust validation | ✅ Met | Walk-forward + CPCV + DSR + PSR + bootstrap + regime stress + OOS holdout; `metrics.py` reports Sharpe/Sortino/maxDD/win-rate/CAGR; `activity.py` reports **annualized turnover** AND **capacity** (model-free participation ceiling + impact-adjusted ceiling, binding AUM) on tear-sheets + `quant combined-book`. |
 | 4 — Overfitting guard | ✅ Met | Deflated Sharpe (`dsr.py`, Bailey–López de Prado multiple-testing correction), CPCV, walk-forward param grids. |
 | 5 — Reproducibility | ✅ Met | Run registry logs every backtest (params + kind), deterministic governance manifests, git history as audit trail. (RNG seeding audit pending.) |
-| Techniques | ⚠️ Partial | Factor models, momentum, mean-reversion, stat-arb, HAR-RV vol, **GARCH/GJR-GARCH vol** (`forecast/garch.py`) and a **DSR-gated gradient-boosting layer** (`forecast/gbm.py`) all present. Remaining: ARIMA conditional-mean modeling (deliberately deferred — daily equity mean is ~unpredictable; lower priority than the variance process). |
+| Techniques | ✅ Met | Factor models, momentum, mean-reversion, stat-arb, HAR-RV vol, **GARCH/GJR-GARCH vol** (`forecast/garch.py`, GJR promoted advisory-primary), **DSR-gated gradient-boosting** (`forecast/gbm.py`), and **ARIMA conditional-mean** (`forecast/arima.py`, Hannan-Rissanen, DSR/PSR + cost + beat-baseline gated). ARIMA's documented OOS result on SPY is the EMH negative (no conditional-mean edge — `passes=False`), which is *why* the system forecasts variance + cross-section, not the daily mean. |
 
 ### Open gaps being closed
 

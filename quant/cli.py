@@ -1731,6 +1731,53 @@ def forecast_gbm_eval() -> None:
 
 
 @forecast.command(
+    "arima-eval",
+    help="DSR/PSR-gated ARIMA conditional-mean (walk-forward, research-only; documents EMH).",
+)
+@click.option("--symbol", default="SPY", show_default=True)
+def forecast_arima_eval(symbol: str) -> None:
+    import pandas as pd
+
+    from quant.data import bars
+    from quant.forecast.arima import arima_research_verdict
+    from quant.forecast.vol import log_returns
+
+    settings = Settings()  # type: ignore[call-arg]
+    path = bars._cache_path(symbol.upper(), settings.data_dir)
+    if not path.exists():
+        raise click.ClickException(
+            f"No cached bars for {symbol.upper()} — run `quant data refresh`."
+        )
+    close = pd.read_parquet(path)["close"].dropna().to_numpy()
+    returns = log_returns(close)
+    v = arima_research_verdict(returns, d=0)
+    console.print(
+        f"[bold]{symbol.upper()} ARIMA conditional-mean OOS[/bold] — {v.n_oos} steps, "
+        f"best ARIMA({v.best_p},0,{v.best_q})"
+    )
+    if v.mean_ic is not None:
+        t = f" (t={v.ic_tstat:+.2f})" if v.ic_tstat is not None else ""
+        console.print(f"  conditional IC={v.mean_ic:+.4f}{t}")
+    if v.hit_rate is not None:
+        console.print(f"  directional hit-rate={v.hit_rate:.1%}")
+    if v.mse_ratio is not None:
+        console.print(f"  MSE vs unconditional baseline={v.mse_ratio:.4f} (≥1 = no improvement)")
+    if v.deflated_sharpe is not None:
+        dsr_mark = "✓" if v.passes_dsr else "✗"
+        psr_mark = "✓" if v.passes_psr else "✗"
+        console.print(
+            f"  DSR={v.deflated_sharpe:.3f} {dsr_mark} (≥0.30)   "
+            f"PSR={v.probabilistic_sharpe:.3f} {psr_mark} (≥0.70)"
+        )
+    verdict_color = "green" if v.passes else "yellow"
+    console.print(f"  [{verdict_color}]{v.note}[/{verdict_color}]")
+    console.print(
+        "[dim]Drift-neutral sign-strategy deflated against the (p,q) grid. Research-only "
+        "— promotes nothing; a 'no edge' result is the documented, expected finding.[/dim]"
+    )
+
+
+@forecast.command(
     "regime", help="Live macro-conditioned regime read (HMM + credit cycle) + change-point."
 )
 def forecast_regime() -> None:
