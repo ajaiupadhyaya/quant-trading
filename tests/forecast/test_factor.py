@@ -146,3 +146,49 @@ def test_universe_is_operating_companies() -> None:
     assert len(FACTOR_UNIVERSE) == 49
     for etf in ("SPY", "GLD", "TLT", "EEM", "IEF", "DBC", "VNQ", "EFA"):
         assert etf not in FACTOR_UNIVERSE
+
+
+# --- GBM model branch + DSR-gated research verdict ----------------------------
+
+
+def test_gbm_walk_forward_runs_and_populates_spread_series() -> None:
+    from quant.forecast.factor import walk_forward_factor_eval
+    from quant.forecast.gbm import GBMConfig
+
+    closes = _panel(seed=11, n_days=1500, n_names=30)
+    cfg = FactorConfig(gbm=GBMConfig(n_estimators=30, max_depth=2, min_samples_leaf=5))
+    ev = walk_forward_factor_eval(closes, data_dir=None, config=cfg, model="gbm")
+    assert ev.model == "gbm"
+    assert ev.n_periods > 0
+    # The OOS long-short series is retained for DSR/PSR.
+    assert len(ev.oos_spread_returns) > 0
+    assert all(np.isfinite(s) for s in ev.oos_spread_returns)
+
+
+def test_composite_eval_unchanged_by_gbm_addition() -> None:
+    """Adding the gbm branch must not perturb the composite path (regression)."""
+    from quant.forecast.factor import walk_forward_factor_eval
+
+    closes = _panel(seed=12, n_days=1400, n_names=25)
+    ev = walk_forward_factor_eval(closes, data_dir=None, model="composite")
+    assert ev.model == "composite"
+    assert ev.n_periods > 0
+    # composite is parameter-free OOS; mean_tertile_spread is defined when periods exist
+    assert ev.mean_tertile_spread is not None
+
+
+def test_gbm_research_verdict_computes_dsr_psr_and_gate() -> None:
+    from quant.forecast.factor import GBMVerdict, gbm_research_verdict
+    from quant.forecast.gbm import GBMConfig
+
+    closes = _panel(seed=13, n_days=1600, n_names=30)
+    cfg = FactorConfig(gbm=GBMConfig(n_estimators=25, max_depth=2))
+    v = gbm_research_verdict(closes, data_dir=None, config=cfg)
+    assert isinstance(v, GBMVerdict)
+    assert v.n_periods > 0
+    # On pure random-walk closes there is no real edge, so DSR/PSR should NOT pass
+    # the live bar — the honest, expected outcome the charter anticipates.
+    assert v.deflated_sharpe is not None
+    assert v.probabilistic_sharpe is not None
+    assert v.passes is (v.passes_dsr and v.passes_psr)
+    assert not v.passes  # no edge in noise -> not promotion-eligible

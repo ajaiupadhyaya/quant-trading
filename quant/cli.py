@@ -1664,6 +1664,36 @@ def forecast_factor_eval(model: str) -> None:
 
 
 @forecast.command(
+    "gbm-eval",
+    help="DSR/PSR-gated gradient-boosting alpha (purged walk-forward, research-only).",
+)
+def forecast_gbm_eval() -> None:
+    from quant.forecast.factor import gbm_research_verdict
+
+    settings = Settings()  # type: ignore[call-arg]
+    closes = _factor_closes(settings)
+    v = gbm_research_verdict(closes, data_dir=settings.data_dir)
+    console.print(f"[bold]GBM alpha OOS[/bold] — {v.n_periods} monthly periods")
+    if v.mean_rank_ic is not None:
+        console.print(f"  rank IC={v.mean_rank_ic:+.4f} (t={v.rank_ic_tstat:+.2f})")
+    if v.mean_tertile_spread is not None:
+        console.print(f"  top-minus-bottom tertile (21d fwd)={v.mean_tertile_spread:+.2%}")
+    if v.deflated_sharpe is not None:
+        dsr_mark = "✓" if v.passes_dsr else "✗"
+        psr_mark = "✓" if v.passes_psr else "✗"
+        console.print(
+            f"  DSR={v.deflated_sharpe:.3f} {dsr_mark} (≥0.30)   "
+            f"PSR={v.probabilistic_sharpe:.3f} {psr_mark} (≥0.70)"
+        )
+    verdict_color = "green" if v.passes else "yellow"
+    console.print(f"  [{verdict_color}]{v.note}[/{verdict_color}]")
+    console.print(
+        "[dim]Survivorship-biased large-cap universe; deflated against the "
+        "{composite, ridge, gbm} family. Research-only — promotes nothing.[/dim]"
+    )
+
+
+@forecast.command(
     "regime", help="Live macro-conditioned regime read (HMM + credit cycle) + change-point."
 )
 def forecast_regime() -> None:

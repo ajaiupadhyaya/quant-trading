@@ -28,6 +28,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from quant.forecast.gbm import GBMConfig, fit_gbm, predict_gbm
+
 # Large-cap operating companies with bars + EDGAR (the 57-symbol cache minus ETFs).
 FACTOR_UNIVERSE: tuple[str, ...] = (
     "AAPL",
@@ -99,6 +101,7 @@ class FactorConfig:
     min_names: int = 12  # need this many scored names to form a cross-section
     min_factors: int = 2  # a name needs this many present factors to get a score
     embargo_days: int = 21  # purge gap between ridge train and the test date
+    gbm: GBMConfig = field(default_factory=GBMConfig)  # used only by model="gbm"
 
 
 # --------------------------------------------------------------------------- #
@@ -270,6 +273,9 @@ class FactorEval:
     hit_rate: float | None  # share of periods with rank-IC > 0
     mean_tertile_spread: float | None
     per_factor_ic: dict[str, float] = field(default_factory=dict)
+    # Per-period top-minus-bottom tertile returns (the OOS long-short series),
+    # retained so DSR/PSR can be computed on a return series. Additive.
+    oos_spread_returns: tuple[float, ...] = ()
 
 
 def _tstat(series: list[float]) -> tuple[float | None, float | None, float | None]:
@@ -318,6 +324,8 @@ def walk_forward_factor_eval(
         fwd = fwds[loc]
         if model == "ridge":
             score = _ridge_score_purged(loc, used_locs, panels, fwds, cfg)
+        elif model == "gbm":
+            score = _gbm_score_purged(loc, used_locs, panels, fwds, cfg)
         else:
             score = z.mean(axis=1, skipna=True).where(z.notna().sum(axis=1) >= cfg.min_factors)
         if score is None:
@@ -349,6 +357,7 @@ def walk_forward_factor_eval(
         hit_rate=hit,
         mean_tertile_spread=(float(np.mean(spreads)) if spreads else None),
         per_factor_ic={f: float(np.mean(v)) for f, v in factor_ics.items() if v},
+        oos_spread_returns=tuple(spreads),
     )
 
 
@@ -390,6 +399,141 @@ def _ridge_score_purged(
     zt_filled = zt.fillna(0.0)
     score = pd.Series(zt_filled.to_numpy() @ coef, index=zt.index)
     return score.where(valid)
+
+
+def _gbm_score_purged(
+    loc: int,
+    used_locs: list[int],
+    panels: dict[int, pd.DataFrame],
+    fwds: dict[int, pd.Series],
+    cfg: FactorConfig,
+) -> pd.Series | None:
+    """Fit the deterministic GBM on embargo-purged past rebalances, predict ``loc``.
+
+    Same purge/embargo/fill conventions as :func:`_ridge_score_purged` (missing
+    factor → 0, the z-score mean), so composite/ridge/gbm differ only in the
+    learner, not the data handling. Honest OOS: training rebalances' forward
+    windows all closed ≥ embargo before ``loc``."""
+    rows: list[np.ndarray] = []
+    ys: list[float] = []
+    cols = list(_FACTORS)
+    for s in used_locs:
+        if s >= loc:
+            break
+        if s + cfg.forward_days + cfg.embargo_days > loc:  # purge overlap
+            continue
+        z = panels[s].reindex(columns=cols)
+        df = z.join(fwds[s].rename("f"))
+        df = df[df["f"].notna()]
+        if df.empty:
+            continue
+        y = df["f"].to_numpy() - df["f"].to_numpy().mean()
+        rows.append(df[cols].fillna(0.0).to_numpy())
+        ys.append(y)
+    if len(rows) < 6:
+        return None
+    x = np.vstack(rows)
+    y_all = np.concatenate(ys)
+    if x.shape[0] < 2 * cfg.gbm.min_samples_leaf:
+        return None
+    model = fit_gbm(x, y_all, cfg.gbm)
+    zt = panels[loc].reindex(columns=cols)
+    valid = zt.notna().sum(axis=1) >= cfg.min_factors
+    score = pd.Series(predict_gbm(model, zt.fillna(0.0).to_numpy()), index=zt.index)
+    return score.where(valid)
+
+
+# --------------------------------------------------------------------------- #
+# GBM research verdict — DSR/PSR-gated (research-only, promotes nothing)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class GBMVerdict:
+    n_periods: int
+    mean_rank_ic: float | None
+    rank_ic_tstat: float | None
+    mean_tertile_spread: float | None
+    deflated_sharpe: float | None
+    probabilistic_sharpe: float | None
+    passes_dsr: bool
+    passes_psr: bool
+    passes: bool
+    note: str
+
+
+# Charter live-validation thresholds, reused so the research bar == the live bar.
+_DSR_GATE = 0.30
+_PSR_GATE = 0.70
+
+
+def _spread_sharpe_per_period(spreads: tuple[float, ...]) -> float:
+    a = np.array([s for s in spreads if np.isfinite(s)], dtype=float)
+    if a.size < 2:
+        return 0.0
+    sd = float(a.std(ddof=1))
+    return 0.0 if sd == 0.0 else float(a.mean() / sd)
+
+
+def gbm_research_verdict(
+    closes: pd.DataFrame, *, data_dir: Any = None, config: FactorConfig | None = None
+) -> GBMVerdict:
+    """Purged walk-forward GBM alpha, gated by Deflated/Probabilistic Sharpe.
+
+    Deflates the GBM's OOS monthly long-short (tertile-spread) return series
+    against the per-period Sharpes of the model FAMILY {composite, ridge, gbm} —
+    the honest multiple-testing set (three models were tried). Gates mirror the
+    live battery (DSR ≥ 0.30, PSR ≥ 0.70). Observational only: it reports whether
+    GBM would be promotion-eligible; it promotes nothing.
+    """
+    from quant.backtest.dsr import deflated_sharpe, probabilistic_sharpe
+
+    cfg = config or FactorConfig()
+    evals = {
+        m: walk_forward_factor_eval(closes, data_dir=data_dir, config=cfg, model=m)
+        for m in ("composite", "ridge", "gbm")
+    }
+    gbm_eval = evals["gbm"]
+    gbm_series = pd.Series(gbm_eval.oos_spread_returns, dtype=float)
+    trial_sharpes = np.array(
+        [_spread_sharpe_per_period(e.oos_spread_returns) for e in evals.values()], dtype=float
+    )
+
+    if len(gbm_series) < 2:
+        return GBMVerdict(
+            n_periods=gbm_eval.n_periods,
+            mean_rank_ic=gbm_eval.mean_rank_ic,
+            rank_ic_tstat=gbm_eval.rank_ic_tstat,
+            mean_tertile_spread=gbm_eval.mean_tertile_spread,
+            deflated_sharpe=None,
+            probabilistic_sharpe=None,
+            passes_dsr=False,
+            passes_psr=False,
+            passes=False,
+            note="insufficient OOS periods for DSR/PSR",
+        )
+
+    dsr = deflated_sharpe(gbm_series, trial_sharpes)
+    psr = probabilistic_sharpe(gbm_series, 0.0)
+    passes_dsr = dsr >= _DSR_GATE
+    passes_psr = psr >= _PSR_GATE
+    passes = passes_dsr and passes_psr
+    note = (
+        "GBM is promotion-eligible (research-only; a live tilt still needs a "
+        "separate green-light)"
+        if passes
+        else "GBM does not clear the DSR/PSR bar — not promotion-eligible"
+    )
+    return GBMVerdict(
+        n_periods=gbm_eval.n_periods,
+        mean_rank_ic=gbm_eval.mean_rank_ic,
+        rank_ic_tstat=gbm_eval.rank_ic_tstat,
+        mean_tertile_spread=gbm_eval.mean_tertile_spread,
+        deflated_sharpe=dsr,
+        probabilistic_sharpe=psr,
+        passes_dsr=passes_dsr,
+        passes_psr=passes_psr,
+        passes=passes,
+        note=note,
+    )
 
 
 # --------------------------------------------------------------------------- #
