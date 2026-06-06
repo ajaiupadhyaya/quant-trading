@@ -1558,11 +1558,14 @@ def forecast_vol(symbol: str) -> None:
 
 @forecast.command(
     "vol-eval",
-    help="Walk-forward OOS eval: HAR vs EWMA/RW/rolling (QLIKE + MSE + Diebold-Mariano).",
+    help="Walk-forward OOS eval: HAR/GARCH/GJR vs EWMA/RW/rolling (QLIKE + MSE + Diebold-Mariano).",
 )
 @click.option("--symbol", default="SPY", show_default=True)
 @click.option("--min-train", default=504, show_default=True, type=int, help="Initial train days.")
-def forecast_vol_eval(symbol: str, min_train: int) -> None:
+@click.option(
+    "--no-garch", is_flag=True, default=False, help="Skip the GARCH-family competitors (faster)."
+)
+def forecast_vol_eval(symbol: str, min_train: int, no_garch: bool) -> None:
     import pandas as pd
 
     from quant.data import bars
@@ -1575,7 +1578,7 @@ def forecast_vol_eval(symbol: str, min_train: int) -> None:
             f"No cached bars for {symbol.upper()} — run `quant data refresh`."
         )
     close = pd.read_parquet(path)["close"].dropna().to_numpy()
-    ev = walk_forward_eval(close, min_train=min_train)
+    ev = walk_forward_eval(close, min_train=min_train, include_garch=not no_garch)
     console.print(
         f"[bold]{symbol.upper()} vol-forecast OOS[/bold] — {ev.n_oos} days, winner: {ev.winner}"
     )
@@ -1594,6 +1597,23 @@ def forecast_vol_eval(symbol: str, min_train: int) -> None:
             else "no significant difference"
         )
         console.print(f"  DM(HAR vs EWMA): stat={ev.dm_stat:+.3f} p={ev.dm_pvalue:.4f} → {verdict}")
+    if ev.dm_garch_har_stat is not None and ev.dm_garch_har_pvalue is not None:
+        sig = ev.dm_garch_har_pvalue < 0.05
+        verdict = (
+            "GARCH beats HAR"
+            if (ev.dm_garch_har_stat < 0 and sig)
+            else "HAR beats GARCH"
+            if (ev.dm_garch_har_stat > 0 and sig)
+            else "no significant difference"
+        )
+        console.print(
+            f"  DM(GARCH vs HAR): stat={ev.dm_garch_har_stat:+.3f} "
+            f"p={ev.dm_garch_har_pvalue:.4f} → {verdict}"
+        )
+    console.print(
+        "[dim]Research-only: vol forecasts are advisory/shadow and drive no sizing "
+        "until a model beats the incumbent OOS and is consciously promoted.[/dim]"
+    )
 
 
 def _factor_closes(settings: Settings) -> Any:

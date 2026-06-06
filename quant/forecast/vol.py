@@ -24,6 +24,8 @@ from typing import Any
 
 import numpy as np
 
+from quant.forecast.garch import GarchModel, fit_garch, garch_forecast_next
+
 _TRADING_DAYS = 252
 _VAR_FLOOR = 1e-8  # daily-variance floor (~1bp daily vol) — guards log/division only
 
@@ -180,6 +182,11 @@ class ForecastEval:
     dm_stat: float | None  # HAR vs EWMA on QLIKE (negative → HAR better)
     dm_pvalue: float | None
     winner: str | None  # lowest mean QLIKE
+    # GARCH-family vs HAR (only populated when include_garch=True); same sign
+    # convention: negative stat → GARCH better. Default None keeps the four-model
+    # eval backward-compatible.
+    dm_garch_har_stat: float | None = None
+    dm_garch_har_pvalue: float | None = None
 
 
 def _dm_test(loss_a: np.ndarray, loss_b: np.ndarray) -> tuple[float, float] | None:
@@ -201,26 +208,39 @@ def walk_forward_eval(
     refit_every: int = 21,
     rolling_window: int = 22,
     ewma_lambda: float = 0.94,
+    include_garch: bool = False,
 ) -> ForecastEval:
     """Expanding-window, one-day-ahead OOS evaluation of HAR vs naive benchmarks.
 
     For each OOS day the HAR model is refit on all data up to that day (every
     ``refit_every`` steps for speed) and every model forecasts the *next* day's
     variance; forecasts are scored against the realized proxy. Pure / no I/O.
+
+    With ``include_garch=True`` the GARCH-family forecasters (GARCH(1,1) and
+    GJR-GARCH) join the race on the same refit cadence and the DM(GARCH vs HAR)
+    fields are populated. Default ``False`` keeps the four-model eval byte-identical.
     """
-    rv = realized_variance(log_returns(close))
+    returns = log_returns(close)
+    rv = realized_variance(returns)
     n = rv.size
     ewma_all = ewma_forecast_series(rv, ewma_lambda)
 
-    models = ("har", "ewma", "rw", "rolling")
+    models: tuple[str, ...] = ("har", "ewma", "rw", "rolling")
+    if include_garch:
+        models = (*models, "garch", "gjr")
     losses_q: dict[str, list[float]] = {m: [] for m in models}
     losses_m: dict[str, list[float]] = {m: [] for m in models}
 
     har_model: HARModel | None = None
+    garch_model: GarchModel | None = None
+    gjr_model: GarchModel | None = None
     start = max(min_train, _HAR_M)
     for t in range(start, n - 1):
         if har_model is None or (t - start) % refit_every == 0:
             har_model = fit_har(rv[: t + 1])
+            if include_garch:
+                garch_model = fit_garch(returns[: t + 1], kind="garch")
+                gjr_model = fit_garch(returns[: t + 1], kind="gjr")
         target = float(rv[t + 1])
         preds: dict[str, float | None] = {
             "har": har_forecast_next(har_model, rv[: t + 1]) if har_model else None,
@@ -228,6 +248,11 @@ def walk_forward_eval(
             "rw": float(rv[t]),
             "rolling": _rolling_hist_forecast(rv, t, rolling_window),
         }
+        if include_garch:
+            preds["garch"] = (
+                garch_forecast_next(garch_model, returns[: t + 1]) if garch_model else None
+            )
+            preds["gjr"] = garch_forecast_next(gjr_model, returns[: t + 1]) if gjr_model else None
         for m, f in preds.items():
             if f is None or not math.isfinite(f) or f <= 0:
                 continue
@@ -254,6 +279,12 @@ def walk_forward_eval(
         if dm is not None:
             dm_stat, dm_p = dm
 
+    dm_gh_stat = dm_gh_p = None
+    if include_garch and {"garch", "har"} <= scores.keys():
+        dm_gh = _dm_test(np.array(losses_q["garch"]), np.array(losses_q["har"]))
+        if dm_gh is not None:
+            dm_gh_stat, dm_gh_p = dm_gh
+
     winner = min(scores, key=lambda m: scores[m].mean_qlike) if scores else None
     return ForecastEval(
         n_oos=max((s.n for s in scores.values()), default=0),
@@ -261,6 +292,8 @@ def walk_forward_eval(
         dm_stat=dm_stat,
         dm_pvalue=dm_p,
         winner=winner,
+        dm_garch_har_stat=dm_gh_stat,
+        dm_garch_har_pvalue=dm_gh_p,
     )
 
 

@@ -44,14 +44,14 @@ close.
 | 3 — Robust validation | ⚠️ Partial | Walk-forward + CPCV + DSR + PSR + bootstrap + regime stress + OOS holdout; `metrics.py` reports Sharpe/Sortino/maxDD/win-rate/CAGR; `activity.py` now reports **annualized turnover** (tear-sheets + `quant backtest`). **Still missing: capacity (deferred to gap #2, needs the market-impact model).** |
 | 4 — Overfitting guard | ✅ Met | Deflated Sharpe (`dsr.py`, Bailey–López de Prado multiple-testing correction), CPCV, walk-forward param grids. |
 | 5 — Reproducibility | ✅ Met | Run registry logs every backtest (params + kind), deterministic governance manifests, git history as audit trail. (RNG seeding audit pending.) |
-| Techniques | ⚠️ Partial | Factor models, momentum, mean-reversion, stat-arb all present. **Missing: ARIMA/GARCH time-series modeling and gradient-boosting ML layer.** |
+| Techniques | ⚠️ Partial | Factor models, momentum, mean-reversion, stat-arb, HAR-RV vol, **GARCH/GJR-GARCH vol** (`forecast/garch.py`) and a **DSR-gated gradient-boosting layer** (`forecast/gbm.py`) all present. Remaining: ARIMA conditional-mean modeling (deliberately deferred — daily equity mean is ~unpredictable; lower priority than the variance process). |
 
 ### Open gaps being closed
 
 1. **Turnover + capacity metrics** (principle 3) — turnover ✅ shipped (`quant/backtest/activity.py`, tear-sheets + CLI). Capacity rides along with gap #2 (needs the market-impact model).
 2. **Borrow + market-impact costs** (principle 2) — borrow/financing ✅ shipped (slice 2a, `backtest/financing.py`); square-root market impact ✅ shipped (slice 2b, `backtest/impact.py`); both on by default. Remaining: capacity (slice 2c, lands in `activity.py` — model-free ADV proxy + impact-adjusted, now unblocked by the impact model).
-3. **ARIMA/GARCH volatility modeling** (techniques) — feeds vol-targeting / sizing.
-4. **Gradient-boosting signal layer** (techniques) — strict OOS/DSR gating, given overfitting risk.
+3. **ARIMA/GARCH volatility modeling** (techniques) — GARCH(1,1) + GJR-GARCH ✅ shipped (`forecast/garch.py`, hand-rolled QMLE under variance targeting), slotted into the existing one-day-ahead walk-forward race (`forecast/vol.py`, opt-in `include_garch`). Validated OOS on SPY (3967 days): GJR-GARCH wins the QLIKE race and GARCH beats the HAR incumbent (Diebold-Mariano p=0.045). Advisory/shadow — drives no sizing until a conscious promotion. ARIMA conditional-mean deferred (see Techniques row).
+4. **Gradient-boosting signal layer** (techniques) — ✅ shipped (`forecast/gbm.py`, hand-rolled deterministic GBM; strict DSR≥0.30 / PSR≥0.70 gating in `forecast/factor.py`). Research-only; promotes nothing automatically.
 
 Each closes through the repo's standard spec → plan → build discipline under
 `docs/superpowers/`.

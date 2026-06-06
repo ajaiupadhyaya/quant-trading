@@ -120,7 +120,7 @@ def test_disabled_is_identity_same_objects() -> None:
 def test_enabled_but_adv_unknown_passes_through() -> None:
     orders = [_order("ILLIQ", 1000)]
     cfg = ExecutionPolicyConfig(enabled=True, max_participation=0.10)
-    out, rows = apply_execution_policy(
+    out, _rows = apply_execution_policy(
         orders, dollar_adv={}, reference_prices={"ILLIQ": 100.0}, cfg=cfg
     )
     assert len(out) == 1

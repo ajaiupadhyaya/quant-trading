@@ -92,6 +92,26 @@ def test_walk_forward_har_beats_random_walk() -> None:
     assert ev.dm_stat is not None and ev.dm_pvalue is not None
 
 
+def test_walk_forward_default_excludes_garch_regression() -> None:
+    """include_garch=False (default) keeps the four-model race byte-identical."""
+    close = _sim_garch(1600, seed=21)
+    ev = walk_forward_eval(close, min_train=400, refit_every=21)
+    assert set(ev.scores) == {"har", "ewma", "rw", "rolling"}
+    assert ev.dm_garch_har_stat is None and ev.dm_garch_har_pvalue is None
+
+
+def test_walk_forward_include_garch_adds_competitors() -> None:
+    close = _sim_garch(2200, seed=22)
+    ev = walk_forward_eval(close, min_train=400, refit_every=42, include_garch=True)
+    assert {"garch", "gjr"} <= set(ev.scores)
+    # On a GARCH(1,1)-DGP series GARCH should be competitive — at worst it ties HAR,
+    # and it must beat the single-day random walk on QLIKE.
+    assert ev.scores["garch"].mean_qlike < ev.scores["rw"].mean_qlike
+    # DM(GARCH vs HAR) is populated when both models scored.
+    assert ev.dm_garch_har_stat is not None and ev.dm_garch_har_pvalue is not None
+    assert ev.winner in set(ev.scores)
+
+
 def test_compute_vol_forecast_uses_har_and_annualizes() -> None:
     f = compute_vol_forecast(_sim_garch(800, seed=1), ASOF, symbol="SPY", vix=16.0)
     assert f.model == "har"
