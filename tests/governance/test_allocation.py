@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
+from pathlib import Path
 
-from quant.governance.allocation import AllocationConfig, allocate_capital
+import numpy as np
+import pandas as pd
+
+from quant.governance.allocation import (
+    AllocationConfig,
+    allocate_capital,
+    load_strategy_returns,
+    risk_based_raw_weights,
+    strategy_risk,
+)
 from quant.governance.models import GovernanceState, StrategyState, ValidationEvidence
 
 
@@ -104,3 +115,162 @@ def test_dsr_weighted_respects_minimum_for_live_strategies_when_feasible() -> No
     assert weights["b"] >= 0.05
     assert weights["c"] >= 0.05
     assert abs(sum(weights.values()) - 1.0) < 1e-12
+
+
+# --- risk-based allocation: pure core -----------------------------------------
+
+
+def _rng_returns(mean: float, std: float, n: int = 252, seed: int = 0) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    return rng.normal(mean, std, n)
+
+
+def test_strategy_risk_basic_mean_std() -> None:
+    r = np.array([0.01, -0.01, 0.02, -0.02, 0.0] * 20)  # 100 obs
+    mean, std = strategy_risk(r, min_observations=60)
+    assert mean == pytest_approx(float(r.mean()))
+    assert std == pytest_approx(float(r.std(ddof=1)))
+
+
+def test_strategy_risk_nan_when_too_few_observations() -> None:
+    mean, std = strategy_risk(np.array([0.01, 0.02, -0.01]), min_observations=60)
+    assert math.isnan(mean) and math.isnan(std)
+
+
+def test_strategy_risk_nan_when_zero_vol() -> None:
+    _mean, std = strategy_risk(np.zeros(100), min_observations=60)
+    assert math.isnan(std)
+
+
+def test_risk_parity_favors_lower_vol() -> None:
+    returns = {
+        "calm": _rng_returns(0.0005, 0.005, seed=1),
+        "wild": _rng_returns(0.0005, 0.020, seed=2),
+    }
+    raw = risk_based_raw_weights(
+        returns, ["calm", "wild"], "risk-parity", AllocationConfig(mode="risk-parity")
+    )
+    assert raw is not None
+    assert raw["calm"] > raw["wild"]
+
+
+def test_fractional_kelly_favors_higher_edge_and_zeroes_negative() -> None:
+    returns = {
+        "edge": _rng_returns(0.0015, 0.010, seed=3),
+        "noedge": _rng_returns(-0.0015, 0.010, seed=4),
+    }
+    raw = risk_based_raw_weights(
+        returns, ["edge", "noedge"], "fractional-kelly", AllocationConfig(mode="fractional-kelly")
+    )
+    assert raw is None or raw["edge"] > raw["noedge"]
+    # A purely-negative-mean strategy contributes 0 Kelly weight.
+    only_neg = risk_based_raw_weights(
+        {"noedge": _rng_returns(-0.002, 0.01, seed=5)},
+        ["noedge"],
+        "fractional-kelly",
+        AllocationConfig(mode="fractional-kelly"),
+    )
+    assert only_neg is None  # all-zero raw -> caller falls back
+
+
+def test_risk_based_returns_none_when_a_live_slug_lacks_curve() -> None:
+    raw = risk_based_raw_weights(
+        {"a": _rng_returns(0.001, 0.01, seed=6)},  # 'b' missing
+        ["a", "b"],
+        "risk-parity",
+        AllocationConfig(mode="risk-parity"),
+    )
+    assert raw is None
+
+
+# --- risk-based allocation: through allocate_capital --------------------------
+
+
+def test_allocate_risk_parity_end_to_end() -> None:
+    states = {
+        "calm": _state("calm", GovernanceState.LIVE),
+        "wild": _state("wild", GovernanceState.LIVE),
+    }
+    returns = {
+        "calm": _rng_returns(0.0005, 0.005, seed=7),
+        "wild": _rng_returns(0.0005, 0.020, seed=8),
+    }
+    weights = allocate_capital(
+        states,
+        evidence_by_slug={},
+        config=AllocationConfig(mode="risk-parity", max_weight=0.90, min_weight=0.0),
+        returns_by_slug=returns,
+    )
+    assert weights["calm"] > weights["wild"]
+    assert abs(sum(weights.values()) - 1.0) < 1e-12
+
+
+def test_allocate_risk_mode_falls_back_to_equal_live_on_missing_data() -> None:
+    states = {
+        "a": _state("a", GovernanceState.LIVE),
+        "b": _state("b", GovernanceState.LIVE),
+        "c": _state("c", GovernanceState.LIVE),
+    }
+    # No returns at all -> must reproduce equal-live exactly.
+    weights = allocate_capital(
+        states,
+        evidence_by_slug={},
+        config=AllocationConfig(mode="risk-parity"),
+        returns_by_slug={},
+    )
+    assert weights == {"a": 1 / 3, "b": 1 / 3, "c": 1 / 3}
+
+
+def test_allocate_risk_mode_respects_cap_and_floor() -> None:
+    states = {s: _state(s, GovernanceState.LIVE) for s in ("a", "b", "c")}
+    returns = {
+        "a": _rng_returns(0.0005, 0.002, seed=9),  # very low vol -> would dominate
+        "b": _rng_returns(0.0005, 0.020, seed=10),
+        "c": _rng_returns(0.0005, 0.020, seed=11),
+    }
+    weights = allocate_capital(
+        states,
+        evidence_by_slug={},
+        config=AllocationConfig(mode="risk-parity", max_weight=0.40, min_weight=0.05),
+        returns_by_slug=returns,
+    )
+    assert max(weights.values()) <= 0.40 + 1e-9
+    assert min(weights.values()) >= 0.05 - 1e-9
+    assert abs(sum(weights.values()) - 1.0) < 1e-12
+
+
+def test_single_live_strategy_is_full_weight_for_risk_mode() -> None:
+    weights = allocate_capital(
+        {"solo": _state("solo", GovernanceState.LIVE)},
+        evidence_by_slug={},
+        config=AllocationConfig(mode="fractional-kelly"),
+        returns_by_slug={"solo": _rng_returns(0.001, 0.01, seed=12)},
+    )
+    assert weights == {"solo": 1.0}
+
+
+# --- loader -------------------------------------------------------------------
+
+
+def test_load_strategy_returns_reads_curve_and_skips_missing(tmp_path: Path) -> None:
+    root = tmp_path
+    wf_dir = root / "data" / "backtests" / "a"
+    wf_dir.mkdir(parents=True)
+    idx = pd.date_range("2020-01-01", periods=10, freq="B")
+    equity = pd.Series(100_000.0 * (1.0 + 0.001) ** np.arange(10), index=idx, name="equity")
+    equity.to_frame().rename_axis("timestamp").to_parquet(wf_dir / "walkforward.parquet")
+
+    ev_a = _evidence("a", 0.5)
+    object.__setattr__(ev_a, "walkforward_path", "data/backtests/a/walkforward.parquet")
+    ev_b = _evidence("b", 0.5)
+    object.__setattr__(ev_b, "walkforward_path", "data/backtests/b/walkforward.parquet")  # missing
+
+    out = load_strategy_returns({"a": ev_a, "b": ev_b}, root=root)
+    assert "a" in out and "b" not in out
+    assert len(out["a"]) == 9  # pct_change drops the first row
+
+
+def pytest_approx(x: float) -> object:
+    import pytest
+
+    return pytest.approx(x, rel=1e-9, abs=1e-12)

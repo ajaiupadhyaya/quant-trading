@@ -932,3 +932,103 @@ def test_exec_policy_enabled_caps_submitted_qty_and_writes_artifact(
     assert len(capped.submitted) <= len(baseline.submitted)
     # Artifact written under data/live/.
     assert list((capped_settings_dir / "live").glob("execution_plan.*.json"))
+
+
+def _seed_governance_store(data_dir: Path, live_slugs: list[str]) -> None:
+    """Write a minimal strategy_states + validation_manifest so the allocation
+    success-branch (and its compare artifact) runs in a rebalance test."""
+    from datetime import date as _date
+    from datetime import datetime as _dt
+
+    from quant.governance.models import GovernanceState, StrategyState, ValidationEvidence
+    from quant.governance.store import (
+        strategy_states_path,
+        validation_manifest_path,
+        write_strategy_states,
+        write_validation_manifest,
+    )
+
+    states = {
+        slug: StrategyState(
+            slug=slug,
+            state=GovernanceState.LIVE,
+            evaluated_at=_dt(2024, 6, 27),
+            validation_age_days=0,
+            reason_codes=[],
+            reason="",
+            code_enabled_live=True,
+        )
+        for slug in live_slugs
+    }
+    evidence = {
+        slug: ValidationEvidence(
+            slug=slug,
+            run_date=_date(2024, 6, 27),
+            data_start=_date(2010, 1, 1),
+            data_end=_date(2024, 6, 26),
+            gate_deflated_sharpe=True,
+            gate_probabilistic_sharpe=True,
+            gate_bootstrap_lower=True,
+            gate_regime=True,
+            gate_holdout=True,
+            deflated_sharpe=0.5,
+            probabilistic_sharpe=0.9,
+            bootstrap_total_return_p05=0.02,
+            n_positive_regimes=4,
+            n_tested_regimes=4,
+            holdout_total_return=0.1,
+            chosen_params_path="chosen.json",
+            walkforward_path=f"data/backtests/{slug}/walkforward.parquet",  # absent -> fail-open
+            provenance="test",
+        )
+        for slug in live_slugs
+    }
+    write_strategy_states(strategy_states_path(data_dir), states)
+    write_validation_manifest(validation_manifest_path(data_dir), evidence)
+
+
+def test_alloc_compare_artifact_written_on_default_run(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    """Default alloc config (equal-live) emits the observed compare artifact."""
+    _seed_governance_store(fake_settings.data_dir, ["momentum"])
+    client = _StubAlpacaClient()
+    run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+        record_bookkeeping=False,
+    )
+    artifacts = list((fake_settings.data_dir / "governance").glob("allocation_compare.*.json"))
+    assert artifacts, "expected an allocation_compare artifact"
+    import json
+
+    payload = json.loads(artifacts[0].read_text())
+    assert payload["active_mode"] == "equal-live"
+    assert "risk_parity_weights" in payload
+    assert "fractional_kelly_weights" in payload
+
+
+def test_risk_based_alloc_config_does_not_crash_run(
+    fake_settings: Settings, patched_bars: None
+) -> None:
+    """A risk-based alloc_config runs end-to-end; with no OOS curves present it fails
+    open to equal-live — no exception, artifact still written."""
+    from quant.governance.allocation import AllocationConfig
+
+    _seed_governance_store(fake_settings.data_dir, ["momentum"])
+    client = _StubAlpacaClient()
+    report = run_rebalance(
+        asof=date(2024, 6, 28),
+        dry_run=True,
+        client=client,  # type: ignore[arg-type]
+        settings=fake_settings,
+        strategies=["momentum"],
+        record_bookkeeping=False,
+        alloc_config=AllocationConfig(mode="risk-parity"),
+    )
+    assert report.dry_run is True
+    artifacts = list((fake_settings.data_dir / "governance").glob("allocation_compare.*.json"))
+    assert artifacts

@@ -35,6 +35,11 @@ from quant.execution.netting import net_orders
 from quant.execution.orders import OrderSide, OrderTemplate
 from quant.execution.policy import ExecutionPolicyConfig, apply_execution_policy
 from quant.execution.reconciler import reconcile
+from quant.governance.allocation import (
+    AllocationConfig,
+    allocate_capital,
+    load_strategy_returns,
+)
 from quant.live.bookkeeping import (
     append_equity_row,
     append_trades,
@@ -252,6 +257,64 @@ def _write_execution_plan_artifact(
     write_json_atomic(path, payload)
 
 
+def _write_allocation_compare_artifact(
+    data_dir: Path,
+    *,
+    asof: date,
+    states: Any,
+    evidence: Any,
+    returns_by_slug: Any,
+    active: Any,
+) -> None:
+    """Write an observed equal-live-vs-risk-based allocation comparison (atomic JSON).
+
+    Shows what each mode WOULD allocate (and per-strategy mean/std) so a risk-based
+    split can be evaluated before it is consciously enabled. Observability only —
+    it does not change the actuated allocation (the caller already computed that)."""
+    from dataclasses import replace
+
+    from quant.governance.allocation import allocate_capital, strategy_risk
+    from quant.governance.models import GovernanceState
+    from quant.util.atomic import write_json_atomic
+
+    def _weights(mode: str) -> dict[str, float]:
+        return allocate_capital(
+            states,
+            evidence_by_slug=evidence,
+            config=replace(active, mode=mode),
+            returns_by_slug=returns_by_slug,
+        )
+
+    live_slugs = sorted(
+        slug for slug, st in states.items() if st.state is GovernanceState.LIVE
+    )
+    risk: dict[str, dict[str, float | None]] = {}
+    for slug in live_slugs:
+        r = returns_by_slug.get(slug)
+        if r is None:
+            risk[slug] = {"mean": None, "std": None, "n_obs": 0}
+            continue
+        mean, std = strategy_risk(r, active.min_observations)
+        risk[slug] = {
+            "mean": None if mean != mean else mean,  # NaN -> None
+            "std": None if std != std else std,
+            "n_obs": len(r),
+        }
+
+    payload = {
+        "asof": asof.isoformat(),
+        "active_mode": active.mode,
+        "active_weights": _weights(active.mode),
+        "equal_live_weights": _weights("equal-live"),
+        "risk_parity_weights": _weights("risk-parity"),
+        "fractional_kelly_weights": _weights("fractional-kelly"),
+        "per_strategy_risk": risk,
+    }
+    path = data_dir / "governance" / f"allocation_compare.{asof.isoformat()}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(path, payload)
+
+
 def run_rebalance(
     *,
     asof: date | None = None,
@@ -266,6 +329,7 @@ def run_rebalance(
     record_bookkeeping: bool = True,
     winddown_participation: float = 0.10,
     exec_policy: ExecutionPolicyConfig | None = None,
+    alloc_config: AllocationConfig | None = None,
 ) -> RebalanceReport:
     """Execute one rebalance pass. Returns a structured report for the CLI to render."""
     from quant.live.safety import (
@@ -432,7 +496,6 @@ def run_rebalance(
             )
             halted = risk.halted_strategies
 
-    from quant.governance.allocation import allocate_capital
     from quant.governance.store import (
         load_strategy_states,
         load_validation_manifest,
@@ -440,13 +503,36 @@ def run_rebalance(
         validation_manifest_path,
     )
 
+    alloc_config = alloc_config or AllocationConfig()
     try:
+        states = load_strategy_states(strategy_states_path(settings.data_dir))
+        evidence = load_validation_manifest(validation_manifest_path(settings.data_dir))
+        # Risk-based modes need per-strategy OOS return curves; equal-live/evidence
+        # modes ignore them. Loading is best-effort (missing curve -> fail-open).
+        returns_by_slug = load_strategy_returns(evidence, root=settings.data_dir.parent)
         allocation = allocate_capital(
-            load_strategy_states(strategy_states_path(settings.data_dir)),
-            evidence_by_slug=load_validation_manifest(validation_manifest_path(settings.data_dir)),
+            states,
+            evidence_by_slug=evidence,
+            config=alloc_config,
+            returns_by_slug=returns_by_slug,
         )
     except Exception:
+        logger.exception("capital allocation failed — falling back to equal-split")
         allocation = {slug: 1.0 / len(enabled) for slug in enabled}
+    else:
+        # Observed-first comparison (equal-live vs risk-based). Best-effort and
+        # fully isolated: a failure here can NEVER alter the actuated allocation.
+        try:
+            _write_allocation_compare_artifact(
+                settings.data_dir,
+                asof=asof,
+                states=states,
+                evidence=evidence,
+                returns_by_slug=returns_by_slug,
+                active=alloc_config,
+            )
+        except Exception:
+            logger.exception("allocation compare artifact failed (non-fatal)")
 
     report = RebalanceReport(
         asof=asof,
