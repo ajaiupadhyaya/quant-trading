@@ -198,7 +198,7 @@ def backtest(strategy: str, quick: bool, start: str, end: str | None) -> None:
 @click.option("--end", default=None, help="History end (YYYY-MM-DD). Default: today.")
 def combined_book(start: str, end: str | None) -> None:
     from quant.backtest import run_combined_book
-    from quant.backtest.activity import annualized_turnover
+    from quant.backtest.activity import annualized_turnover, capacity_report
     from quant.backtest.metrics import cagr, max_drawdown, sharpe
 
     start_date = date.fromisoformat(start)
@@ -223,13 +223,27 @@ def combined_book(start: str, end: str | None) -> None:
     if not strategies:
         raise click.ClickException("No strategies had bars to run on.")
 
+    cfg = BacktestConfig()
     result = run_combined_book(
         strategies=strategies,
         bars_per_strategy=bars_per,
-        config=BacktestConfig(),
+        config=cfg,
         start=start_date,
         end=end_date,
     )
+
+    def _cap(trades: pd.DataFrame, equity: pd.Series) -> str:
+        rep = capacity_report(trades, equity, impact_coef_bps=cfg.impact_coef_bps)
+        if rep.binding == "none" or rep.capacity_aum <= 0.0:
+            return "n/a"
+        tag = "part" if rep.binding == "participation" else "impact"
+        aum = rep.capacity_aum
+        unit = (
+            f"${aum / 1e9:.1f}B" if aum >= 1e9 else f"${aum / 1e6:.1f}M"
+            if aum >= 1e6
+            else f"${aum / 1e3:.0f}K"
+        )
+        return f"{unit} ({tag})"
 
     table = Table(title="Combined-book result", show_header=True)
     table.add_column("Strategy")
@@ -240,6 +254,7 @@ def combined_book(start: str, end: str | None) -> None:
     table.add_column("Max DD", justify="right")
     table.add_column("Turnover", justify="right")
     table.add_column("Financing $", justify="right")
+    table.add_column("Capacity", justify="right")
     for slug in sorted(result.per_strategy):
         sub = result.per_strategy[slug]
         table.add_row(
@@ -251,6 +266,7 @@ def combined_book(start: str, end: str | None) -> None:
             f"{max_drawdown(sub.returns):.2%}",
             f"{annualized_turnover(sub.trades, sub.equity_curve):.0%}",
             f"${float(cast(Any, sub.metadata.get('financing_cost_total')) or 0.0):,.0f}",
+            _cap(sub.trades, sub.equity_curve),
         )
     table.add_section()
     combined_financing: float = sum(
@@ -266,6 +282,7 @@ def combined_book(start: str, end: str | None) -> None:
         f"{max_drawdown(result.returns):.2%}",
         f"{annualized_turnover(result.trades, result.equity_curve):.0%}",
         f"${combined_financing:,.0f}",
+        _cap(result.trades, result.equity_curve),
     )
     console.print(table)
 

@@ -24,7 +24,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
-from quant.backtest.activity import annualized_turnover
+from quant.backtest.activity import annualized_turnover, capacity_report
 from quant.backtest.combined import CombinedResult
 from quant.backtest.metrics import (
     cagr,
@@ -54,6 +54,16 @@ class _MetricsBundle:
     n_trades: int
     starting_equity: float
     ending_equity: float
+    capacity_aum: float = 0.0  # binding liquidity-capacity AUM ceiling (gap 2c)
+    capacity_binding: str = "none"  # "participation" | "impact" | "none"
+
+
+def _capacity_fields(
+    trades: pd.DataFrame, equity: pd.Series, impact_coef_bps: float = 100.0
+) -> tuple[float, str]:
+    """Capacity (AUM ceiling, binding) from the ledger; empty-safe (none)."""
+    rep = capacity_report(trades, equity, impact_coef_bps=impact_coef_bps)
+    return rep.capacity_aum, rep.binding
 
 
 def _json_safe(v: object) -> object:
@@ -282,6 +292,11 @@ def write_tearsheet(
     oos_start = str(result.oos_equity_curve.index.min().date()) if n_windows > 0 else "—"
     oos_end = str(result.oos_equity_curve.index.max().date()) if n_windows > 0 else "—"
 
+    _wf_cap = _capacity_fields(
+        result.oos_trades,
+        result.oos_equity_curve,
+        result.combined_result.config.impact_coef_bps,
+    )
     metrics = _MetricsBundle(
         total_return=total_return(result.oos_returns),
         cagr=cagr(result.oos_returns),
@@ -293,6 +308,8 @@ def write_tearsheet(
         n_trades=len(result.oos_trades),
         starting_equity=float(result.combined_result.starting_equity),
         ending_equity=float(result.combined_result.ending_equity),
+        capacity_aum=_wf_cap[0],
+        capacity_binding=_wf_cap[1],
     )
 
     charts: dict[str, str] = {}
@@ -382,6 +399,7 @@ def write_combined_tearsheet(
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    _cb_cap = _capacity_fields(result.trades, result.equity_curve)
     metrics = _MetricsBundle(
         total_return=total_return(result.returns),
         cagr=cagr(result.returns),
@@ -393,6 +411,8 @@ def write_combined_tearsheet(
         n_trades=len(result.trades),
         starting_equity=float(result.starting_equity),
         ending_equity=float(result.ending_equity),
+        capacity_aum=_cb_cap[0],
+        capacity_binding=_cb_cap[1],
     )
 
     charts: dict[str, str] = {}

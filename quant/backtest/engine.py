@@ -129,6 +129,7 @@ def run_backtest(
         "fill_price",
         "slippage_cost",
         "commission_cost",
+        "adv_dollar",
         "strategy_slug",
     ]
 
@@ -186,6 +187,7 @@ def run_backtest(
                 "fill_price": fill.fill_price,
                 "slippage_cost": fill.slippage_cost,
                 "commission_cost": fill.commission_cost,
+                "adv_dollar": adv,  # PIT trailing dollar-ADV (gap 2c capacity)
                 "strategy_slug": strategy.spec.slug,
             }
         )
