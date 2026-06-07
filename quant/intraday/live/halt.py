@@ -39,24 +39,27 @@ def load_sleeve_halt(data_dir: Path) -> SleeveHaltState:
 
 
 def _write(data_dir: Path, state: SleeveHaltState) -> None:
-    path = sleeve_halt_path(data_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
-        "active": state.active,
-        "reason": state.reason,
-        "updated_at": state.updated_at.isoformat(),
-    }))
+    from quant.util.atomic import write_json_atomic
+
+    write_json_atomic(
+        sleeve_halt_path(data_dir),
+        {
+            "active": state.active,
+            "reason": state.reason,
+            "updated_at": state.updated_at.isoformat(),
+        },
+    )
 
 
 def set_sleeve_halt(
     data_dir: Path, *, reason: str, created_at: datetime | None = None
 ) -> SleeveHaltState:
-    st = SleeveHaltState(True, reason, created_at or datetime.now(UTC))
+    st = SleeveHaltState(True, reason, (created_at or datetime.now(UTC)).replace(microsecond=0))
     _write(data_dir, st)
     return st
 
 
 def clear_sleeve_halt(data_dir: Path, *, reason: str) -> SleeveHaltState:
-    st = SleeveHaltState(False, reason, datetime.now(UTC))
+    st = SleeveHaltState(False, reason, datetime.now(UTC).replace(microsecond=0))
     _write(data_dir, st)
     return st
