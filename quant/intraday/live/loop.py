@@ -3,8 +3,8 @@ injected collaborators (no network, no sleep) so it is fully unit-testable. run_
 is the driver that ticks every config.tick_seconds during the session.
 
 Lifecycle per tick (spec section 3):
-  session-check -> guardrails-first (halt/loss/flat) -> pull quotes -> strategy
-  -> size+caps -> reconcile vs ledger -> submit (unique COID) -> journal.
+  session-check -> halt-check -> pull quotes -> loss-halt -> flat-by-close
+  -> strategy -> size/cap/submit -> journal.
 """
 
 from __future__ import annotations
@@ -60,11 +60,18 @@ class TickDeps:
 
 
 class _Ctx:
-    """StrategyContext backed by the ledger + this tick's marks."""
+    """StrategyContext backed by the ledger + this tick's marks and quotes."""
 
-    def __init__(self, ledger: SleeveLedger, marks: dict[str, float], ts: datetime) -> None:
+    def __init__(
+        self,
+        ledger: SleeveLedger,
+        marks: dict[str, float],
+        quotes: dict[str, QuoteBar],
+        ts: datetime,
+    ) -> None:
         self._ledger = ledger
         self._marks = marks
+        self._quotes = quotes
         self._ts = ts
 
     def position(self, symbol: str) -> int:
@@ -74,7 +81,7 @@ class _Ctx:
         return 0.0
 
     def nbbo(self, symbol: str) -> QuoteBar | None:
-        return None
+        return self._quotes.get(symbol)
 
     def now(self) -> datetime:
         return self._ts
@@ -90,9 +97,10 @@ def _flatten_all(deps: TickDeps, marks: dict[str, float]) -> int:
             symbol=sym, side=side, qty=abs(pos),
             client_order_id=coid, dry_run=deps.dry_run,
         )
-        # Record the closing fill in the ledger (modelled at mid-price).
+        # Record the closing fill in the ledger (modelled at mid-price; fall back to
+        # avg cost so P&L is ~0 for unmarked symbols rather than a total-loss artefact).
         signed = -pos  # closing is opposite sign of position
-        deps.ledger.record(Fill(symbol=sym, qty=signed, price=marks.get(sym, 0.0)))
+        deps.ledger.record(Fill(symbol=sym, qty=signed, price=marks.get(sym, deps.ledger.avg_cost(sym))))
         n += 1
     return n
 
@@ -136,7 +144,8 @@ def run_tick(deps: TickDeps) -> None:
         return
 
     # 4. Strategy targets — feed each quote bar as an event.
-    ctx = _Ctx(deps.ledger, marks, deps.now)
+    quotes: dict[str, QuoteBar] = {b.symbol: b for b in bars}
+    ctx = _Ctx(deps.ledger, marks, quotes, deps.now)
     desired: list[Order] = []
     for b in bars:
         desired.extend(deps.strategy.on_event(b, ctx))
@@ -144,20 +153,30 @@ def run_tick(deps: TickDeps) -> None:
     # 5-7. Size, cap, reconcile, submit.
     n_orders = 0
     for order in desired:
+        pos = deps.ledger.position(order.symbol)
+        # An order that REDUCES an existing position is an exit. Exits must always
+        # be allowed (de-risking) — they bypass the sleeve-room cap, which would
+        # otherwise clamp them to 0 (the position is already inside gross_notional).
+        is_reducing = pos != 0 and (
+            (pos > 0 and order.side is Side.SELL) or (pos < 0 and order.side is Side.BUY)
+        )
+        is_new_open = pos == 0
         # Trade-budget guard applies only to new opens, not to exits.
-        is_new_open = deps.ledger.position(order.symbol) == 0
         if is_new_open and trade_budget_exhausted(round_trips=deps.ledger.round_trips, config=cfg):
             continue
         price = marks.get(order.symbol)
         if price is None:
             continue
-        qty = clamp_qty_to_caps(
-            desired_qty=order.qty,
-            price=price,
-            gross_notional=deps.ledger.gross_notional(marks),
-            sleeve_allocation=allocation,
-            config=cfg,
-        )
+        if is_reducing:
+            qty = min(order.qty, abs(pos))  # exits bypass caps; never over-close
+        else:
+            qty = clamp_qty_to_caps(
+                desired_qty=order.qty,
+                price=price,
+                gross_notional=deps.ledger.gross_notional(marks),
+                sleeve_allocation=allocation,
+                config=cfg,
+            )
         if qty <= 0:
             continue
         side_str = "buy" if order.side is Side.BUY else "sell"
@@ -209,10 +228,14 @@ def run_loop(
     """
     count = 0
     while max_ticks is None or count < max_ticks:
-        deps: TickDeps = deps_factory()
+        # deps_factory() is inside the guard too: a transient failure building deps
+        # (e.g. fetching account equity) must not kill the daemon.
         try:
+            deps = deps_factory()
             run_tick(deps)
+            sleep_for = sleep_s if sleep_s is not None else deps.config.tick_seconds
         except Exception:
             logger.exception("intraday tick failed; continuing")
+            sleep_for = sleep_s if sleep_s is not None else 60.0
         count += 1
-        time.sleep(sleep_s if sleep_s is not None else deps.config.tick_seconds)
+        time.sleep(sleep_for)

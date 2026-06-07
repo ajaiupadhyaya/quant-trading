@@ -28,6 +28,10 @@ class SleeveLedger:
     def position(self, symbol: str) -> int:
         return self._lots.get(symbol, _Lot()).qty
 
+    def avg_cost(self, symbol: str) -> float:
+        """Average entry price of the current lot (0.0 if no open position)."""
+        return self._lots.get(symbol, _Lot()).avg_price
+
     def positions(self) -> dict[str, int]:
         return {s: lot.qty for s, lot in self._lots.items() if lot.qty != 0}
 
