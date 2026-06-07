@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.quant.intraday-live</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec /opt/homebrew/bin/uv run quant intraday live run</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/ajaiupadhyaya/Documents/quant-trading</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Standard</string>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>ExitTimeOut</key><integer>30</integer>
+  <key>StandardOutPath</key><string>/Users/ajaiupadhyaya/Library/Logs/quant-deploy/intraday-live.stdout.log</string>
+  <key>StandardErrorPath</key><string>/Users/ajaiupadhyaya/Library/Logs/quant-deploy/intraday-live.stderr.log</string>
+</dict>
+</plist>
