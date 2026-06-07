@@ -102,6 +102,26 @@ def flat() -> None:
 
 
 @live.command()
+def recon() -> None:
+    """Summarize today's sleeve journal + reconcile ledger vs broker positions."""
+    from quant.execution.alpaca import AlpacaClient
+    from quant.intraday.live.config import SleeveConfig
+    from quant.intraday.live.loop import recover_ledger
+    from quant.intraday.live.recon import position_mismatches, summarize_day
+
+    dd = _data_dir()
+    s = summarize_day(dd)
+    click.echo(f"ticks={s['n_ticks']} last_day_pnl={s['last_day_pnl']:.2f} "
+               f"max_round_trips={s['max_round_trips']} halted_any={s['halted_any']}")
+    cfg = SleeveConfig()
+    broker = AlpacaClient()
+    ledger = recover_ledger(broker, cfg)
+    bad = position_mismatches(ledger.positions(), broker, cfg)
+    click.echo("position recon: OK" if not bad else f"position MISMATCH: {bad}")
+    click.echo("note: backtest-vs-live drift comparison deferred (needs intraday backtest baseline)")
+
+
+@live.command()
 @click.option("--max-ticks", type=int, default=None, help="bound the run (default: forever)")
 @click.option("--dry-run", is_flag=True, help="log orders without submitting")
 def run(max_ticks: int | None, dry_run: bool) -> None:
