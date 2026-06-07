@@ -42,3 +42,23 @@ def test_round_trips_counts_opens_only():
     led.record(Fill(symbol="QQQ", qty=-10, price=101.0))  # close (not a new open)
     led.record(Fill(symbol="IWM", qty=-3, price=50.0))    # open short
     assert led.round_trips == 2
+
+
+def test_flip_through_zero_long_to_short():
+    led = SleeveLedger()
+    led.record(Fill("QQQ", qty=10,  price=100.0))   # long 10 @100
+    led.record(Fill("QQQ", qty=-15, price=110.0))   # sell 15 -> close 10, open short 5
+    assert led.position("QQQ") == -5
+    assert led.realized_pnl == 100.0                 # (110-100)*10, NOT *15
+    assert led.round_trips == 2                      # one open per leg
+    marks = {"QQQ": 110.0}
+    assert led.unrealized_pnl(marks) == 0.0          # new short opened at 110, marked 110
+
+
+def test_missing_mark_does_not_crash():
+    led = SleeveLedger()
+    led.record(Fill("QQQ", qty=5, price=100.0))
+    # marks omits QQQ -> falls back to avg cost, 0 unrealized, notional at avg
+    assert led.unrealized_pnl({}) == 0.0
+    assert led.gross_notional({}) == 5 * 100.0
+    assert led.day_pnl({}) == 0.0

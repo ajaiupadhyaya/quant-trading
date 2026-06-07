@@ -32,6 +32,8 @@ class SleeveLedger:
         return {s: lot.qty for s, lot in self._lots.items() if lot.qty != 0}
 
     def record(self, fill: Fill) -> None:
+        if fill.qty == 0:
+            return
         lot = self._lots.setdefault(fill.symbol, _Lot())
         old_qty = lot.qty
         if old_qty == 0:
@@ -62,11 +64,16 @@ class SleeveLedger:
         for sym, lot in self._lots.items():
             if lot.qty == 0:
                 continue
-            total += (marks[sym] - lot.avg_price) * lot.qty
+            price = marks.get(sym, lot.avg_price)
+            total += (price - lot.avg_price) * lot.qty
         return total
 
     def gross_notional(self, marks: dict[str, float]) -> float:
-        return sum(abs(lot.qty) * marks[sym] for sym, lot in self._lots.items() if lot.qty)
+        return sum(
+            abs(lot.qty) * marks.get(sym, lot.avg_price)
+            for sym, lot in self._lots.items()
+            if lot.qty != 0
+        )
 
     def day_pnl(self, marks: dict[str, float]) -> float:
         return self.realized_pnl + self.unrealized_pnl(marks)
