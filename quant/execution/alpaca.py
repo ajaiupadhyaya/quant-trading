@@ -209,3 +209,54 @@ class AlpacaClient:
         self._trading.submit_order(req)
         logger.info("Submitted {} {} {} (coid={})", order.side, order.qty, order.symbol, coid)
         return coid
+
+    def submit_simple_order(
+        self,
+        *,
+        symbol: str,
+        side: str,                       # "buy" | "sell"
+        qty: int,
+        client_order_id: str,
+        order_type: str = "market",      # "market" | "limit"
+        limit_price: float | None = None,
+        dry_run: bool = False,
+    ) -> str:
+        """Submit a single intraday order with a CALLER-SUPPLIED client_order_id.
+
+        Unlike submit_order (deterministic per-day COID for idempotent daily
+        rebalances), the intraday loop places many same-symbol orders per day, so
+        the COID must be unique per order — the caller owns uniqueness.
+        Time-in-force is DAY. Returns the client_order_id.
+        """
+        if qty <= 0:
+            raise ValueError(f"qty must be positive, got {qty}")
+        alp_side = AlpacaSide.BUY if side == "buy" else AlpacaSide.SELL
+        req: MarketOrderRequest | LimitOrderRequest
+        if order_type == "limit":
+            if limit_price is None:
+                raise ValueError("limit order requires limit_price")
+            req = LimitOrderRequest(
+                symbol=symbol,
+                qty=qty,
+                side=alp_side,
+                time_in_force=AlpacaTIF.DAY,
+                client_order_id=client_order_id,
+                limit_price=limit_price,
+            )
+        else:
+            req = MarketOrderRequest(
+                symbol=symbol,
+                qty=qty,
+                side=alp_side,
+                time_in_force=AlpacaTIF.DAY,
+                client_order_id=client_order_id,
+            )
+        if dry_run:
+            logger.info(
+                "[DRY-RUN] sleeve would submit {} {} {} (coid={})",
+                side, qty, symbol, client_order_id,
+            )
+            return client_order_id
+        self._trading.submit_order(req)
+        logger.info("Sleeve submitted {} {} {} (coid={})", side, qty, symbol, client_order_id)
+        return client_order_id
