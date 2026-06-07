@@ -109,9 +109,8 @@ def run(max_ticks: int | None, dry_run: bool) -> None:
     from quant.execution.alpaca import AlpacaClient
     from quant.intraday.live.config import SleeveConfig
     from quant.intraday.live.feed import LiveQuoteFeed
-    from quant.intraday.live.loop import TickDeps, run_loop
+    from quant.intraday.live.loop import TickDeps, recover_ledger, run_loop
     from quant.intraday.live.session import session_state
-    from quant.intraday.live.sleeve import SleeveLedger
     from quant.intraday.live.strategy import MeanReversionStrategy
 
     cfg = SleeveConfig()
@@ -119,7 +118,7 @@ def run(max_ticks: int | None, dry_run: bool) -> None:
     broker = AlpacaClient()
     feed = LiveQuoteFeed.from_settings(symbols=list(cfg.universe))
     strat = MeanReversionStrategy(cfg)
-    ledger = SleeveLedger()  # NOTE: rebuilt-from-broker recovery is Task 13's concern
+    ledger = recover_ledger(broker, cfg)
 
     def factory() -> TickDeps:
         now = datetime.now(UTC)

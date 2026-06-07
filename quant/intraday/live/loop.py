@@ -36,6 +36,7 @@ from quant.intraday.strategy import IntradayStrategy, Order, Side
 
 class _Broker(Protocol):
     def account(self) -> Any: ...
+    def positions(self) -> list[Any]: ...
     def submit_simple_order(self, *, symbol: str, side: str, qty: int,
                             client_order_id: str, order_type: str = "market",
                             limit_price: float | None = None, dry_run: bool = False) -> str: ...
@@ -103,6 +104,16 @@ def _flatten_all(deps: TickDeps, marks: dict[str, float]) -> int:
         deps.ledger.record(Fill(symbol=sym, qty=signed, price=marks.get(sym, deps.ledger.avg_cost(sym))))
         n += 1
     return n
+
+
+def recover_ledger(broker: Any, config: SleeveConfig) -> SleeveLedger:
+    """Rebuild a SleeveLedger from the broker's current positions, restricted to the
+    sleeve universe (daily-system holdings are ignored — they are a disjoint set)."""
+    ledger = SleeveLedger()
+    for p in broker.positions():
+        if p.symbol in config.universe and p.qty != 0:
+            ledger.record(Fill(symbol=p.symbol, qty=int(p.qty), price=float(p.avg_entry_price)))
+    return ledger
 
 
 def run_tick(deps: TickDeps) -> None:
