@@ -26,6 +26,10 @@ class SleeveConfig:
                 raise ValueError(f"{name} must be positive, got {getattr(self, name)}")
         if self.max_round_trips <= 0:
             raise ValueError("max_round_trips must be positive")
+        if self.entry_z <= self.exit_z:
+            raise ValueError(
+                f"entry_z must exceed exit_z, got entry_z={self.entry_z} exit_z={self.exit_z}"
+            )
 
     def sleeve_allocation(self, equity: float) -> float:
         """Dollar capital the sleeve may deploy: min(pct of equity, absolute cap)."""
