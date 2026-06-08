@@ -5,10 +5,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from quant.data.universe import SLEEVE_UNIVERSE
+
 
 @dataclass(frozen=True)
 class SleeveConfig:
-    universe: tuple[str, ...] = ("QQQ", "IWM", "DIA")
+    universe: tuple[str, ...] = SLEEVE_UNIVERSE
     notional_cap_pct: float = 0.10        # fraction of paper equity
     notional_cap_abs: float = 10_000.0    # hard $ cap on sleeve notional
     per_trade_cap: float = 2_000.0        # max $ notional per single order

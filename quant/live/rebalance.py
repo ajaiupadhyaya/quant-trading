@@ -30,6 +30,7 @@ import pandas as pd
 
 from quant.backtest.impact import trailing_dollar_adv
 from quant.data.bars import BarRequest, get_bars
+from quant.data.universe import SLEEVE_UNIVERSE
 from quant.execution.alpaca import AlpacaClient
 from quant.execution.netting import net_orders
 from quant.execution.orders import OrderSide, OrderTemplate
@@ -50,6 +51,17 @@ from quant.strategies import REGISTRY
 from quant.strategies.base import Strategy
 from quant.util.config import Settings
 from quant.util.logging import logger
+
+
+def exclude_sleeve_positions(post_trade: dict[str, int]) -> dict[str, int]:
+    """Drop intraday-sleeve symbols from a position book.
+
+    The intraday live loop trades a disjoint sleeve (``SLEEVE_UNIVERSE``) inside the
+    same Alpaca account. Those holdings belong to the sleeve, not the daily system,
+    so they must be excluded from the daily portfolio-risk gate's view — otherwise a
+    sleeve position would inflate the daily gross/vol/beta and could trip Guard-5.
+    """
+    return {sym: qty for sym, qty in post_trade.items() if sym not in SLEEVE_UNIVERSE}
 
 
 @dataclass
@@ -790,6 +802,9 @@ def run_rebalance(
             delta = order.qty if order.side is OrderSide.BUY else -order.qty
             post_trade[order.symbol] = post_trade.get(order.symbol, 0) + delta
         post_trade = {sym: qty for sym, qty in post_trade.items() if qty != 0}
+        # Exclude intraday-sleeve holdings: they share this Alpaca account but belong
+        # to the intraday loop, not the daily system, and must not enter Guard-5.
+        post_trade = exclude_sleeve_positions(post_trade)
 
         port_risk = live_portfolio_risk(post_trade, account.equity, asof=asof)
         if port_risk is None:  # degraded placeholder so the gate still records

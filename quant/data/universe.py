@@ -39,6 +39,13 @@ MEGACAP_UNIVERSE: list[str] = [
     "CRM",
 ]
 
+# Intraday-sleeve universe — owned by the intraday live loop (quant/intraday/live),
+# NOT the daily system. Deliberately DISJOINT from ETF_UNIVERSE and MEGACAP_UNIVERSE
+# so the two systems never collide inside the single shared Alpaca account. Single
+# source of truth: SleeveConfig.universe defaults to this, and the daily portfolio
+# risk gate excludes these symbols so sleeve holdings can't trip the daily Guard-5.
+SLEEVE_UNIVERSE: tuple[str, ...] = ("QQQ", "IWM", "DIA")
+
 _WIKIPEDIA_SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 
 
