@@ -64,6 +64,19 @@ def test_entry_is_worked_over_ticks_not_dumped(tmp_path):
     assert sum(q for s, _, q in broker.orders if s == "QQQ") == 90  # fully worked
 
 
+def test_refired_entry_while_program_active_does_not_leak(tmp_path):
+    # A persistent BUY signal must NOT add shares beyond the scheduled parent while
+    # the program is still working.
+    mgr = ExecutionManager(ExecConfig(horizon_ticks=3, risk_aversion=1e-12))
+    broker, ledger = _Broker(), SleeveLedger()
+    persistent = _Strat([Order("QQQ", Side.BUY, 90)])  # fires every tick
+    for t in range(3):
+        run_tick(_deps(tmp_path, broker, _Feed([_qb("QQQ", 100.0)]),
+                       persistent, ledger, tick_index=t, mgr=mgr))
+    # Exactly the scheduled parent (90) is bought across the 3 ticks — no leak.
+    assert sum(q for s, side, q in broker.orders if s == "QQQ" and side == "buy") == 90
+
+
 def test_flatten_cancels_active_program(tmp_path):
     mgr = ExecutionManager(ExecConfig(horizon_ticks=5, risk_aversion=1e-12))
     broker, ledger = _Broker(), SleeveLedger()

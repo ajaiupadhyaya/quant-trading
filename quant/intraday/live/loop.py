@@ -218,6 +218,12 @@ def run_tick(deps: TickDeps) -> None:
                 sigma=sigma, eta=eta, gamma=gamma,
             )
             continue  # slices worked after the strategy loop (see below)
+        # An in-flight program already owns this symbol's entry. The only permitted
+        # action while it runs is an exit (is_reducing, handled above via cancel +
+        # immediate submit). Any other order (re-fired entry, duplicate bar) must be
+        # dropped so we never leak shares beyond the scheduled parent.
+        if has_prog and not is_reducing:
+            continue
         # Immediate path: exits, or new opens when no exec manager is present.
         if is_reducing:
             qty = min(order.qty, abs(pos))  # exits bypass caps; never over-close
