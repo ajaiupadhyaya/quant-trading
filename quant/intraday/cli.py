@@ -157,3 +157,87 @@ def run(max_ticks: int | None, dry_run: bool) -> None:
         )
 
     run_loop(factory, max_ticks=max_ticks)
+
+
+# ---------------------------------------------------------------------------
+# exec group
+# ---------------------------------------------------------------------------
+
+
+@intraday.group()
+def exec_() -> None:
+    """Optimal-execution (Almgren-Chriss) demonstration commands."""
+
+
+intraday.add_command(exec_, name="exec")
+
+
+def _demo_params(shares: int, horizon: int) -> tuple[object, float, float, float]:
+    from quant.intraday.execution.calibrate import calibrate
+    from quant.intraday.execution.config import ExecConfig
+
+    cfg = ExecConfig(horizon_ticks=horizon)
+    sigma, eta, gamma = calibrate(
+        price=400.0,
+        slice_shares=max(1, shares // horizon),
+        adv_dollar=5_000_000_000.0,
+        recent_returns=[0.0008, -0.0007, 0.0009, -0.0006] * 15,
+        config=cfg,
+    )
+    return cfg, sigma, eta, gamma
+
+
+@exec_.command()
+@click.option("--symbol", required=True)
+@click.option("--shares", type=int, required=True)
+@click.option("--horizon", type=int, default=5)
+@click.option("--lam", type=float, default=None, help="risk aversion (default ExecConfig)")
+def schedule(symbol: str, shares: int, horizon: int, lam: float | None) -> None:
+    """Print the Almgren-Chriss child-size schedule for a parent order."""
+    from quant.intraday.execution.almgren_chriss import optimal_schedule
+    from quant.intraday.execution.config import ExecConfig
+
+    cfg, sigma, eta, gamma = _demo_params(shares, horizon)
+    assert isinstance(cfg, ExecConfig)
+    plan = optimal_schedule(
+        total_shares=shares,
+        n_intervals=horizon,
+        tau=1.0,
+        sigma=sigma,
+        eta=eta,
+        gamma=gamma,
+        risk_aversion=lam if lam is not None else cfg.risk_aversion,
+    )
+    click.echo(f"A-C schedule for {symbol} ({shares} sh over {horizon} ticks):")
+    for i, n in enumerate(plan.child_sizes):
+        click.echo(f"  slice {i}: {n} sh")
+    click.echo(f"expected_cost={plan.expected_cost:.4f} variance={plan.variance:.6f}")
+
+
+@exec_.command()
+@click.option("--symbol", required=True)
+@click.option("--shares", type=int, required=True)
+@click.option("--horizon", type=int, default=5)
+def frontier(symbol: str, shares: int, horizon: int) -> None:
+    """Print the efficient frontier (cost vs variance) + TWAP/immediate baselines."""
+    from quant.intraday.execution.almgren_chriss import efficient_frontier
+    from quant.intraday.execution.baselines import immediate, twap
+
+    cfg, sigma, eta, gamma = _demo_params(shares, horizon)
+    del cfg  # params extracted; ExecConfig not needed further
+    pts = efficient_frontier(
+        total_shares=shares,
+        n_intervals=horizon,
+        tau=1.0,
+        sigma=sigma,
+        eta=eta,
+        gamma=gamma,
+        lambdas=[1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3],
+    )
+    click.echo(f"Efficient frontier for {symbol} ({shares} sh, horizon {horizon}):")
+    click.echo("  lambda        expected_cost    variance")
+    for p in pts:
+        click.echo(f"  {p.risk_aversion:<12.1e} {p.expected_cost:<15.4f} {p.variance:.6f}")
+    click.echo(f"baseline TWAP child sizes: {twap(total_shares=shares, n_intervals=horizon)}")
+    click.echo(f"baseline immediate: {immediate(total_shares=shares)}")
+    click.echo("(VWAP requires a volume curve; available in sim evaluation only.)")
