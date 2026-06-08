@@ -1,7 +1,6 @@
 import math
 
 from quant.intraday.execution.almgren_chriss import (
-    ACPlan,
     efficient_frontier,
     optimal_schedule,
 )
@@ -44,3 +43,22 @@ def test_efficient_frontier_is_monotone():
     variances = [p.variance for p in pts]
     assert costs == sorted(costs)
     assert variances == sorted(variances, reverse=True)
+
+
+def test_extreme_risk_aversion_does_not_overflow():
+    # Large n_intervals and high risk_aversion drive kappa*T >> 700, which would
+    # overflow math.sinh without the asymptote guard.
+    # tau=1.0, gamma=1e-7 keeps eta_tilde > 0; lam=1e3 pushes kappa*T ~830.
+    plan = optimal_schedule(total_shares=1000, n_intervals=100, tau=1.0,
+                            sigma=0.02, eta=1e-4, gamma=1e-7, risk_aversion=1e3)
+    assert sum(plan.child_sizes) == 1000
+    assert plan.child_sizes[0] == 1000          # all in the first interval
+    assert all(n == 0 for n in plan.child_sizes[1:])
+
+
+def test_degenerate_eta_tilde_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        # gamma*tau/2 > eta -> eta_tilde <= 0
+        optimal_schedule(total_shares=1000, n_intervals=10, tau=1.0,
+                         sigma=0.02, eta=1e-6, gamma=1e-3, risk_aversion=1e-6)

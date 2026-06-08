@@ -31,8 +31,11 @@ class FrontierPoint:
 
 def _solve_kappa(sigma: float, eta: float, gamma: float, tau: float, lam: float) -> float:
     eta_tilde = eta - gamma * tau / 2.0
-    if eta_tilde <= 0:
-        eta_tilde = eta
+    if eta_tilde <= 0.0:
+        raise ValueError(
+            f"degenerate Almgren-Chriss: eta_tilde={eta_tilde} <= 0 "
+            f"(gamma*tau/2 >= eta); temporary impact must dominate"
+        )
     arg = 1.0 + (lam * sigma * sigma * tau * tau) / (2.0 * eta_tilde)
     if arg <= 1.0:
         return 0.0
@@ -46,6 +49,9 @@ def _holdings(total_shares: int, n_intervals: int, tau: float, kappa: float) -> 
     t_horizon = n * tau
     if kappa <= 0.0:
         return [x_total * (1.0 - j / n) for j in range(n + 1)]
+    if kappa * t_horizon > 700.0:
+        # lambda -> infinity asymptote: liquidate everything in the first interval.
+        return [x_total] + [0.0] * n
     sinh_denom = math.sinh(kappa * t_horizon)
     return [x_total * math.sinh(kappa * (t_horizon - j * tau)) / sinh_denom
             for j in range(n + 1)]
