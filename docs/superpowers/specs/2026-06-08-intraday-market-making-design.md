@@ -33,7 +33,7 @@ technique and the spread-capture-vs-inventory-risk analysis, not a live edge.
 A new subpackage `quant/intraday/marketmaking/` holding the A-S quoting math and fill-intensity
 model as PURE functions, a standalone deterministic simulator, and a CLI. It does not import or
 modify the live loop, the execution engine, or the order-execution sim. It MAY reuse the data
-layer to obtain a real mid-price series, but its default path is a seeded GBM so tests are
+layer to obtain a real mid-price series, but its default path is a seeded ABM so tests are
 self-contained.
 
 ---
@@ -47,7 +47,7 @@ self-contained.
 | `config.py` | `MMConfig`: `gamma` (risk aversion), `k` and `A` (intensity), `horizon_seconds` (T), `dt_seconds` (step), `sigma` (vol, price units/√time), `lot_size`, `seed`. Validated; no magic numbers. |
 | `avellaneda_stoikov.py` | Pure quoting math: `reservation_price(mid, inventory, gamma, sigma, t_remaining)`, `optimal_spread(gamma, sigma, t_remaining, k)`, `quotes(mid, inventory, gamma, sigma, t_remaining, k) -> (bid, ask)`. |
 | `intensity.py` | `fill_intensity(delta, A, k) -> float` (= A·exp(−k·δ)); `fill_probability(delta, A, k, dt) -> float` (= 1 − exp(−λ·dt), clamped to [0,1]); `draws_fill(prob, rng) -> bool` (seeded Bernoulli). |
-| `price_path.py` | `gbm_path(s0, sigma, dt, n_steps, rng) -> list[float]` (seeded geometric Brownian motion mid path). Accepts/returns a plain price list so a real replayed mid can substitute. |
+| `price_path.py` | `abm_path(s0, sigma, dt, n_steps, rng) -> list[float]` (seeded **arithmetic** Brownian motion mid path: `s_{t+1}=s_t+σ√dt·z`). A-S uses ABSOLUTE volatility (price units), so the faithful process is arithmetic, NOT geometric — this keeps the σ² terms in the quoting math dimensionally consistent. Returns a plain price list so a real replayed mid can substitute. |
 | `simulator.py` | `MMResult` dataclass + `run_market_making(prices, config) -> MMResult`: steps the path, computes A-S quotes each step, draws bid/ask fills via the intensity model, updates inventory + cash, marks P&L. Deterministic given `config.seed`. |
 | `evaluate.py` | `gamma_sweep(prices, config, gammas) -> list[SweepPoint]` — runs the sim across a γ grid; each point reports P&L, # fills, mean/max |inventory|, terminal inventory. |
 | (CLI) | `quant intraday mm simulate` + the γ-sweep, added to `quant/intraday/cli.py`. |
@@ -107,7 +107,7 @@ P&L). Fully determined by `(prices, config)` incl. `config.seed`.
 - CLI `quant intraday mm sweep --symbol QQQ`: prints the γ-sweep table (the headline artifact),
   with a one-line note that the model is stylized (A, k are assumptions).
 
-Both default to a seeded GBM path anchored to a representative mega-liquid-ETF price/σ so they
+Both default to a seeded ABM path anchored to a representative mega-liquid-ETF price/σ so they
 run without live data; `--real` (optional) may replay a real intraday mid from the data layer.
 
 ---
