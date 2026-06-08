@@ -19,6 +19,9 @@ from loguru import logger
 
 from quant.governance.halt import load_halt
 from quant.intraday.data.events import QuoteBar
+from quant.intraday.execution.calibrate import calibrate
+from quant.intraday.execution.config import ExecConfig
+from quant.intraday.execution.manager import ExecutionManager
 from quant.intraday.live.config import SleeveConfig
 from quant.intraday.live.feed import FeedError
 from quant.intraday.live.guardrails import (
@@ -58,6 +61,22 @@ class TickDeps:
     session_open: bool
     session_close: datetime
     dry_run: bool = False
+    tick_index: int = 0
+    exec_manager: ExecutionManager | None = None
+    exec_config: ExecConfig | None = None
+
+
+def _sleeve_adv_dollar(symbol: str, price: float) -> float:
+    # Mega-liquid ETF proxy ADV ($). Calibration only needs an order-of-magnitude anchor.
+    _ = symbol, price  # unused: single anchor value for all symbols
+    return 5_000_000_000.0
+
+
+def _recent_returns(deps: TickDeps, symbol: str) -> list[float]:
+    # Spine keeps no return history yet -> empty list -> sigma=0 (A-C degenerates to
+    # TWAP-like, the safe default). A future task can wire the data layer here.
+    _ = deps, symbol  # unused until the data layer wires in return history
+    return []
 
 
 class _Ctx:
@@ -92,6 +111,8 @@ def _flatten_all(deps: TickDeps, marks: dict[str, float]) -> int:
     """Submit market orders closing every open sleeve position. Returns order count."""
     n = 0
     for sym, pos in list(deps.ledger.positions().items()):
+        if deps.exec_manager is not None:
+            deps.exec_manager.cancel(sym)
         side = "sell" if pos > 0 else "buy"
         coid = make_sleeve_coid(sym, deps.now, n)
         deps.broker.submit_simple_order(
@@ -171,13 +192,33 @@ def run_tick(deps: TickDeps) -> None:
         is_reducing = pos != 0 and (
             (pos > 0 and order.side is Side.SELL) or (pos < 0 and order.side is Side.BUY)
         )
-        is_new_open = pos == 0
+        has_prog = deps.exec_manager is not None and deps.exec_manager.has_active(order.symbol)
+        is_new_open = pos == 0 and not has_prog
         # Trade-budget guard applies only to new opens, not to exits.
         if is_new_open and trade_budget_exhausted(round_trips=deps.ledger.round_trips, config=cfg):
             continue
         price = marks.get(order.symbol)
         if price is None:
             continue
+        # Reducing order: cancel any active program first, then submit immediately.
+        if is_reducing and deps.exec_manager is not None:
+            deps.exec_manager.cancel(order.symbol)
+        # New open with exec manager: route to manager (TWAP/A-C), don't submit now.
+        if is_new_open and deps.exec_manager is not None:
+            ec = deps.exec_config or ExecConfig()
+            sigma, eta, gamma = calibrate(
+                price=price,
+                slice_shares=max(1, order.qty // ec.horizon_ticks),
+                adv_dollar=_sleeve_adv_dollar(order.symbol, price),
+                recent_returns=_recent_returns(deps, order.symbol),
+                config=ec,
+            )
+            deps.exec_manager.start_entry(
+                order, tick_index=deps.tick_index,
+                sigma=sigma, eta=eta, gamma=gamma,
+            )
+            continue  # slices worked after the strategy loop (see below)
+        # Immediate path: exits, or new opens when no exec manager is present.
         if is_reducing:
             qty = min(order.qty, abs(pos))  # exits bypass caps; never over-close
         else:
@@ -200,6 +241,34 @@ def run_tick(deps: TickDeps) -> None:
         signed_qty = qty if order.side is Side.BUY else -qty
         deps.ledger.record(Fill(symbol=order.symbol, qty=signed_qty, price=price))
         n_orders += 1
+
+    # Work in-flight execution programs (entry slices), AFTER the strategy step.
+    # This runs AFTER the strategy step so a program created THIS tick gets its
+    # offset-0 slice worked now (otherwise the first slice is skipped and the
+    # parent never fully fills).
+    if deps.exec_manager is not None:
+        for i, child in enumerate(deps.exec_manager.due_slices(deps.tick_index)):
+            price = marks.get(child.symbol)
+            if price is None:
+                continue
+            qty = clamp_qty_to_caps(
+                desired_qty=child.qty,
+                price=price,
+                gross_notional=deps.ledger.gross_notional(marks),
+                sleeve_allocation=allocation,
+                config=cfg,
+            )
+            if qty <= 0:
+                continue
+            side_str = "buy" if child.side is Side.BUY else "sell"
+            coid = make_sleeve_coid(child.symbol, deps.now, 1000 + i)  # high offset: no COID collision
+            deps.broker.submit_simple_order(
+                symbol=child.symbol, side=side_str, qty=qty,
+                client_order_id=coid, dry_run=deps.dry_run,
+            )
+            signed = qty if child.side is Side.BUY else -qty
+            deps.ledger.record(Fill(symbol=child.symbol, qty=signed, price=price))
+            deps.exec_manager.record_fill(child.symbol, qty)
 
     _journal(deps, marks, n_orders=n_orders, halted=False, note="ok")
 
