@@ -69,14 +69,14 @@ class TickDeps:
 def _sleeve_adv_dollar(symbol: str, price: float) -> float:
     # Mega-liquid ETF proxy ADV ($). Calibration only needs an order-of-magnitude anchor.
     _ = symbol, price  # unused: single anchor value for all symbols
-    return 5_000_000_000.0
+    return 5_000_000_000.0  # TODO(data-layer): real trailing dollar-ADV per symbol
 
 
 def _recent_returns(deps: TickDeps, symbol: str) -> list[float]:
     # Spine keeps no return history yet -> empty list -> sigma=0 (A-C degenerates to
     # TWAP-like, the safe default). A future task can wire the data layer here.
     _ = deps, symbol  # unused until the data layer wires in return history
-    return []
+    return []  # TODO(data-layer): real recent intraday returns (empty -> sigma=0 -> TWAP-safe)
 
 
 class _Ctx:
@@ -125,6 +125,39 @@ def _flatten_all(deps: TickDeps, marks: dict[str, float]) -> int:
         deps.ledger.record(Fill(symbol=sym, qty=signed, price=marks.get(sym, deps.ledger.avg_cost(sym))))
         n += 1
     return n
+
+
+def _work_active_programs(
+    deps: TickDeps, marks: dict[str, float], allocation: float
+) -> int:
+    """Submit due child slices for all in-flight execution programs. Returns the
+    number of slices submitted (for the tick's n_orders journal count)."""
+    mgr = deps.exec_manager
+    if mgr is None:
+        return 0
+    cfg = deps.config
+    submitted = 0
+    for i, child in enumerate(mgr.due_slices(deps.tick_index)):
+        price = marks.get(child.symbol)
+        if price is None:
+            continue
+        qty = clamp_qty_to_caps(
+            desired_qty=child.qty, price=price,
+            gross_notional=deps.ledger.gross_notional(marks),
+            sleeve_allocation=allocation, config=cfg,
+        )
+        if qty <= 0:
+            continue
+        side_str = "buy" if child.side is Side.BUY else "sell"
+        # offset by 1000 to avoid COID collisions with strategy-loop orders (0-indexed)
+        coid = make_sleeve_coid(child.symbol, deps.now, 1000 + i)
+        deps.broker.submit_simple_order(symbol=child.symbol, side=side_str, qty=qty,
+                                        client_order_id=coid, dry_run=deps.dry_run)
+        signed = qty if child.side is Side.BUY else -qty
+        deps.ledger.record(Fill(symbol=child.symbol, qty=signed, price=price))
+        mgr.record_fill(child.symbol, qty)
+        submitted += 1
+    return submitted
 
 
 def recover_ledger(broker: Any, config: SleeveConfig) -> SleeveLedger:
@@ -222,6 +255,7 @@ def run_tick(deps: TickDeps) -> None:
         # action while it runs is an exit (is_reducing, handled above via cancel +
         # immediate submit). Any other order (re-fired entry, duplicate bar) must be
         # dropped so we never leak shares beyond the scheduled parent.
+        # also catches pos==0 with a program already active (e.g. after crash recovery)
         if has_prog and not is_reducing:
             continue
         # Immediate path: exits, or new opens when no exec manager is present.
@@ -248,33 +282,9 @@ def run_tick(deps: TickDeps) -> None:
         deps.ledger.record(Fill(symbol=order.symbol, qty=signed_qty, price=price))
         n_orders += 1
 
-    # Work in-flight execution programs (entry slices), AFTER the strategy step.
-    # This runs AFTER the strategy step so a program created THIS tick gets its
-    # offset-0 slice worked now (otherwise the first slice is skipped and the
-    # parent never fully fills).
-    if deps.exec_manager is not None:
-        for i, child in enumerate(deps.exec_manager.due_slices(deps.tick_index)):
-            price = marks.get(child.symbol)
-            if price is None:
-                continue
-            qty = clamp_qty_to_caps(
-                desired_qty=child.qty,
-                price=price,
-                gross_notional=deps.ledger.gross_notional(marks),
-                sleeve_allocation=allocation,
-                config=cfg,
-            )
-            if qty <= 0:
-                continue
-            side_str = "buy" if child.side is Side.BUY else "sell"
-            coid = make_sleeve_coid(child.symbol, deps.now, 1000 + i)  # high offset: no COID collision
-            deps.broker.submit_simple_order(
-                symbol=child.symbol, side=side_str, qty=qty,
-                client_order_id=coid, dry_run=deps.dry_run,
-            )
-            signed = qty if child.side is Side.BUY else -qty
-            deps.ledger.record(Fill(symbol=child.symbol, qty=signed, price=price))
-            deps.exec_manager.record_fill(child.symbol, qty)
+    # Work in-flight execution programs (entry slices) AFTER the strategy step, so a
+    # program created this tick gets its offset-0 slice now.
+    n_orders += _work_active_programs(deps, marks, allocation)
 
     _journal(deps, marks, n_orders=n_orders, halted=False, note="ok")
 

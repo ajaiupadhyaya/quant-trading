@@ -55,7 +55,7 @@ def test_entry_is_worked_over_ticks_not_dumped(tmp_path):
     run_tick(_deps(tmp_path, broker, _Feed([_qb("QQQ", 100.0)]),
                    _Strat([Order("QQQ", Side.BUY, 90)]), ledger, tick_index=0, mgr=mgr))
     first = sum(q for s, _, q in broker.orders if s == "QQQ")
-    assert first < 90  # not dumped all at once
+    assert first <= 30  # near-TWAP over 3 ticks → ~30 first slice; proves we sliced, not dumped
     silent = _Strat([])
     run_tick(_deps(tmp_path, broker, _Feed([_qb("QQQ", 100.0)]), silent, ledger,
                    tick_index=1, mgr=mgr))
@@ -86,3 +86,4 @@ def test_flatten_cancels_active_program(tmp_path):
     run_tick(_deps(tmp_path, broker, _Feed([_qb("QQQ", 100.0)]), _Strat([]), ledger,
                    tick_index=1, mgr=mgr, now=datetime(2026, 6, 8, 19, 50, tzinfo=UTC)))
     assert not mgr.has_active("QQQ")
+    assert any(s == "QQQ" and side == "sell" for s, side, _ in broker.orders)
