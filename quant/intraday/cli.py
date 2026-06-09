@@ -67,7 +67,9 @@ def live_status() -> None:
     """Show sleeve halt state and the last journaled tick."""
     dd = _data_dir()
     halt = load_sleeve_halt(dd)
-    click.echo(f"sleeve halt: {'HALTED — ' + halt.reason if halt.active else 'active (not halted)'}")
+    click.echo(
+        f"sleeve halt: {'HALTED — ' + halt.reason if halt.active else 'active (not halted)'}"
+    )
     df = read_ticks(dd)
     if df.empty:
         click.echo("no ticks journaled yet")
@@ -111,14 +113,18 @@ def recon() -> None:
 
     dd = _data_dir()
     s = summarize_day(dd)
-    click.echo(f"ticks={s['n_ticks']} last_day_pnl={s['last_day_pnl']:.2f} "
-               f"max_round_trips={s['max_round_trips']} halted_any={s['halted_any']}")
+    click.echo(
+        f"ticks={s['n_ticks']} last_day_pnl={s['last_day_pnl']:.2f} "
+        f"max_round_trips={s['max_round_trips']} halted_any={s['halted_any']}"
+    )
     cfg = SleeveConfig()
     broker = AlpacaClient()
     ledger = recover_ledger(broker, cfg)
     bad = position_mismatches(ledger.positions(), broker, cfg)
     click.echo("position recon: OK" if not bad else f"position MISMATCH: {bad}")
-    click.echo("note: backtest-vs-live drift comparison deferred (needs intraday backtest baseline)")
+    click.echo(
+        "note: backtest-vs-live drift comparison deferred (needs intraday backtest baseline)"
+    )
 
 
 @live.command()
@@ -278,7 +284,9 @@ def simulate(symbol: str, gamma: float | None, seed: int, steps: int) -> None:
         cfg = dataclasses.replace(cfg, gamma=gamma)
     prices = _mm_demo_prices(seed, cfg.n_steps)
     r = run_market_making(prices, cfg)
-    click.echo(f"A-S market making for {symbol} (gamma={cfg.gamma}, {cfg.n_steps} steps, seed={seed}):")
+    click.echo(
+        f"A-S market making for {symbol} (gamma={cfg.gamma}, {cfg.n_steps} steps, seed={seed}):"
+    )
     click.echo(f"  final pnl:        {r.final_pnl:.2f}")
     click.echo(f"  spread captured:  {r.spread_captured:.2f}")
     click.echo(f"  fills:            {r.n_bid_fills} bid / {r.n_ask_fills} ask")
@@ -361,4 +369,79 @@ def compare(shares: int, steps: int, episodes: int, seed: int, eval_paths: int) 
     click.echo(f"  Almgren-Chriss:   mean cost {res['almgren_chriss']:.4f}")
     click.echo(f"  TWAP:             mean cost {res['twap']:.4f}")
     click.echo(f"  learned schedule: {res['learned_schedule']}")
-    click.echo("note: tabular RL rediscovers the DP/A-C optimum; the point is it LEARNS it from rewards.")
+    click.echo(
+        "note: tabular RL rediscovers the DP/A-C optimum; the point is it LEARNS it from rewards."
+    )
+
+
+# ---------------------------------------------------------------------------
+# dl group
+# ---------------------------------------------------------------------------
+
+
+@intraday.group()
+def dl() -> None:
+    """Deep-learning alpha (torch LSTM, next-bar return) — sim/research only."""
+
+
+@dl.command("train")
+@click.option("--n", type=int, default=3000, help="length of the synthetic signal series")
+@click.option("--window", type=int, default=12)
+@click.option("--epochs", type=int, default=40)
+@click.option("--seed", type=int, default=7)
+def dl_train(n: int, window: int, epochs: int, seed: int) -> None:
+    """Train on the synthetic-signal series and print the per-epoch loss curve."""
+    from quant.intraday.dl.config import DLConfig
+    from quant.intraday.dl.data import make_windows, standardize, train_test_split
+    from quant.intraday.dl.evaluate import synthetic_signal_series
+    from quant.intraday.dl.train import train_model
+
+    cfg = DLConfig(window=window, epochs=epochs, seed=seed)
+    series = synthetic_signal_series(n=n, seed=seed)
+    x, y = make_windows(series, cfg.window)
+    x_tr, y_tr, x_te, _ = train_test_split(x, y, cfg.train_frac)
+    x_tr_z, _, mu, sd = standardize(x_tr, x_te)
+    y_tr_z = (y_tr - mu) / sd
+    out = train_model(x_tr_z, y_tr_z, cfg)
+    click.echo(f"DL alpha training ({n} pts, window {window}, {epochs} epochs, seed {seed}):")
+    curve = out.loss_curve
+    for i, c in enumerate(curve):
+        if i == 0 or i == len(curve) - 1 or i % 5 == 0:
+            click.echo(f"  epoch {i:>3}: loss {c:.5f}")
+    click.echo(f"  loss fell from {curve[0]:.5f} to {curve[-1]:.5f} (training works).")
+
+
+@dl.command("evaluate")
+@click.option("--n", type=int, default=3000, help="length of each evaluation series")
+@click.option("--window", type=int, default=12)
+@click.option("--epochs", type=int, default=40)
+@click.option("--seed", type=int, default=7)
+def dl_evaluate(n: int, window: int, epochs: int, seed: int) -> None:
+    """Dual-track OOS comparison: LSTM vs linear vs naive on a synthetic-signal series
+    (LSTM should win) and a near-random series (LSTM should NOT win — the honest result)."""
+    from quant.intraday.dl.config import DLConfig
+    from quant.intraday.dl.evaluate import (
+        evaluate_track,
+        random_series,
+        synthetic_signal_series,
+    )
+
+    cfg = DLConfig(window=window, epochs=epochs, seed=seed)
+    tracks = {
+        "synthetic-signal": synthetic_signal_series(n=n, seed=seed),
+        "random": random_series(n=n, seed=seed),
+    }
+    click.echo(f"DL alpha OOS evaluation (window {window}, {epochs} epochs, seed {seed}):")
+    for name, series in tracks.items():
+        res = evaluate_track(series, cfg)
+        click.echo(f"\n  [{name}] OOS  (mse / directional-accuracy / r2):")
+        for model_name in ("lstm", "linear", "naive"):
+            m = res[model_name]
+            click.echo(
+                f"    {model_name:<7} mse {m['mse']:.5f}   "
+                f"dir-acc {m['directional_accuracy']:.3f}   r2 {m['r2']:.4f}"
+            )
+    click.echo(
+        "\nnote: intraday returns are near-unforecastable (EMH); DL does not beat simple "
+        "baselines OOS on the random track — the value here is the technique + honest evaluation."
+    )
