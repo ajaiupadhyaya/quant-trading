@@ -2929,6 +2929,47 @@ def analyst() -> None:
 
 
 @analyst.command(
+    "spend",
+    help="Claude-spend meter: total + per-day / model / call-site cost from the ledger. Read-only.",
+)
+@click.option("--asof", default=None, help="Highlight this day's spend YYYY-MM-DD (default: today).")
+@click.option("--days", type=int, default=14, help="Recent days to show in the by-day table.")
+def analyst_spend(asof: str | None, days: int) -> None:
+    from rich.table import Table
+
+    from quant.analyst.spend import ledger_path, load_records, summarize
+
+    settings = Settings()  # type: ignore[call-arg]
+    asof_date = (date.fromisoformat(asof) if asof else date.today()).isoformat()
+    records = load_records(settings.data_dir)
+    s = summarize(records, asof_date=asof_date)
+
+    console.rule(f"Claude spend — {s['calls']} calls, ${s['total_usd']:.4f} total")
+    console.print(
+        f"today ({asof_date}): ${(s['today_usd'] or 0.0):.4f}    ledger: "
+        f"{ledger_path(settings.data_dir)}"
+    )
+    if not records:
+        console.print("[yellow]no spend recorded yet[/yellow]")
+        return
+
+    for title, key, label in (
+        (f"by day (last {days})", "by_day", "date"),
+        ("by model", "by_model", "model"),
+        ("by call-site", "by_call_site", "call_site"),
+    ):
+        table = Table(title=title)
+        table.add_column(label)
+        table.add_column("USD", justify="right")
+        items = list(s[key].items())
+        if key == "by_day":
+            items = items[-days:]
+        for name, val in items:
+            table.add_row(str(name), f"${val:.4f}")
+        console.print(table)
+
+
+@analyst.command(
     "digest", help="Build today's digest and post it to Slack. Read-only — never trades or halts."
 )
 @click.option("--asof", default=None, help="Session date YYYY-MM-DD (default: today).")

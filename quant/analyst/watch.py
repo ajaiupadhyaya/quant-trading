@@ -289,6 +289,14 @@ def comment(
             tool_choice={"type": "tool", "name": "submit_commentary"},
             messages=[{"role": "user", "content": user_content}],
         )
+        from quant.analyst.spend import record_spend
+
+        record_spend(
+            call_site="watch",
+            model=getattr(resp, "model", None) or model,
+            usage=getattr(resp, "usage", None),
+            data_dir=data_dir,
+        )
         cmt = _extract_comment(resp)
         if cmt is None:
             error = "no submit_commentary tool call in response"

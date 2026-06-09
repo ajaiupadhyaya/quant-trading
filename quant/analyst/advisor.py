@@ -224,6 +224,14 @@ def advise(
             tool_choice={"type": "tool", "name": "submit_brief"},
             messages=[{"role": "user", "content": user_content}],
         )
+        from quant.analyst.spend import record_spend
+
+        record_spend(
+            call_site="advisor.brief",
+            model=getattr(resp, "model", None) or model,
+            usage=getattr(resp, "usage", None),
+            data_dir=data_dir,
+        )
         brief = _extract_brief(resp)
         if brief is None:
             error = "no submit_brief tool call in response"
@@ -461,6 +469,14 @@ def propose(
             tools=[_PROPOSAL_TOOL],
             tool_choice={"type": "tool", "name": "submit_proposals"},
             messages=[{"role": "user", "content": user_content}],
+        )
+        from quant.analyst.spend import record_spend
+
+        record_spend(
+            call_site="advisor.propose",
+            model=getattr(resp, "model", None) or model,
+            usage=getattr(resp, "usage", None),
+            data_dir=data_dir,
         )
         proposals = _extract_proposals(resp, live_slugs)
         if proposals is None:

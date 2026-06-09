@@ -285,6 +285,14 @@ def narrate(facts: str, *, settings: Any, client: Any | None = None) -> str | No
             ],
             messages=[{"role": "user", "content": facts}],
         )
+        from quant.analyst.spend import record_spend
+
+        record_spend(
+            call_site="digest",
+            model=getattr(resp, "model", None) or "unknown",
+            usage=getattr(resp, "usage", None),
+            data_dir=getattr(settings, "data_dir", None),
+        )
     except Exception as exc:  # never let the daily job die on an API hiccup
         logger.error("analyst: Claude narration failed ({!r}) — template-only digest", exc)
         return None
