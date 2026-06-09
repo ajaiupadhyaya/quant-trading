@@ -309,3 +309,56 @@ def sweep(symbol: str, seed: int, steps: int) -> None:
             f"{p.mean_abs_inventory:<8.2f}  {p.max_abs_inventory:<7d}  {p.terminal_inventory}"
         )
     click.echo("note: stylized A-S model (A, k are assumed parameters, not a live edge).")
+
+
+# ---------------------------------------------------------------------------
+# rl group
+# ---------------------------------------------------------------------------
+
+
+@intraday.group()
+def rl() -> None:
+    """Tabular Q-learning execution agent (sim/research only)."""
+
+
+@rl.command()
+@click.option("--shares", type=int, default=20)
+@click.option("--steps", type=int, default=10)
+@click.option("--episodes", type=int, default=20000)
+@click.option("--seed", type=int, default=7)
+def train(shares: int, steps: int, episodes: int, seed: int) -> None:
+    """Train the agent and print the convergence curve (mean episode cost per block)."""
+    from quant.intraday.rl.config import RLConfig
+    from quant.intraday.rl.qlearning import train as train_agent
+
+    cfg = RLConfig(total_shares=shares, n_steps=steps, n_episodes=episodes, seed=seed)
+    result = train_agent(cfg)
+    click.echo(f"RL execution training ({shares} sh, {steps} steps, {episodes} episodes):")
+    click.echo("  convergence (mean episode cost per block, first -> last):")
+    curve = result.training_curve
+    for i, c in enumerate(curve):
+        if i == 0 or i == len(curve) - 1 or i % 5 == 0:
+            click.echo(f"    block {i:>2}: {c:.4f}")
+    click.echo(f"  improved from {curve[0]:.4f} to {curve[-1]:.4f}")
+    click.echo("note: tabular RL rediscovers the DP/A-C optimum; the point is it LEARNS it.")
+
+
+@rl.command()
+@click.option("--shares", type=int, default=20)
+@click.option("--steps", type=int, default=10)
+@click.option("--episodes", type=int, default=20000)
+@click.option("--seed", type=int, default=7)
+@click.option("--eval-paths", type=int, default=300)
+def compare(shares: int, steps: int, episodes: int, seed: int, eval_paths: int) -> None:
+    """Compare learned policy vs Almgren-Chriss optimal vs TWAP (mean execution cost)."""
+    from quant.intraday.rl.config import RLConfig
+    from quant.intraday.rl.evaluate import compare as compare_policies
+
+    cfg = RLConfig(total_shares=shares, n_steps=steps, n_episodes=episodes, seed=seed)
+    res = compare_policies(cfg, n_eval_paths=eval_paths)
+    click.echo(f"RL execution comparison ({shares} sh, {steps} steps, {eval_paths} eval paths):")
+    click.echo(f"  learned (RL):     mean cost {res['learned']:.4f}")
+    click.echo(f"  Almgren-Chriss:   mean cost {res['almgren_chriss']:.4f}")
+    click.echo(f"  TWAP:             mean cost {res['twap']:.4f}")
+    click.echo(f"  learned schedule: {res['learned_schedule']}")
+    click.echo("note: tabular RL rediscovers the DP/A-C optimum; the point is it LEARNS it from rewards.")
