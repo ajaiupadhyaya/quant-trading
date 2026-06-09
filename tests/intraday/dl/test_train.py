@@ -39,3 +39,22 @@ def test_same_seed_same_machine_determinism():
     a = train_model(X, y, cfg)
     b = train_model(X, y, cfg)
     assert a.loss_curve == b.loss_curve  # identical run on the same machine
+
+
+def test_train_model_restores_global_determinism_flag():
+    import torch
+
+    X, y = _learnable_data()  # noqa: N806
+    cfg = DLConfig(window=8, hidden_size=8, epochs=3, batch_size=32, seed=1)
+    original = torch.are_deterministic_algorithms_enabled()
+    try:
+        torch.use_deterministic_algorithms(False)  # prior state OFF
+        train_model(X, y, cfg)
+        # train_model leaves no process-wide side-effect: the flag is restored, not left True.
+        assert not torch.are_deterministic_algorithms_enabled()
+
+        torch.use_deterministic_algorithms(True)  # prior state ON
+        train_model(X, y, cfg)
+        assert torch.are_deterministic_algorithms_enabled()
+    finally:
+        torch.use_deterministic_algorithms(original)  # leave the suite's global state clean
