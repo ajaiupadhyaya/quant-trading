@@ -241,3 +241,71 @@ def frontier(symbol: str, shares: int, horizon: int) -> None:
     click.echo(f"baseline TWAP child sizes: {twap(total_shares=shares, n_intervals=horizon)}")
     click.echo(f"baseline immediate: {immediate(total_shares=shares)}")
     click.echo("(VWAP requires a volume curve; available in sim evaluation only.)")
+
+
+# ---------------------------------------------------------------------------
+# mm group
+# ---------------------------------------------------------------------------
+
+
+@intraday.group()
+def mm() -> None:
+    """Avellaneda-Stoikov market-making simulator (sim/research only)."""
+
+
+def _mm_demo_prices(seed: int, steps: int) -> list[float]:
+    import random as _random
+
+    from quant.intraday.marketmaking.price_path import abm_path
+
+    return abm_path(s0=400.0, sigma=0.02, dt=1.0, n_steps=steps, rng=_random.Random(seed))
+
+
+@mm.command()
+@click.option("--symbol", required=True)
+@click.option("--gamma", type=float, default=None, help="risk aversion (default MMConfig)")
+@click.option("--seed", type=int, default=7)
+@click.option("--steps", type=int, default=600)
+def simulate(symbol: str, gamma: float | None, seed: int, steps: int) -> None:
+    """Run one A-S market-making episode and print P&L + inventory stats."""
+    import dataclasses
+
+    from quant.intraday.marketmaking.config import MMConfig
+    from quant.intraday.marketmaking.simulator import run_market_making
+
+    cfg = MMConfig(horizon_seconds=float(steps), dt_seconds=1.0, seed=seed)
+    if gamma is not None:
+        cfg = dataclasses.replace(cfg, gamma=gamma)
+    prices = _mm_demo_prices(seed, cfg.n_steps)
+    r = run_market_making(prices, cfg)
+    click.echo(f"A-S market making for {symbol} (gamma={cfg.gamma}, {cfg.n_steps} steps, seed={seed}):")
+    click.echo(f"  final pnl:        {r.final_pnl:.2f}")
+    click.echo(f"  spread captured:  {r.spread_captured:.2f}")
+    click.echo(f"  fills:            {r.n_bid_fills} bid / {r.n_ask_fills} ask")
+    click.echo(
+        f"  inventory:        mean|q|={r.mean_abs_inventory:.2f}"
+        f" max|q|={r.max_abs_inventory} terminal={r.terminal_inventory}"
+    )
+    click.echo("note: stylized A-S model (A, k are assumed parameters, not a live edge).")
+
+
+@mm.command()
+@click.option("--symbol", required=True)
+@click.option("--seed", type=int, default=7)
+@click.option("--steps", type=int, default=800)
+def sweep(symbol: str, seed: int, steps: int) -> None:
+    """Print the gamma tradeoff table (spread-capture vs inventory-risk)."""
+    from quant.intraday.marketmaking.config import MMConfig
+    from quant.intraday.marketmaking.evaluate import gamma_sweep
+
+    cfg = MMConfig(horizon_seconds=float(steps), dt_seconds=1.0, seed=seed)
+    prices = _mm_demo_prices(seed, cfg.n_steps)
+    pts = gamma_sweep(prices, cfg, [0.01, 0.05, 0.1, 0.5, 1.0, 5.0])
+    click.echo(f"A-S gamma sweep for {symbol} ({cfg.n_steps} steps, seed={seed}):")
+    click.echo("  gamma     pnl         fills    mean|q|   max|q|   terminal_q")
+    for p in pts:
+        click.echo(
+            f"  {p.gamma:<8.2f}  {p.final_pnl:<10.2f}  {p.n_fills:<7d}  "
+            f"{p.mean_abs_inventory:<8.2f}  {p.max_abs_inventory:<7d}  {p.terminal_inventory}"
+        )
+    click.echo("note: stylized A-S model (A, k are assumed parameters, not a live edge).")
