@@ -320,6 +320,7 @@ def _write_allocation_compare_artifact(
         "equal_live_weights": _weights("equal-live"),
         "risk_parity_weights": _weights("risk-parity"),
         "fractional_kelly_weights": _weights("fractional-kelly"),
+        "hrp_weights": _weights("hrp"),
         "per_strategy_risk": risk,
     }
     path = data_dir / "governance" / f"allocation_compare.{asof.isoformat()}.json"

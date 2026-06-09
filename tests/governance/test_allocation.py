@@ -12,6 +12,7 @@ import pandas as pd
 from quant.governance.allocation import (
     AllocationConfig,
     allocate_capital,
+    hrp_raw_weights,
     load_strategy_returns,
     risk_based_raw_weights,
     strategy_risk,
@@ -274,3 +275,101 @@ def pytest_approx(x: float) -> object:
     import pytest
 
     return pytest.approx(x, rel=1e-9, abs=1e-12)
+
+
+# --- covariance-aware HRP allocation ------------------------------------------
+
+
+def test_hrp_two_strategies_reduce_to_inverse_variance() -> None:
+    # For two strategies HRP's recursive bisection reduces to inverse-VARIANCE weights:
+    # w_a = var_b / (var_a + var_b). Verify against the closed form on the sample cov.
+    a = _rng_returns(0.0005, 0.005, seed=11)
+    b = _rng_returns(0.0005, 0.020, seed=12)
+    raw = hrp_raw_weights({"a": a, "b": b}, ["a", "b"], AllocationConfig(mode="hrp"))
+    assert raw is not None
+    cov = pd.DataFrame({"a": a, "b": b}).cov()  # same path hrp_raw_weights uses internally
+    expected_a = float(cov.iloc[1, 1] / (cov.iloc[0, 0] + cov.iloc[1, 1]))
+    assert raw["a"] == pytest_approx(expected_a)
+    assert raw["b"] == pytest_approx(1.0 - expected_a)
+    assert raw["a"] > raw["b"]  # lower-vol strategy gets the larger weight
+    assert abs(raw["a"] + raw["b"] - 1.0) < 1e-12
+
+
+def test_hrp_three_strategies_valid_simplex_and_deterministic() -> None:
+    returns = {
+        "x": _rng_returns(0.0005, 0.008, seed=21),
+        "y": _rng_returns(0.0005, 0.012, seed=22),
+        "z": _rng_returns(0.0005, 0.016, seed=23),
+    }
+    cfg = AllocationConfig(mode="hrp")
+    raw1 = hrp_raw_weights(returns, ["x", "y", "z"], cfg)
+    raw2 = hrp_raw_weights(returns, ["x", "y", "z"], cfg)
+    assert raw1 is not None and raw2 is not None
+    assert set(raw1) == {"x", "y", "z"}
+    assert all(w > 0.0 for w in raw1.values())
+    assert abs(sum(raw1.values()) - 1.0) < 1e-9
+    assert raw1 == raw2  # deterministic
+
+
+def test_hrp_returns_none_when_a_live_slug_lacks_curve() -> None:
+    raw = hrp_raw_weights(
+        {"a": _rng_returns(0.001, 0.01, seed=31)},  # 'b' missing
+        ["a", "b"],
+        AllocationConfig(mode="hrp"),
+    )
+    assert raw is None
+
+
+def test_hrp_returns_none_on_insufficient_observations() -> None:
+    raw = hrp_raw_weights(
+        {
+            "a": _rng_returns(0.001, 0.01, n=30, seed=32),
+            "b": _rng_returns(0.001, 0.01, n=30, seed=33),
+        },
+        ["a", "b"],
+        AllocationConfig(mode="hrp", min_observations=60),
+    )
+    assert raw is None
+
+
+def test_hrp_returns_none_on_degenerate_flat_curve() -> None:
+    raw = hrp_raw_weights(
+        {"a": _rng_returns(0.001, 0.01, seed=34), "b": np.zeros(252)},  # flat -> zero vol
+        ["a", "b"],
+        AllocationConfig(mode="hrp"),
+    )
+    assert raw is None
+
+
+def test_allocate_hrp_end_to_end() -> None:
+    states = {
+        "calm": _state("calm", GovernanceState.LIVE),
+        "wild": _state("wild", GovernanceState.LIVE),
+    }
+    returns = {
+        "calm": _rng_returns(0.0005, 0.005, seed=41),
+        "wild": _rng_returns(0.0005, 0.020, seed=42),
+    }
+    weights = allocate_capital(
+        states,
+        evidence_by_slug={},
+        config=AllocationConfig(mode="hrp", max_weight=0.90, min_weight=0.0),
+        returns_by_slug=returns,
+    )
+    assert weights["calm"] > weights["wild"]  # diversifies toward the lower-vol strategy
+    assert abs(sum(weights.values()) - 1.0) < 1e-12
+
+
+def test_allocate_hrp_falls_back_to_equal_live_on_missing_data() -> None:
+    states = {
+        "a": _state("a", GovernanceState.LIVE),
+        "b": _state("b", GovernanceState.LIVE),
+    }
+    weights = allocate_capital(
+        states,
+        evidence_by_slug={},
+        config=AllocationConfig(mode="hrp", max_weight=0.90, min_weight=0.0),
+        returns_by_slug=None,  # no curves -> fail open to equal-live
+    )
+    assert weights["a"] == pytest_approx(0.5)
+    assert weights["b"] == pytest_approx(0.5)

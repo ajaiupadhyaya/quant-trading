@@ -13,7 +13,7 @@ from quant.governance.models import GovernanceState, StrategyState, ValidationEv
 from quant.sizing.components import fractional_kelly
 
 AllocationMode = Literal[
-    "equal-live", "dsr-weighted", "capped-evidence-score", "risk-parity", "fractional-kelly"
+    "equal-live", "dsr-weighted", "capped-evidence-score", "risk-parity", "fractional-kelly", "hrp"
 ]
 
 _RISK_MODES: frozenset[str] = frozenset({"risk-parity", "fractional-kelly"})
@@ -67,6 +67,10 @@ def allocate_capital(
         )
         # Fail open: any unmeasurable strategy / all-zero edge -> equal-live.
         raw = risk_raw if risk_raw is not None else {slug: 1.0 for slug in live}
+    elif config.mode == "hrp":
+        hrp_raw = hrp_raw_weights(returns_by_slug or {}, list(live), config)
+        # Fail open (all-or-nothing): unmeasurable covariance -> equal-live.
+        raw = hrp_raw if hrp_raw is not None else {slug: 1.0 for slug in live}
     else:
         raw = {slug: _evidence_score(evidence_by_slug.get(slug)) for slug in live}
     if sum(raw.values()) <= 0:
@@ -127,6 +131,58 @@ def risk_based_raw_weights(
     if sum(raw.values()) <= 0.0:
         return None
     return raw
+
+
+def hrp_raw_weights(
+    returns_by_slug: dict[str, np.ndarray],
+    live_slugs: list[str],
+    config: AllocationConfig,
+) -> dict[str, float] | None:
+    """Covariance-aware Hierarchical Risk Parity (Lopez de Prado) raw weights, or ``None``.
+
+    Builds a strategy-level covariance from the trailing-aligned OOS return curves and runs
+    HRP (reusing the proven strategy-level :func:`quant.strategies.risk_parity.hrp_weights`),
+    so *correlated* strategies are diversified down — unlike the diagonal inverse-vol mode,
+    which ignores cross-strategy correlation.
+
+    All-or-nothing & fail-open (mirrors :func:`risk_based_raw_weights`): returns ``None``
+    (⇒ caller uses equal-live) if any live strategy is missing/short, the trailing-aligned
+    window is below ``config.min_observations``, any strategy is degenerate (non-finite or
+    zero vol), or the resulting weights are non-finite / non-positive. Never weights a subset.
+    """
+    import pandas as pd
+
+    series: list[np.ndarray] = []
+    for slug in live_slugs:
+        returns = returns_by_slug.get(slug)
+        if returns is None:
+            return None
+        arr = np.asarray(returns, dtype=float)
+        series.append(arr[np.isfinite(arr)])
+    if len(series) < 2:
+        return None
+    common = min(arr.size for arr in series)
+    if common < config.min_observations:
+        return None
+    # Trailing alignment: the OOS curves carry no dates here, so align on the shared tail.
+    matrix = pd.DataFrame({slug: series[i][-common:] for i, slug in enumerate(live_slugs)})
+
+    cov = matrix.cov()
+    stds = np.sqrt(np.diag(cov.values))
+    if not np.all(np.isfinite(stds)) or np.any(stds <= 0.0):
+        return None  # a degenerate / flat curve carries no risk signal we can weight on
+    # Correlation derived from the same covariance keeps the HRP distance matrix consistent.
+    safe = np.where(stds > 0.0, stds, 1.0)
+    corr_values = np.nan_to_num(cov.values / np.outer(safe, safe), nan=0.0)
+    np.fill_diagonal(corr_values, 1.0)
+    corr = pd.DataFrame(corr_values, index=cov.index, columns=cov.columns)
+
+    from quant.strategies.risk_parity import hrp_weights
+
+    weights = hrp_weights(cov, corr)
+    if weights.empty or not np.all(np.isfinite(weights.to_numpy())) or float(weights.sum()) <= 0.0:
+        return None
+    return {slug: float(weights.get(slug, 0.0)) for slug in live_slugs}
 
 
 def load_strategy_returns(
