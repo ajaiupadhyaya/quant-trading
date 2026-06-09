@@ -48,11 +48,22 @@ def test_multiple_signals_stack_and_clamp_to_floor() -> None:
         recession_risk_label="high",
         intraday_spy_ret=-0.03,
     )
-    r = derisk_multiplier(state, DeriskConfig(actuate=True, floor=0.5), now=_NOW)
+    # opt the (default-off) regime signal back in so all six stack
+    r = derisk_multiplier(state, DeriskConfig(actuate=True, floor=0.5, w_regime_crisis=0.20), now=_NOW)
     # reduction 0.25+0.20+0.15+0.15+0.15+0.15 = 1.05 -> clamp to floor 0.5
     assert r.multiplier == 0.5
     assert r.applied == 0.5
     assert len(r.reasons) == 6
+
+
+def test_regime_signal_is_disabled_by_default() -> None:
+    # The HMM regime is unvalidated/miscalibrated, so its default weight is 0: a "crisis"
+    # label de-risks nothing until the model earns it.
+    r = derisk_multiplier(
+        _state(composite_label="risk-on", regime_label="crisis"), DeriskConfig(actuate=True), now=_NOW
+    )
+    assert r.multiplier == 1.0
+    assert not any("regime" in x for x in r.reasons)
 
 
 def test_one_way_never_above_one() -> None:

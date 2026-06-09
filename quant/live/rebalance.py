@@ -580,10 +580,11 @@ def run_rebalance(
     derisk = derisk_multiplier(load_engine_state(settings.data_dir), derisk_config)
     report.derisk = to_report_dict(derisk)
     if derisk.reasons and not derisk.degraded:
-        verb = "APPLYING" if derisk.actuated else "shadow (not applied)"
+        verb = "APPLYING" if derisk.actuated else "shadow"
         logger.info(
-            "derisk overlay {}: gross x{} ({})",
+            "derisk overlay {}: computed x{} applied x{} ({})",
             verb,
+            derisk.multiplier,
             derisk.applied,
             ", ".join(derisk.reasons),
         )

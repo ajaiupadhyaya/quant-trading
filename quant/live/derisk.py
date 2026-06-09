@@ -40,7 +40,10 @@ class DeriskConfig:
     max_staleness_minutes: float = 120.0  # older engine state ⇒ degraded ⇒ no de-risk
     # Each adverse signal subtracts its weight from a full 1.0 multiplier (then clamped to floor).
     w_risk_off: float = 0.25  # composite posture == "risk-off"
-    w_regime_crisis: float = 0.20  # HMM regime label contains "crisis"
+    # HMM regime "crisis" is UNVALIDATED + miscalibrated today (confident crisis on calm-vol
+    # days, label flips with the training window), so it is EXCLUDED by default (weight 0).
+    # Raise this only after the regime model passes its OOS gates (`quant regime validate`).
+    w_regime_crisis: float = 0.0
     w_vol_stressed: float = 0.15  # vol_regime == "stressed"
     w_credit_stress: float = 0.15  # HY OAS >= hy_oas_stress
     w_recession: float = 0.15  # recession_risk_label elevated/high
@@ -107,24 +110,31 @@ def derisk_multiplier(
     reduction = 0.0
     reasons: list[str] = []
 
-    if state.get("composite_label") == "risk-off":
+    # Each signal contributes only when its weight is > 0, so a zeroed weight is genuinely
+    # off (e.g. the unvalidated regime signal) rather than a no-op reason at -0.00.
+    if cfg.w_risk_off > 0.0 and state.get("composite_label") == "risk-off":
         reduction += cfg.w_risk_off
         reasons.append(f"posture=risk-off(-{cfg.w_risk_off:.2f})")
-    if "crisis" in str(state.get("regime_label") or "").lower():
+    if cfg.w_regime_crisis > 0.0 and "crisis" in str(state.get("regime_label") or "").lower():
         reduction += cfg.w_regime_crisis
         reasons.append(f"regime=crisis(-{cfg.w_regime_crisis:.2f})")
-    if state.get("vol_regime") == "stressed":
+    if cfg.w_vol_stressed > 0.0 and state.get("vol_regime") == "stressed":
         reduction += cfg.w_vol_stressed
         reasons.append(f"vol=stressed(-{cfg.w_vol_stressed:.2f})")
     hy = _num(state.get("hy_oas"))
-    if hy is not None and hy >= cfg.hy_oas_stress:
+    if cfg.w_credit_stress > 0.0 and hy is not None and hy >= cfg.hy_oas_stress:
         reduction += cfg.w_credit_stress
         reasons.append(f"credit=stress(hy_oas={hy:.3f},-{cfg.w_credit_stress:.2f})")
-    if str(state.get("recession_risk_label") or "").lower() in ("elevated", "high"):
+    if cfg.w_recession > 0.0 and str(state.get("recession_risk_label") or "").lower() in (
+        "elevated",
+        "high",
+    ):
         reduction += cfg.w_recession
         reasons.append(f"recession={state.get('recession_risk_label')}(-{cfg.w_recession:.2f})")
     intraday = _num(state.get("intraday_spy_ret"))
-    if intraday is not None and intraday <= cfg.intraday_drawdown_threshold:
+    if cfg.w_intraday_drawdown > 0.0 and intraday is not None and (
+        intraday <= cfg.intraday_drawdown_threshold
+    ):
         reduction += cfg.w_intraday_drawdown
         reasons.append(f"intraday_dd={intraday:.3f}(-{cfg.w_intraday_drawdown:.2f})")
 
