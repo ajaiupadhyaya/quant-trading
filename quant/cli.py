@@ -662,6 +662,19 @@ def rebalance(
     header.add_row("Enabled strategies", str(len(report.enabled_strategies)))
     header.add_row("Total orders", str(report.total_orders))
     console.print(header)
+    if report.derisk is not None:
+        d = report.derisk
+        mult = d.get("multiplier", 1.0)
+        if d.get("degraded"):
+            why = ", ".join(d.get("reasons") or ["no engine state"])
+            console.print(f"[dim]de-risk overlay: standby — {why}[/dim]")
+        elif d.get("reasons"):
+            tag = "[red]APPLIED[/red]" if d.get("actuated") else "[yellow]SHADOW (not applied)[/yellow]"
+            console.print(
+                f"de-risk overlay: gross x{mult:.2f} {tag} <- {', '.join(d['reasons'])}"
+            )
+        else:
+            console.print(f"[green]de-risk overlay: neutral (gross x{mult:.2f}, engine risk-on)[/green]")
     if report.skipped_reason:
         console.print(f"[yellow]Skipped: {report.skipped_reason}[/yellow]")
 

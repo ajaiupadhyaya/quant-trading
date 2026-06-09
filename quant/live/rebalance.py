@@ -47,6 +47,12 @@ from quant.live.bookkeeping import (
     last_strategy_positions,
     write_strategy_positions,
 )
+from quant.live.derisk import (
+    DeriskConfig,
+    derisk_multiplier,
+    load_engine_state,
+    to_report_dict,
+)
 from quant.strategies import REGISTRY
 from quant.strategies.base import Strategy
 from quant.util.config import Settings
@@ -94,6 +100,7 @@ class RebalanceReport:
     halted_strategies: frozenset[str] = frozenset()
     skipped_reason: str | None = None
     winddown_outcomes: list[WindDownOutcome] = field(default_factory=list)
+    derisk: dict[str, Any] | None = None  # deterministic de-risk overlay (shadow unless actuated)
 
     @property
     def total_orders(self) -> int:
@@ -343,6 +350,7 @@ def run_rebalance(
     winddown_participation: float = 0.10,
     exec_policy: ExecutionPolicyConfig | None = None,
     alloc_config: AllocationConfig | None = None,
+    derisk_config: DeriskConfig | None = None,
 ) -> RebalanceReport:
     """Execute one rebalance pass. Returns a structured report for the CLI to render."""
     from quant.live.safety import (
@@ -564,6 +572,22 @@ def run_rebalance(
     combined_dollar_adv: dict[str, float] = {}
     exec_policy = exec_policy or ExecutionPolicyConfig()
 
+    # Deterministic one-way de-risk overlay from the continuous engine's MarketState.
+    # Default SHADOW (actuate=False ⇒ applied=1.0): computed + reported, changes nothing.
+    # When actuated, it can only SHRINK each strategy's equity slice (>= floor), and the
+    # next rebalance restores full size — all within the existing halt + Guard 4/5 envelope.
+    derisk_config = derisk_config or DeriskConfig()
+    derisk = derisk_multiplier(load_engine_state(settings.data_dir), derisk_config)
+    report.derisk = to_report_dict(derisk)
+    if derisk.reasons and not derisk.degraded:
+        verb = "APPLYING" if derisk.actuated else "shadow (not applied)"
+        logger.info(
+            "derisk overlay {}: gross x{} ({})",
+            verb,
+            derisk.applied,
+            ", ".join(derisk.reasons),
+        )
+
     for slug in enabled:
         if slug in halted:
             report.outcomes.append(
@@ -621,7 +645,9 @@ def run_rebalance(
             logger.info("Using chosen_params.json[latest] for {}: {}", slug, chosen)
         strategy = strategy_cls.build(bars=bars, params=chosen or None)
         try:
-            strategy_equity = account.equity * allocation.get(slug, 0.0)
+            # `derisk.applied` is 1.0 in shadow mode (byte-identical) and the one-way
+            # de-risk factor (<= 1.0) only when actuation is consciously enabled.
+            strategy_equity = account.equity * allocation.get(slug, 0.0) * derisk.applied
             target = strategy.target_positions(asof, strategy_equity)
         except Exception as exc:
             logger.exception("strategy {} target_positions raised", slug)
