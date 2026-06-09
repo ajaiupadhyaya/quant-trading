@@ -21,6 +21,7 @@ def test_loads_all_jobs() -> None:
         "daily-digest",
         "daily-brief",
         "nightly-backtest",
+        "regime-refresh",
         "weekly-grid-search",
         "weekly-validation-governance",
         "intraday-watch-open",

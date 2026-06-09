@@ -81,6 +81,23 @@ max_runtime_s = 7200
 commands = [["__backtest_matrix__", "--quick"]]
 commit_paths = ["data/backtests/"]
 
+# Refit the HMM regime series nightly so the always-on engine reads a fresh regime label /
+# p_crisis each day. Without this the series goes stale and the engine's regime read — plus
+# the regime_flip / recession detectors and the de-risk overlay's crisis signal — silently
+# degrade (the failure mode that left p_crisis null in production). Read-only research
+# artifact: places no orders, changes no governance. Start 2018 spans the 2018-Q4 /
+# 2020-COVID / 2022 selloffs so the HMM can learn a crisis state.
+[[job]]
+name = "regime-refresh"
+trigger_et = "21:30"
+days = "TRADING_DAY_EVENING"
+catch_up = "SAME_DAY"
+max_lateness = "09:00"
+max_lateness_next_day = true
+max_runtime_s = 3600
+commands = [["regime", "fit", "--start", "2018-01-01"]]
+commit_paths = ["data/regime/", "data/research/"]
+
 [[job]]
 name = "weekly-grid-search"
 trigger_et = "02:00"
