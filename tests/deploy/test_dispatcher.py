@@ -54,7 +54,7 @@ def test_fresh_premarket_runs_chain_and_marks(tmp_path: Path) -> None:
     rc = _disp(tmp_path, runner, alerts).tick(now_utc=datetime(2026, 6, 2, 13, 1, tzinfo=UTC))
     assert rc == 0
     assert ["data", "refresh", "--start", "2018-01-01"] in runner.calls
-    assert ["rebalance", "--dry-run"] in runner.calls
+    assert ["rebalance", "--dry-run", "--derisk-actuate"] in runner.calls
     assert read_markers(tmp_path).get("premarket-health") is not None
     assert alerts.success  # clean tick pinged liveness
 

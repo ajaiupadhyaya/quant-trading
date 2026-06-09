@@ -12,7 +12,7 @@ commands = [
   ["data", "refresh", "--start", "2018-01-01"],
   ["doctor"],
   ["governance", "status"],
-  ["rebalance", "--dry-run"],
+  ["rebalance", "--dry-run", "--derisk-actuate"],
 ]
 commit_paths = []
 
@@ -31,7 +31,10 @@ commands = [
   # PAPER-LIVE as of cutover 2026-06-02: places REAL paper orders (fake money).
   # The premarket-health job above still runs `rebalance --dry-run` as a preview.
   # Re-add "--dry-run" here to return to a no-orders shakedown.
-  ["rebalance"],
+  # --derisk-actuate (2026-06-09): apply the engine-driven one-way de-risk overlay, so a
+  # risk-off MarketState bounded-shrinks gross (reversible when posture normalizes). Remove
+  # the flag to return the overlay to shadow-only.
+  ["rebalance", "--derisk-actuate"],
 ]
 commit_paths = ["data/live/", "data/raw/", "data/ops/health/", "data/risk/"]
 

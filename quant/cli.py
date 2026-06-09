@@ -633,14 +633,23 @@ def validate(
     type=float,
     help="Max fraction of trailing dollar-ADV per orphan wind-down exit order.",
 )
+@click.option(
+    "--derisk-actuate/--no-derisk-actuate",
+    default=False,
+    show_default=True,
+    help="Apply the engine-driven one-way de-risk overlay to gross exposure "
+    "(default: shadow — computed and reported, not applied).",
+)
 def rebalance(
     dry_run: bool,
     asof: str | None,
     strategy_filter: str | None,
     include_quarantined: bool,
     winddown_participation: float,
+    derisk_actuate: bool,
 ) -> None:
     from quant.live import run_rebalance
+    from quant.live.derisk import DeriskConfig
 
     if include_quarantined and not dry_run:
         raise click.ClickException("--include-quarantined is allowed only with --dry-run.")
@@ -653,6 +662,7 @@ def rebalance(
         strategies=strategies_arg,
         include_quarantined=include_quarantined,
         winddown_participation=winddown_participation,
+        derisk_config=DeriskConfig(actuate=derisk_actuate),
     )
 
     header = Table(title=f"Rebalance {report.asof} — {'DRY RUN' if dry_run else 'LIVE'}")
