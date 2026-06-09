@@ -11,7 +11,11 @@ from dataclasses import dataclass
 class MMConfig:
     gamma: float = 0.1          # inventory risk aversion
     k: float = 1.5              # order-book depth / intensity decay
-    fill_rate_a: float = 140.0  # base fill intensity at the touch (per unit time)
+    fill_rate_a: float = 1.5    # base fill intensity; scaled for absolute-price quote
+                                # distances (delta ~ spread/2 ~ O(1)) so fills are
+                                # PROBABILISTIC, not saturated. (A large A like 140
+                                # saturates fill prob to 1 every tick and hides the
+                                # inventory-risk tradeoff.)
     horizon_seconds: float = 600.0  # T (one 10-min episode)
     dt_seconds: float = 1.0     # simulation step
     sigma: float = 0.02         # ABSOLUTE vol, price units per sqrt(second)

@@ -29,10 +29,14 @@ def test_pnl_conservation():
     assert math.isclose(r.final_pnl, r.cash + r.terminal_inventory * prices[-1], rel_tol=1e-9)
 
 
-def test_higher_gamma_controls_inventory():
+def test_higher_gamma_strictly_controls_inventory():
+    # Non-saturated fill regime (default fill_rate_a) so the A-S inventory-control
+    # mechanism is actually exercised: low gamma lets inventory drift; high gamma
+    # (linear-in-gamma reservation skew) pulls it back hard.
     prices = _prices(800)
     cfg_lo = MMConfig(gamma=0.01, horizon_seconds=800.0, dt_seconds=1.0, seed=4)
     cfg_hi = MMConfig(gamma=2.0, horizon_seconds=800.0, dt_seconds=1.0, seed=4)
     lo = run_market_making(prices, cfg_lo)
     hi = run_market_making(prices, cfg_hi)
-    assert hi.max_abs_inventory <= lo.max_abs_inventory
+    assert lo.max_abs_inventory > 0                      # low gamma actually drifts
+    assert hi.max_abs_inventory < lo.max_abs_inventory   # high gamma STRICTLY tighter
