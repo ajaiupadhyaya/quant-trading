@@ -15,6 +15,7 @@ import pytest
 from quant.execution.orders import OrderSide, OrderTemplate, OrderType
 from quant.execution.policy import (
     ExecutionPolicyConfig,
+    ac_shadow_schedule,
     apply_execution_policy,
     cap_qty_to_participation,
     marketable_limit_price,
@@ -210,3 +211,58 @@ def test_plan_rows_participation_is_finite_when_recorded() -> None:
     )
     assert rows[0]["participation"] is not None
     assert math.isfinite(rows[0]["participation"])
+
+
+# --- Almgren-Chriss trajectory SHADOW (advisory only) ------------------------
+
+
+def test_ac_shadow_schedule_sums_and_length() -> None:
+    cfg = ExecutionPolicyConfig(enabled=True, ac_shadow=True, ac_sessions=5)
+    sched, kappa = ac_shadow_schedule(1000, ref_price=100.0, dollar_adv=1e8, cfg=cfg)
+    assert sched is not None and kappa is not None
+    assert len(sched) == 5  # one tranche per session
+    assert sum(sched) == 1000  # the schedule executes the full target
+    assert kappa >= 0.0
+
+
+def test_ac_shadow_higher_risk_aversion_is_more_frontloaded() -> None:
+    patient = ExecutionPolicyConfig(ac_sessions=5, ac_risk_aversion=1e-9)
+    urgent = ExecutionPolicyConfig(ac_sessions=5, ac_risk_aversion=1e-2)
+    s_patient, _ = ac_shadow_schedule(1000, ref_price=100.0, dollar_adv=1e8, cfg=patient)
+    s_urgent, _ = ac_shadow_schedule(1000, ref_price=100.0, dollar_adv=1e8, cfg=urgent)
+    assert s_patient is not None and s_urgent is not None
+    # Higher risk-aversion front-loads: the first tranche is strictly larger.
+    assert s_urgent[0] > s_patient[0]
+
+
+def test_ac_shadow_failopen_on_degenerate_inputs() -> None:
+    cfg = ExecutionPolicyConfig(ac_sessions=5)
+    assert ac_shadow_schedule(0, 100.0, 1e8, cfg) == (None, None)  # non-positive qty
+    assert ac_shadow_schedule(1000, 0.0, 1e8, cfg) == (None, None)  # bad ref price
+    assert ac_shadow_schedule(1000, float("nan"), 1e8, cfg) == (None, None)
+    assert ac_shadow_schedule(1000, 100.0, 0.0, cfg) == (None, None)  # bad ADV
+
+
+def test_ac_shadow_adds_advisory_without_changing_actuated_orders() -> None:
+    orders = [_order("THIN", 250)]
+    adv = {"THIN": 100_000.0}
+    ref = {"THIN": 100.0}
+    base = ExecutionPolicyConfig(enabled=True, max_participation=0.10)  # ac_shadow off (default)
+    shadow = ExecutionPolicyConfig(enabled=True, max_participation=0.10, ac_shadow=True)
+
+    out_base, rows_base = apply_execution_policy(
+        orders, dollar_adv=adv, reference_prices=ref, cfg=base
+    )
+    out_shadow, rows_shadow = apply_execution_policy(
+        orders, dollar_adv=adv, reference_prices=ref, cfg=shadow
+    )
+
+    # The actuated orders are byte-identical regardless of the shadow.
+    assert [(o.symbol, o.qty, o.order_type, o.limit_price) for o in out_base] == [
+        (o.symbol, o.qty, o.order_type, o.limit_price) for o in out_shadow
+    ]
+    # Default-OFF: no advisory key leaks into the plan rows.
+    assert "ac_schedule" not in rows_base[0]
+    # On: the advisory schedule appears and covers the full target — but actuation is unchanged.
+    assert rows_shadow[0]["ac_schedule"] is not None
+    assert sum(rows_shadow[0]["ac_schedule"]) == 250

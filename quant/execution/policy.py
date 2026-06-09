@@ -43,6 +43,15 @@ class ExecutionPolicyConfig:
     adv_window: int = 21
     marketable_limit_bps: float | None = None
     marketable_threshold: float = 0.05
+    # Almgren-Chriss multi-session trajectory SHADOW (advisory only). A SECOND default-OFF
+    # gate on top of `enabled`: when on, each plan row gains an `ac_schedule` (the
+    # risk-aversion-tuned optimal per-session tranche path) for comparison against the
+    # participation cap. It NEVER changes the actuated orders — pure observability.
+    ac_shadow: bool = False
+    ac_sessions: int = 5
+    ac_risk_aversion: float = 1e-6
+    ac_daily_vol_frac: float = 0.012
+    ac_impact_bps: float = 10.0
 
 
 def participation(notional: float, dollar_adv: float) -> float | None:
@@ -96,6 +105,51 @@ def marketable_limit_price(
     return round(raw, 2)
 
 
+def ac_shadow_schedule(
+    qty: int, ref_price: float, dollar_adv: float, cfg: ExecutionPolicyConfig
+) -> tuple[list[int] | None, float | None]:
+    """Advisory Almgren-Chriss optimal tranche schedule for executing ``qty`` over
+    ``cfg.ac_sessions`` daily sessions — SHADOW ONLY, never actuated.
+
+    Reuses the in-repo solver
+    (:func:`quant.intraday.execution.almgren_chriss.optimal_schedule`). Per-session price
+    vol and impact are derived from ``ref_price`` and dollar-ADV via a simple linear-impact
+    proxy (temporary impact ≈ ``cfg.ac_impact_bps`` at 1x-ADV/session; permanent impact =
+    half temporary, keeping ``eta_tilde > 0``). The absolute calibration is illustrative;
+    the value is the *shape* (front-loaded under higher risk-aversion vs near-uniform/TWAP
+    under low). Fail-open: returns ``(None, None)`` on degenerate inputs or an unsolvable
+    configuration, so the shadow never blocks or distorts anything.
+    """
+    if qty <= 0 or cfg.ac_sessions < 1:
+        return None, None
+    if not math.isfinite(ref_price) or ref_price <= 0.0:
+        return None, None
+    if not math.isfinite(dollar_adv) or dollar_adv <= 0.0:
+        return None, None
+    shares_adv = dollar_adv / ref_price
+    if not math.isfinite(shares_adv) or shares_adv <= 0.0:
+        return None, None
+    tau = 1.0  # one daily session per A-C interval
+    sigma = cfg.ac_daily_vol_frac * ref_price  # price std per session
+    eta = (cfg.ac_impact_bps / 10_000.0) * ref_price / shares_adv  # temporary impact coeff
+    gamma = 0.5 * eta  # permanent = half temporary => eta_tilde = eta - gamma*tau/2 > 0
+    try:
+        from quant.intraday.execution.almgren_chriss import optimal_schedule
+
+        plan = optimal_schedule(
+            total_shares=qty,
+            n_intervals=cfg.ac_sessions,
+            tau=tau,
+            sigma=sigma,
+            eta=eta,
+            gamma=gamma,
+            risk_aversion=cfg.ac_risk_aversion,
+        )
+    except (ValueError, ZeroDivisionError):
+        return None, None
+    return list(plan.child_sizes), plan.kappa
+
+
 def apply_execution_policy(
     orders: list[OrderTemplate],
     *,
@@ -139,20 +193,25 @@ def apply_execution_policy(
                 order_type = OrderType.LIMIT
                 limit_price = lp
 
-        rows.append(
-            {
-                "symbol": order.symbol,
-                "strategy": order.strategy_slug,
-                "side": str(order.side),
-                "original_qty": order.qty,
-                "capped_qty": capped,
-                "deferred_qty": deferred,
-                "participation": part,
-                "order_type": str(order_type),
-                "limit_price": limit_price,
-                "reason": _reason(order.qty, capped, order_type),
-            }
-        )
+        row: dict[str, Any] = {
+            "symbol": order.symbol,
+            "strategy": order.strategy_slug,
+            "side": str(order.side),
+            "original_qty": order.qty,
+            "capped_qty": capped,
+            "deferred_qty": deferred,
+            "participation": part,
+            "order_type": str(order_type),
+            "limit_price": limit_price,
+            "reason": _reason(order.qty, capped, order_type),
+        }
+        if cfg.ac_shadow:
+            # Advisory overlay only: the A-C-optimal tranche path for the FULL target over
+            # cfg.ac_sessions, to compare against today's capped_qty. Does not alter `adjusted`.
+            ac_sched, ac_kappa = ac_shadow_schedule(order.qty, ref, adv, cfg)
+            row["ac_schedule"] = ac_sched
+            row["ac_kappa"] = ac_kappa
+        rows.append(row)
 
         if capped == 0:
             continue  # fully deferred this session
