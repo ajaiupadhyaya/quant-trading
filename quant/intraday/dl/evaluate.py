@@ -39,6 +39,41 @@ def oos_metrics(y_true: NDArray[np.float64], y_pred: NDArray[np.float64]) -> dic
     return {"mse": mse, "directional_accuracy": directional_accuracy, "r2": r2}
 
 
+def strategy_metrics(
+    returns: NDArray[np.float64],
+    pred: NDArray[np.float64],
+    cost_per_turn: float = 0.0,
+) -> dict[str, float]:
+    """Economics of a sign-of-prediction long/short rule on realized RAW returns.
+
+    Each bar the position is the sign of the predicted next return (+1 long, -1 short, 0
+    flat when the prediction is exactly 0); per-bar P&L is ``position * realized return``,
+    minus ``cost_per_turn`` for every unit of position change (turnover, starting flat).
+    Sharpe is per-bar (mean/std of P&L, unannualized) — intraday-bar annualization is
+    deliberately omitted to avoid a misleading factor. On a near-random return series the
+    net Sharpe sits around zero and turns negative once costs bite — the honest result."""
+    r = np.asarray(returns, dtype=np.float64)
+    pos = np.sign(np.asarray(pred, dtype=np.float64))
+    gross = pos * r
+    prev = np.concatenate(([0.0], pos[:-1]))  # start flat (no position before the first bar)
+    turnover = np.abs(pos - prev)
+    net = gross - cost_per_turn * turnover
+
+    def _sharpe(x: NDArray[np.float64]) -> float:
+        sd = float(np.std(x))
+        return float(np.mean(x) / sd) if sd > 0.0 else 0.0
+
+    return {
+        "mean_gross": float(np.mean(gross)),
+        "mean_net": float(np.mean(net)),
+        "sharpe_gross": _sharpe(gross),
+        "sharpe_net": _sharpe(net),
+        "hit_rate": float(np.mean(gross > 0.0)),
+        "avg_turnover": float(np.mean(turnover)),
+        "cost_per_turn": float(cost_per_turn),
+    }
+
+
 def random_series(n: int, seed: int, sigma: float = 1.0) -> NDArray[np.float64]:
     """A near-martingale iid-noise return series (no learnable structure)."""
     rng = np.random.default_rng(seed)
@@ -59,9 +94,15 @@ def synthetic_signal_series(
     return r
 
 
-def evaluate_track(series: NDArray[np.float64], config: DLConfig) -> dict[str, Any]:
+def evaluate_track(
+    series: NDArray[np.float64], config: DLConfig, cost_per_turn: float = 0.0
+) -> dict[str, Any]:
     """Window -> chronological split -> train-only standardize -> compare LSTM vs linear
-    vs naive OOS. All three predict in the same standardized space (one train-X (mu, sd))."""
+    vs naive OOS. All three predict in the same standardized space (one train-X (mu, sd)).
+
+    Each model entry carries both statistical metrics (mse/dir-acc/r2, in standardized
+    space) and the economics of a sign-of-prediction rule (Sharpe/PnL on the RAW realized
+    returns, from de-standardized predictions); ``cost_per_turn`` charges turnover."""
     x, y = make_windows(series, config.window)
     x_tr, y_tr, x_te, y_te = train_test_split(x, y, config.train_frac)
     x_tr_z, x_te_z, mu, sd = standardize(x_tr, x_te)
@@ -73,9 +114,16 @@ def evaluate_track(series: NDArray[np.float64], config: DLConfig) -> dict[str, A
     out = train_model(x_tr_z, y_tr_z, config)
     lstm_hat = predict(out.model, x_te_z)
 
+    def _scored(hat_z: NDArray[np.float64]) -> dict[str, float]:
+        # Statistical metrics in standardized space; economics on raw returns (y_te) using
+        # the sign of the de-standardized prediction (hat_z * sd + mu).
+        stats = oos_metrics(y_te_z, hat_z)
+        econ = strategy_metrics(y_te, hat_z * sd + mu, cost_per_turn)
+        return {**stats, **econ}
+
     return {
-        "naive": oos_metrics(y_te_z, naive_hat),
-        "linear": oos_metrics(y_te_z, linear_hat),
-        "lstm": oos_metrics(y_te_z, lstm_hat),
+        "naive": _scored(naive_hat),
+        "linear": _scored(linear_hat),
+        "lstm": _scored(lstm_hat),
         "loss_curve": out.loss_curve,
     }

@@ -416,9 +416,16 @@ def dl_train(n: int, window: int, epochs: int, seed: int) -> None:
 @click.option("--window", type=int, default=12)
 @click.option("--epochs", type=int, default=40)
 @click.option("--seed", type=int, default=7)
-def dl_evaluate(n: int, window: int, epochs: int, seed: int) -> None:
+@click.option(
+    "--cost",
+    type=float,
+    default=0.0,
+    help="per-unit-turnover cost charged to the sign-of-prediction rule",
+)
+def dl_evaluate(n: int, window: int, epochs: int, seed: int, cost: float) -> None:
     """Dual-track OOS comparison: LSTM vs linear vs naive on a synthetic-signal series
-    (LSTM should win) and a near-random series (LSTM should NOT win — the honest result)."""
+    (LSTM should win) and a near-random series (LSTM should NOT win — the honest result).
+    Reports statistical metrics plus the economics of a sign-of-prediction rule."""
     from quant.intraday.dl.config import DLConfig
     from quant.intraday.dl.evaluate import (
         evaluate_track,
@@ -431,17 +438,23 @@ def dl_evaluate(n: int, window: int, epochs: int, seed: int) -> None:
         "synthetic-signal": synthetic_signal_series(n=n, seed=seed),
         "random": random_series(n=n, seed=seed),
     }
-    click.echo(f"DL alpha OOS evaluation (window {window}, {epochs} epochs, seed {seed}):")
+    click.echo(
+        f"DL alpha OOS evaluation (window {window}, {epochs} epochs, seed {seed}, "
+        f"cost/turn {cost:g}):"
+    )
     for name, series in tracks.items():
-        res = evaluate_track(series, cfg)
-        click.echo(f"\n  [{name}] OOS  (mse / directional-accuracy / r2):")
+        res = evaluate_track(series, cfg, cost_per_turn=cost)
+        click.echo(f"\n  [{name}] OOS  (mse / dir-acc / r2  |  sharpe-net / hit / turnover):")
         for model_name in ("lstm", "linear", "naive"):
             m = res[model_name]
             click.echo(
                 f"    {model_name:<7} mse {m['mse']:.5f}   "
-                f"dir-acc {m['directional_accuracy']:.3f}   r2 {m['r2']:.4f}"
+                f"dir-acc {m['directional_accuracy']:.3f}   r2 {m['r2']:.4f}   |   "
+                f"sharpe-net {m['sharpe_net']:+.3f}   hit {m['hit_rate']:.3f}   "
+                f"turn {m['avg_turnover']:.3f}"
             )
     click.echo(
         "\nnote: intraday returns are near-unforecastable (EMH); DL does not beat simple "
-        "baselines OOS on the random track — the value here is the technique + honest evaluation."
+        "baselines OOS on the random track — sharpe-net there sits near zero (negative once "
+        "costs bite). The value here is the technique + honest evaluation."
     )

@@ -40,3 +40,13 @@ def test_random_track_lstm_has_no_edge_over_linear():
     # that its directional accuracy is near chance (no exploitable sign skill).
     assert res["lstm"]["mse"] >= res["linear"]["mse"] * 0.95
     assert abs(res["lstm"]["directional_accuracy"] - 0.5) < 0.1
+
+
+def test_random_track_has_no_economic_edge():
+    series = random_series(n=3000, seed=7)
+    res = evaluate_track(series, _CFG, cost_per_turn=0.02)
+    # Honest economics on iid-noise returns: the sign-of-prediction rule shows no real
+    # edge (per-bar gross Sharpe is within noise of zero across ~880 test bars), and
+    # charging turnover costs only makes the net worse — it never conjures a profit.
+    assert abs(res["lstm"]["sharpe_gross"]) < 0.2
+    assert res["lstm"]["mean_net"] < res["lstm"]["mean_gross"]
