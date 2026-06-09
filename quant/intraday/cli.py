@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -422,31 +423,32 @@ def dl_train(n: int, window: int, epochs: int, seed: int) -> None:
     default=0.0,
     help="per-unit-turnover cost charged to the sign-of-prediction rule",
 )
-def dl_evaluate(n: int, window: int, epochs: int, seed: int, cost: float) -> None:
+@click.option(
+    "--out",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="write the full dual-track evaluation record to this JSON path",
+)
+def dl_evaluate(
+    n: int, window: int, epochs: int, seed: int, cost: float, out: Path | None
+) -> None:
     """Dual-track OOS comparison: LSTM vs linear vs naive on a synthetic-signal series
     (LSTM should win) and a near-random series (LSTM should NOT win — the honest result).
-    Reports statistical metrics plus the economics of a sign-of-prediction rule."""
+    Reports statistical metrics plus the economics of a sign-of-prediction rule, and can
+    persist the full record as a reproducible JSON artifact via --out."""
     from quant.intraday.dl.config import DLConfig
-    from quant.intraday.dl.evaluate import (
-        evaluate_track,
-        random_series,
-        synthetic_signal_series,
-    )
+    from quant.intraday.dl.evaluate import build_evaluation
 
     cfg = DLConfig(window=window, epochs=epochs, seed=seed)
-    tracks = {
-        "synthetic-signal": synthetic_signal_series(n=n, seed=seed),
-        "random": random_series(n=n, seed=seed),
-    }
+    record = build_evaluation(cfg, n=n, seed=seed, cost_per_turn=cost)
     click.echo(
         f"DL alpha OOS evaluation (window {window}, {epochs} epochs, seed {seed}, "
         f"cost/turn {cost:g}):"
     )
-    for name, series in tracks.items():
-        res = evaluate_track(series, cfg, cost_per_turn=cost)
+    for name, track in record["tracks"].items():
         click.echo(f"\n  [{name}] OOS  (mse / dir-acc / r2  |  sharpe-net / hit / turnover):")
         for model_name in ("lstm", "linear", "naive"):
-            m = res[model_name]
+            m = track["models"][model_name]
             click.echo(
                 f"    {model_name:<7} mse {m['mse']:.5f}   "
                 f"dir-acc {m['directional_accuracy']:.3f}   r2 {m['r2']:.4f}   |   "
@@ -458,3 +460,6 @@ def dl_evaluate(n: int, window: int, epochs: int, seed: int, cost: float) -> Non
         "baselines OOS on the random track — sharpe-net there sits near zero (negative once "
         "costs bite). The value here is the technique + honest evaluation."
     )
+    if out is not None:
+        out.write_text(json.dumps(record, indent=2))
+        click.echo(f"\nwrote evaluation record -> {out}")

@@ -4,6 +4,7 @@ inside predict() only; the metrics + generators are pure numpy."""
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 import numpy as np
@@ -126,4 +127,35 @@ def evaluate_track(
         "linear": _scored(linear_hat),
         "lstm": _scored(lstm_hat),
         "loss_curve": out.loss_curve,
+    }
+
+
+DL_EVAL_SCHEMA_VERSION = 1
+
+
+def build_evaluation(
+    config: DLConfig, n: int, seed: int, cost_per_turn: float = 0.0
+) -> dict[str, Any]:
+    """Run both tracks (synthetic-signal + random) and assemble a JSON-serializable record:
+    config, per-track per-model statistical + economic metrics, and loss curves. Deterministic
+    and timestamp-free, so two runs with identical arguments produce byte-identical output —
+    a durable, diffable artifact that lets the honest no-edge claim be regression-checked."""
+    series_by_track = {
+        "synthetic-signal": synthetic_signal_series(n=n, seed=seed),
+        "random": random_series(n=n, seed=seed),
+    }
+    tracks: dict[str, Any] = {}
+    for name, series in series_by_track.items():
+        res = evaluate_track(series, config, cost_per_turn=cost_per_turn)
+        tracks[name] = {
+            "models": {m: res[m] for m in ("lstm", "linear", "naive")},
+            "loss_curve": [float(x) for x in res["loss_curve"]],
+        }
+    return {
+        "schema_version": DL_EVAL_SCHEMA_VERSION,
+        "config": asdict(config),
+        "n": int(n),
+        "seed": int(seed),
+        "cost_per_turn": float(cost_per_turn),
+        "tracks": tracks,
     }
