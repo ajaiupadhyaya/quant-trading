@@ -25,6 +25,18 @@ def test_synthetic_track_lstm_beats_naive():
 def test_random_track_lstm_not_catastrophic():
     series = random_series(n=3000, seed=7)
     res = evaluate_track(series, _CFG)
-    # Honest no-edge: on near-random returns the LSTM does NOT beat the baselines, but it
-    # must not be catastrophically worse than the naive baseline (within a tolerance band).
+    # Sanity bound: the LSTM is not catastrophically worse than naive persistence.
     assert res["lstm"]["mse"] <= res["naive"]["mse"] * 1.5
+
+
+def test_random_track_lstm_has_no_edge_over_linear():
+    series = random_series(n=3000, seed=7)
+    res = evaluate_track(series, _CFG)
+    # The HONEST no-edge claim. On iid-noise returns, naive persistence is a *bad*
+    # baseline (it predicts a lagged independent draw, MSE ~ 2*sigma^2), so beating naive
+    # is trivial and proves nothing. The informative comparison is LSTM vs the linear
+    # baseline: with no learnable structure the LSTM must NOT meaningfully beat OLS. We
+    # assert the LSTM does not undercut linear's MSE by more than 5% (no real edge), and
+    # that its directional accuracy is near chance (no exploitable sign skill).
+    assert res["lstm"]["mse"] >= res["linear"]["mse"] * 0.95
+    assert abs(res["lstm"]["directional_accuracy"] - 0.5) < 0.1

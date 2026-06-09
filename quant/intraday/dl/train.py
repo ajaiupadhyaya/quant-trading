@@ -27,6 +27,9 @@ def train_model(
     from torch import nn
 
     torch.manual_seed(config.seed)
+    # NOTE: this sets a process-global flag and does not restore it. Safe here because the
+    # DL subpackage is the repo's only torch consumer; revisit (save/restore) if torch is
+    # used elsewhere. CPU LSTM ops are deterministic under this setting.
     torch.use_deterministic_algorithms(True)
 
     from quant.intraday.dl.model import build_model
