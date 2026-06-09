@@ -69,9 +69,11 @@ time remaining `τ = T − t`:
 - **Fill intensity:** `λ(δ) = A·exp(−k·δ)`; fill probability over `dt` is
   `p = 1 − exp(−λ·dt)`, clamped to [0,1].
 
-**Test anchors:** `∂δ/∂γ > 0`, `∂δ/∂σ > 0`, `∂δ/∂τ > 0`; reservation skew sign tracks
-inventory; as `τ → 0` the inventory term vanishes (terminal liquidation pressure earlier in the
-path drives inventory toward 0).
+**Test anchors:** `∂δ/∂σ > 0`, `∂δ/∂τ > 0` (spread widens with vol and horizon). NOTE: the
+spread is **NOT** monotonic in γ — the `(2/γ)ln(1+γ/k)` term *decreases* with γ and can dominate
+`γσ²τ` at small γ, so δ can fall as γ rises. The inventory-control behavior instead comes from
+the **reservation-price skew** `q·γ·σ²·τ`, which IS linear in γ (higher γ ⇒ stronger pull back
+toward flat). Reservation skew sign tracks inventory; as `τ → 0` the inventory term vanishes.
 
 ---
 
@@ -126,8 +128,8 @@ run without live data; `--real` (optional) may replay a real intraday mid from t
 
 ## 7. Success criteria
 
-- The quoting math reproduces the A-S properties (spread monotone ↑ in γ/σ/τ; reservation skew
-  sign tracks inventory; quotes symmetric about r).
+- The quoting math reproduces the A-S properties (spread monotone ↑ in σ and τ — NOT
+  necessarily in γ, see §3; reservation skew sign tracks inventory; quotes symmetric about r).
 - The intensity model returns valid probabilities (∈[0,1]; closer ⇒ higher; δ→∞ ⇒ 0).
 - The simulator is deterministic (same seed ⇒ identical result) and conserves P&L
   (cash + inventory·mid).

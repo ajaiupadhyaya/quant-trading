@@ -42,7 +42,7 @@ def test_defaults():
     c = MMConfig()
     assert c.gamma > 0
     assert c.k > 0
-    assert c.fill_rate_A > 0
+    assert c.fill_rate_a > 0
     assert c.horizon_seconds > 0
     assert c.dt_seconds > 0
     assert c.sigma > 0
@@ -89,7 +89,7 @@ from dataclasses import dataclass
 class MMConfig:
     gamma: float = 0.1          # inventory risk aversion
     k: float = 1.5              # order-book depth / intensity decay
-    fill_rate_A: float = 140.0  # base fill intensity at the touch (per unit time)
+    fill_rate_a: float = 140.0  # base fill intensity at the touch (per unit time)
     horizon_seconds: float = 600.0  # T (one 10-min episode)
     dt_seconds: float = 1.0     # simulation step
     sigma: float = 0.02         # ABSOLUTE vol, price units per sqrt(second)
@@ -97,7 +97,7 @@ class MMConfig:
     seed: int = 7
 
     def __post_init__(self) -> None:
-        for name in ("gamma", "k", "fill_rate_A", "horizon_seconds", "dt_seconds", "sigma"):
+        for name in ("gamma", "k", "fill_rate_a", "horizon_seconds", "dt_seconds", "sigma"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive, got {getattr(self, name)}")
         if self.lot_size < 1:
@@ -507,8 +507,8 @@ def run_market_making(prices: list[float], config: MMConfig) -> MMResult:
     for i, mid in enumerate(prices[:-1]):
         tau = max(0.0, T - i * dt)
         bid, ask = quotes(mid, inventory, config.gamma, config.sigma, tau, config.k)
-        p_bid = fill_probability(delta=mid - bid, A=config.fill_rate_A, k=config.k, dt=dt)
-        p_ask = fill_probability(delta=ask - mid, A=config.fill_rate_A, k=config.k, dt=dt)
+        p_bid = fill_probability(delta=mid - bid, a=config.fill_rate_a, k=config.k, dt=dt)
+        p_ask = fill_probability(delta=ask - mid, a=config.fill_rate_a, k=config.k, dt=dt)
         if draws_fill(p_bid, rng):           # we BUY at our bid
             inventory += lot
             cash -= bid * lot
