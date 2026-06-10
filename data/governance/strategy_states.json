@@ -2,7 +2,7 @@
   "strategies": {
     "defensive-etf-allocation": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-06-03T00:00:00",
+      "evaluated_at": "2026-06-10T00:00:00",
       "evidence_schema_version": 2,
       "manual_block": false,
       "reason": "Fresh validation evidence passes all required gates.",
@@ -12,11 +12,11 @@
       "shielded": false,
       "slug": "defensive-etf-allocation",
       "state": "live",
-      "validation_age_days": 0
+      "validation_age_days": 4
     },
     "momentum": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-06-03T00:00:00",
+      "evaluated_at": "2026-06-10T00:00:00",
       "evidence_schema_version": 1,
       "manual_block": false,
       "reason": "Required gate failed: bootstrap_lower.",
@@ -28,11 +28,11 @@
       "shielded": false,
       "slug": "momentum",
       "state": "quarantined",
-      "validation_age_days": 8
+      "validation_age_days": 15
     },
     "multi-factor": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-06-03T00:00:00",
+      "evaluated_at": "2026-06-10T00:00:00",
       "evidence_schema_version": 1,
       "manual_block": false,
       "reason": "Required gate failed: deflated_sharpe. Required gate failed: probabilistic_sharpe. Required gate failed: bootstrap_lower. Required gate failed: regime.",
@@ -47,11 +47,11 @@
       "shielded": false,
       "slug": "multi-factor",
       "state": "quarantined",
-      "validation_age_days": 7
+      "validation_age_days": 14
     },
     "pairs": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-06-03T00:00:00",
+      "evaluated_at": "2026-06-10T00:00:00",
       "evidence_schema_version": 1,
       "manual_block": false,
       "reason": "Required gate failed: deflated_sharpe. Required gate failed: probabilistic_sharpe. Required gate failed: bootstrap_lower. Required gate failed: regime.",
@@ -66,11 +66,11 @@
       "shielded": false,
       "slug": "pairs",
       "state": "quarantined",
-      "validation_age_days": 7
+      "validation_age_days": 14
     },
     "risk-parity": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-06-03T00:00:00",
+      "evaluated_at": "2026-06-10T00:00:00",
       "evidence_schema_version": 1,
       "manual_block": false,
       "reason": "Required gate failed: deflated_sharpe. Required gate failed: probabilistic_sharpe. Required gate failed: bootstrap_lower.",
@@ -84,23 +84,21 @@
       "shielded": false,
       "slug": "risk-parity",
       "state": "quarantined",
-      "validation_age_days": 7
+      "validation_age_days": 14
     },
     "trend": {
       "code_enabled_live": true,
-      "evaluated_at": "2026-06-03T00:00:00",
-      "evidence_schema_version": 1,
+      "evaluated_at": "2026-06-10T00:00:00",
+      "evidence_schema_version": 2,
       "manual_block": false,
-      "reason": "Required gate failed: bootstrap_lower.",
-      "reason_codes": [
-        "failed_gate_bootstrap_lower"
-      ],
+      "reason": "Fresh validation evidence passes all required gates.",
+      "reason_codes": [],
       "shield_consecutive": 0,
       "shield_first_at": null,
       "shielded": false,
       "slug": "trend",
-      "state": "quarantined",
-      "validation_age_days": 8
+      "state": "live",
+      "validation_age_days": 0
     }
   },
   "version": 1
