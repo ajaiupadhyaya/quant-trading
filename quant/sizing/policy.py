@@ -21,18 +21,28 @@ def compute_gross(
     returns_history: np.ndarray,
     regime_label: str | None,
     config: SizingConfig,
+    *,
+    vol_override: float | None = None,
 ) -> SizingDecision:
     """Build the day's gross scalar from trailing returns + yesterday's regime label.
 
     ``returns_history`` must contain only returns strictly before the day being
     sized (PIT). Each component no-ops to its neutral value (1.0) when its
     toggle is off or there is too little history.
+
+    ``vol_override`` (annualised) replaces the trailing realized-vol estimate in
+    the vol-target component when supplied and finite — this is how the forecast
+    vol-source feeds in (precomputed PIT, see ``apply_sizing``). ``None`` keeps the
+    incumbent trailing behaviour byte-identical.
     """
     arr = np.asarray(returns_history, dtype=float)
 
     if config.use_vol_target:
-        tail = arr[-config.vol_lookback_days :]
-        realized = annualize_vol(pd.Series(tail), trading_days=_TRADING_DAYS)
+        if vol_override is not None and np.isfinite(vol_override) and vol_override > 0.0:
+            realized = float(vol_override)
+        else:
+            tail = arr[-config.vol_lookback_days :]
+            realized = annualize_vol(pd.Series(tail), trading_days=_TRADING_DAYS)
         vol_scale = vol_target_scale(realized, config.target_vol, config.max_leverage)
     else:
         vol_scale = 1.0
