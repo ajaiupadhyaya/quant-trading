@@ -74,8 +74,5 @@ class ExecutionEnv:
             inventory_after = 0
 
         self._inventory = inventory_after
-        self._price = (
-            self._price
-            + cfg.sigma * math.sqrt(cfg.dt) * self._rng.gauss(0.0, 1.0)
-        )
+        self._price = self._price + cfg.sigma * math.sqrt(cfg.dt) * self._rng.gauss(0.0, 1.0)
         return (self._steps_remaining, inventory_after), -cost, done

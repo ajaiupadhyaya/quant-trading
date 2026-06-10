@@ -5,7 +5,7 @@ from quant.intraday.marketmaking.price_path import abm_path
 
 def test_length_and_start():
     path = abm_path(s0=100.0, sigma=0.02, dt=1.0, n_steps=50, rng=random.Random(1))
-    assert len(path) == 51          # s_0 .. s_n
+    assert len(path) == 51  # s_0 .. s_n
     assert path[0] == 100.0
 
 

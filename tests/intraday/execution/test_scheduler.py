@@ -5,8 +5,9 @@ from quant.intraday.strategy import Side
 
 
 def _prog():
-    return ExecutionProgram(symbol="QQQ", side=Side.BUY, total_qty=100,
-                            child_sizes=[40, 30, 30], start_tick=5)
+    return ExecutionProgram(
+        symbol="QQQ", side=Side.BUY, total_qty=100, child_sizes=[40, 30, 30], start_tick=5
+    )
 
 
 def test_slice_due_follows_schedule_by_tick_offset():
@@ -41,5 +42,6 @@ def test_cancel_marks_complete_and_zeros_due():
 
 def test_child_sizes_must_sum_to_total():
     with pytest.raises(ValueError):
-        ExecutionProgram(symbol="QQQ", side=Side.BUY, total_qty=100,
-                         child_sizes=[40, 30], start_tick=0)
+        ExecutionProgram(
+            symbol="QQQ", side=Side.BUY, total_qty=100, child_sizes=[40, 30], start_tick=0
+        )

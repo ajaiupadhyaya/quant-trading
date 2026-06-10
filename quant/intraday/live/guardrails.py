@@ -9,8 +9,12 @@ from quant.intraday.live.config import SleeveConfig
 
 
 def clamp_qty_to_caps(
-    *, desired_qty: int, price: float, gross_notional: float,
-    sleeve_allocation: float, config: SleeveConfig,
+    *,
+    desired_qty: int,
+    price: float,
+    gross_notional: float,
+    sleeve_allocation: float,
+    config: SleeveConfig,
 ) -> int:
     """Clamp |desired_qty| to BOTH the per-trade cap and the remaining sleeve room.
     Returns a non-negative share count (sign handled by the caller)."""

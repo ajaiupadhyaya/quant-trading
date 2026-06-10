@@ -31,9 +31,7 @@ class LiveQuoteFeed:
         from quant.util.config import Settings
 
         s = settings or Settings()  # type: ignore[call-arg]
-        client = StockHistoricalDataClient(
-            api_key=s.alpaca_api_key, secret_key=s.alpaca_secret_key
-        )
+        client = StockHistoricalDataClient(api_key=s.alpaca_api_key, secret_key=s.alpaca_secret_key)
         return cls(symbols=symbols, data_client=client)
 
     def latest_quotes(self, now: datetime | None = None) -> list[QuoteBar]:

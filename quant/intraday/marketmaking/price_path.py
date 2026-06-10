@@ -7,7 +7,9 @@ import math
 import random
 
 
-def abm_path(*, s0: float, sigma: float, dt: float, n_steps: int, rng: random.Random) -> list[float]:
+def abm_path(
+    *, s0: float, sigma: float, dt: float, n_steps: int, rng: random.Random
+) -> list[float]:
     """Return [s_0, s_1, ..., s_n] under arithmetic Brownian motion."""
     step_sd = sigma * math.sqrt(dt)
     path = [s0]

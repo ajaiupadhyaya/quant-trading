@@ -304,9 +304,7 @@ def _write_allocation_compare_artifact(
             returns_by_slug=returns_by_slug,
         )
 
-    live_slugs = sorted(
-        slug for slug, st in states.items() if st.state is GovernanceState.LIVE
-    )
+    live_slugs = sorted(slug for slug, st in states.items() if st.state is GovernanceState.LIVE)
     risk: dict[str, dict[str, float | None]] = {}
     for slug in live_slugs:
         r = returns_by_slug.get(slug)
@@ -775,6 +773,7 @@ def run_rebalance(
     # entire live batch (fail-closed), while a dry-run records it without blocking.
     # Mandatory hard gate before the live cutover.
     from quant.risk.pretrade import build_pretrade_report
+
     pretrade = build_pretrade_report(
         equity=account.equity, orders=netted, reference_prices=combined_reference_prices
     )

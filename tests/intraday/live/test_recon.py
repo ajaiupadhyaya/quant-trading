@@ -6,20 +6,32 @@ from quant.intraday.live.recon import position_mismatches, summarize_day
 
 
 class _Pos:
-    def __init__(self, symbol, qty): self.symbol, self.qty = symbol, qty
+    def __init__(self, symbol, qty):
+        self.symbol, self.qty = symbol, qty
 
 
 class _Broker:
-    def __init__(self, positions): self._p = positions
-    def positions(self): return self._p
+    def __init__(self, positions):
+        self._p = positions
+
+    def positions(self):
+        return self._p
 
 
 def test_summarize_day_aggregates_journal(tmp_path):
     for i in range(3):
-        append_tick(tmp_path, TickRecord(
-            ts=datetime(2026, 6, 8, 15, i, tzinfo=UTC), sleeve_value=0.0,
-            day_pnl=float(i * 10), round_trips=i, n_orders=1,
-            halted=(i == 2), note="x"))
+        append_tick(
+            tmp_path,
+            TickRecord(
+                ts=datetime(2026, 6, 8, 15, i, tzinfo=UTC),
+                sleeve_value=0.0,
+                day_pnl=float(i * 10),
+                round_trips=i,
+                n_orders=1,
+                halted=(i == 2),
+                note="x",
+            ),
+        )
     s = summarize_day(tmp_path)
     assert s["n_ticks"] == 3
     assert s["last_day_pnl"] == 20.0

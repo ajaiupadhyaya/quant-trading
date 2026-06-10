@@ -30,6 +30,7 @@ from quant.intraday.live.strategy import MeanReversionStrategy
 # Fake collaborators
 # ---------------------------------------------------------------------------
 
+
 class _Broker:
     """Records (symbol, side, qty) for every submitted order."""
 
@@ -39,6 +40,7 @@ class _Broker:
     def account(self) -> object:
         class _A:
             equity: float = 100_000.0
+
         return _A()
 
     def positions(self) -> list[object]:
@@ -84,6 +86,7 @@ class _Feed:
 # Helper to build TickDeps
 # ---------------------------------------------------------------------------
 
+
 def _make_deps(
     tmp_path: Path,
     broker: _Broker,
@@ -111,6 +114,7 @@ def _make_deps(
 # ---------------------------------------------------------------------------
 # Test 1: per-trade cap is respected, and flat-by-close empties positions
 # ---------------------------------------------------------------------------
+
 
 def test_caps_respected_and_flat_by_close(tmp_path: Path) -> None:
     """Drive a scripted price path through the REAL MeanReversionStrategy.
@@ -184,9 +188,7 @@ def test_caps_respected_and_flat_by_close(tmp_path: Path) -> None:
         return flat_price
 
     flat_feed = _Feed(_flat_price_fn)
-    flat_deps = _make_deps(
-        tmp_path, broker, flat_feed, strat, ledger, cfg, flat_now, session_close
-    )
+    flat_deps = _make_deps(tmp_path, broker, flat_feed, strat, ledger, cfg, flat_now, session_close)
     run_tick(flat_deps)
 
     # (c) All positions must be closed after flat-by-close.
@@ -198,6 +200,7 @@ def test_caps_respected_and_flat_by_close(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Test 2: daily-loss halt fires and freezes subsequent trading
 # ---------------------------------------------------------------------------
+
 
 def test_loss_halt_stops_subsequent_trading(tmp_path: Path) -> None:
     """Seed a long position then mark it down so day_pnl breaches the loss threshold.
@@ -215,7 +218,7 @@ def test_loss_halt_stops_subsequent_trading(tmp_path: Path) -> None:
     """
     cfg = SleeveConfig(
         mean_reversion_lookback=5,
-        daily_loss_halt_pct=0.01,        # 1% of sleeve_allocation = $100 threshold
+        daily_loss_halt_pct=0.01,  # 1% of sleeve_allocation = $100 threshold
         notional_cap_pct=0.10,
         notional_cap_abs=10_000.0,
         per_trade_cap=2_000.0,
@@ -242,9 +245,7 @@ def test_loss_halt_stops_subsequent_trading(tmp_path: Path) -> None:
         return crash_price
 
     crash_feed = _Feed(_crash_price_fn)
-    deps = _make_deps(
-        tmp_path, broker, crash_feed, strat, ledger, cfg, tick_now, session_close
-    )
+    deps = _make_deps(tmp_path, broker, crash_feed, strat, ledger, cfg, tick_now, session_close)
     run_tick(deps)
 
     # (d) Sleeve halt must be active.
@@ -261,8 +262,14 @@ def test_loss_halt_stops_subsequent_trading(tmp_path: Path) -> None:
     #     any order is submitted, so order count must not grow.
     strat2 = MeanReversionStrategy(cfg, unit_shares=10)
     subsequent_deps = _make_deps(
-        tmp_path, broker, crash_feed, strat2, ledger, cfg,
-        tick_now + timedelta(minutes=1), session_close,
+        tmp_path,
+        broker,
+        crash_feed,
+        strat2,
+        ledger,
+        cfg,
+        tick_now + timedelta(minutes=1),
+        session_close,
     )
     run_tick(subsequent_deps)
 

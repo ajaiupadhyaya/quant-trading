@@ -1,6 +1,7 @@
 {
   "allocations": {
-    "defensive-etf-allocation": 1.0
+    "defensive-etf-allocation": 0.4,
+    "trend": 0.4
   },
   "version": 1
 }

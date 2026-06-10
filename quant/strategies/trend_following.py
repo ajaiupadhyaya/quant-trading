@@ -54,10 +54,17 @@ class TrendFollowing(Strategy):
         "dd_control_enabled": True,
     }
 
-    # Spec §2.4: vol target (8-12%), allow_short on/off, lookback ensemble.
+    # Declared search space: the lookback ensemble ONLY. We commit a priori to the
+    # strategy's design defaults for the other two dimensions rather than searching
+    # them, because they are not alpha choices (see
+    # docs/specs/2026-06-10-strategy-rehabilitation.md):
+    #   - allow_short=False: broad-ETF trend is conventionally long/flat; shorting
+    #     beta on secularly-drifting ETFs is a structural drag (house style — the
+    #     live blessed strategy is long-only).
+    #   - vol_target_annual=0.10: a fixed risk budget, not alpha. OOS Sharpe is
+    #     ~invariant to it; searching it only inflates the multiple-testing penalty.
+    # Keeping the grid to the genuine alpha choice keeps the DSR trial count honest.
     param_grid: ClassVar[dict[str, list[Any]]] = {
-        "vol_target_annual": [0.08, 0.10, 0.12],
-        "allow_short": [True, False],
         "lookbacks_months": [(3, 6, 12), (1, 3, 6, 12)],
     }
 

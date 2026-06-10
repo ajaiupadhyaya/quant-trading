@@ -16,7 +16,9 @@ def _state(at: datetime = _NOW, **fields: Any) -> dict[str, Any]:
 
 
 def test_no_risk_signals_is_neutral() -> None:
-    r = derisk_multiplier(_state(composite_label="risk-on", vol_regime="normal"), DeriskConfig(), now=_NOW)
+    r = derisk_multiplier(
+        _state(composite_label="risk-on", vol_regime="normal"), DeriskConfig(), now=_NOW
+    )
     assert r.multiplier == 1.0
     assert r.applied == 1.0
     assert r.reasons == []
@@ -49,7 +51,9 @@ def test_multiple_signals_stack_and_clamp_to_floor() -> None:
         intraday_spy_ret=-0.03,
     )
     # opt the (default-off) regime signal back in so all six stack
-    r = derisk_multiplier(state, DeriskConfig(actuate=True, floor=0.5, w_regime_crisis=0.20), now=_NOW)
+    r = derisk_multiplier(
+        state, DeriskConfig(actuate=True, floor=0.5, w_regime_crisis=0.20), now=_NOW
+    )
     # reduction 0.25+0.20+0.15+0.15+0.15+0.15 = 1.05 -> clamp to floor 0.5
     assert r.multiplier == 0.5
     assert r.applied == 0.5
@@ -60,7 +64,9 @@ def test_regime_signal_is_disabled_by_default() -> None:
     # The HMM regime is unvalidated/miscalibrated, so its default weight is 0: a "crisis"
     # label de-risks nothing until the model earns it.
     r = derisk_multiplier(
-        _state(composite_label="risk-on", regime_label="crisis"), DeriskConfig(actuate=True), now=_NOW
+        _state(composite_label="risk-on", regime_label="crisis"),
+        DeriskConfig(actuate=True),
+        now=_NOW,
     )
     assert r.multiplier == 1.0
     assert not any("regime" in x for x in r.reasons)

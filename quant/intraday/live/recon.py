@@ -24,7 +24,9 @@ def summarize_day(data_dir: Path) -> dict[str, Any]:
 
 
 def position_mismatches(
-    ledger_positions: dict[str, int], broker: Any, config: SleeveConfig,
+    ledger_positions: dict[str, int],
+    broker: Any,
+    config: SleeveConfig,
 ) -> dict[str, tuple[int, int]]:
     """Return {symbol: (ledger_qty, broker_qty)} for sleeve-universe symbols whose
     ledger and broker positions disagree. Symbols outside the sleeve universe (i.e.

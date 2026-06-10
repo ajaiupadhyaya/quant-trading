@@ -11,16 +11,16 @@ from quant.data.universe import SLEEVE_UNIVERSE
 @dataclass(frozen=True)
 class SleeveConfig:
     universe: tuple[str, ...] = SLEEVE_UNIVERSE
-    notional_cap_pct: float = 0.10        # fraction of paper equity
-    notional_cap_abs: float = 10_000.0    # hard $ cap on sleeve notional
-    per_trade_cap: float = 2_000.0        # max $ notional per single order
-    max_round_trips: int = 20             # max opens per day
-    daily_loss_halt_pct: float = 0.015    # of sleeve allocation -> auto-flatten+halt
-    flat_by_close_minutes: int = 15       # flatten this many min before close
+    notional_cap_pct: float = 0.10  # fraction of paper equity
+    notional_cap_abs: float = 10_000.0  # hard $ cap on sleeve notional
+    per_trade_cap: float = 2_000.0  # max $ notional per single order
+    max_round_trips: int = 20  # max opens per day
+    daily_loss_halt_pct: float = 0.015  # of sleeve allocation -> auto-flatten+halt
+    flat_by_close_minutes: int = 15  # flatten this many min before close
     tick_seconds: int = 60
-    mean_reversion_lookback: int = 30     # ticks for the rolling mean/vol
-    entry_z: float = 2.0                  # |z| beyond this -> fade
-    exit_z: float = 0.5                   # revert inside this -> exit
+    mean_reversion_lookback: int = 30  # ticks for the rolling mean/vol
+    entry_z: float = 2.0  # |z| beyond this -> fade
+    exit_z: float = 0.5  # revert inside this -> exit
 
     def __post_init__(self) -> None:
         for name in ("notional_cap_pct", "notional_cap_abs", "per_trade_cap"):

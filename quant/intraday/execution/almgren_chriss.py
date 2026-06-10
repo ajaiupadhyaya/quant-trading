@@ -15,8 +15,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ACPlan:
-    child_sizes: list[int]      # n_1..n_N shares per interval (sum = X)
-    holdings: list[float]       # x_0..x_N remaining shares (x_0 = X, x_N = 0)
+    child_sizes: list[int]  # n_1..n_N shares per interval (sum = X)
+    holdings: list[float]  # x_0..x_N remaining shares (x_0 = X, x_N = 0)
     expected_cost: float
     variance: float
     kappa: float
@@ -53,8 +53,7 @@ def _holdings(total_shares: int, n_intervals: int, tau: float, kappa: float) -> 
         # lambda -> infinity asymptote: liquidate everything in the first interval.
         return [x_total] + [0.0] * n
     sinh_denom = math.sinh(kappa * t_horizon)
-    return [x_total * math.sinh(kappa * (t_horizon - j * tau)) / sinh_denom
-            for j in range(n + 1)]
+    return [x_total * math.sinh(kappa * (t_horizon - j * tau)) / sinh_denom for j in range(n + 1)]
 
 
 def _child_sizes(holdings: list[float]) -> list[int]:
@@ -66,27 +65,53 @@ def _child_sizes(holdings: list[float]) -> list[int]:
 
 
 def optimal_schedule(
-    *, total_shares: int, n_intervals: int, tau: float,
-    sigma: float, eta: float, gamma: float, risk_aversion: float,
+    *,
+    total_shares: int,
+    n_intervals: int,
+    tau: float,
+    sigma: float,
+    eta: float,
+    gamma: float,
+    risk_aversion: float,
 ) -> ACPlan:
     kappa = _solve_kappa(sigma, eta, gamma, tau, risk_aversion)
     holdings = _holdings(total_shares, n_intervals, tau, kappa)
     sizes = _child_sizes(holdings)
     expected_cost = 0.5 * gamma * total_shares**2 + (eta / tau) * sum(n * n for n in sizes)
     variance = sigma * sigma * tau * sum(x * x for x in holdings[1:])
-    return ACPlan(child_sizes=sizes, holdings=holdings,
-                  expected_cost=expected_cost, variance=variance, kappa=kappa)
+    return ACPlan(
+        child_sizes=sizes,
+        holdings=holdings,
+        expected_cost=expected_cost,
+        variance=variance,
+        kappa=kappa,
+    )
 
 
 def efficient_frontier(
-    *, total_shares: int, n_intervals: int, tau: float,
-    sigma: float, eta: float, gamma: float, lambdas: list[float],
+    *,
+    total_shares: int,
+    n_intervals: int,
+    tau: float,
+    sigma: float,
+    eta: float,
+    gamma: float,
+    lambdas: list[float],
 ) -> list[FrontierPoint]:
     pts: list[FrontierPoint] = []
     for lam in sorted(lambdas):
-        plan = optimal_schedule(total_shares=total_shares, n_intervals=n_intervals,
-                                tau=tau, sigma=sigma, eta=eta, gamma=gamma,
-                                risk_aversion=lam)
-        pts.append(FrontierPoint(risk_aversion=lam,
-                                 expected_cost=plan.expected_cost, variance=plan.variance))
+        plan = optimal_schedule(
+            total_shares=total_shares,
+            n_intervals=n_intervals,
+            tau=tau,
+            sigma=sigma,
+            eta=eta,
+            gamma=gamma,
+            risk_aversion=lam,
+        )
+        pts.append(
+            FrontierPoint(
+                risk_aversion=lam, expected_cost=plan.expected_cost, variance=plan.variance
+            )
+        )
     return pts

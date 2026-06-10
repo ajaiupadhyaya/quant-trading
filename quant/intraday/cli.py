@@ -429,9 +429,7 @@ def dl_train(n: int, window: int, epochs: int, seed: int) -> None:
     default=None,
     help="write the full dual-track evaluation record to this JSON path",
 )
-def dl_evaluate(
-    n: int, window: int, epochs: int, seed: int, cost: float, out: Path | None
-) -> None:
+def dl_evaluate(n: int, window: int, epochs: int, seed: int, cost: float, out: Path | None) -> None:
     """Dual-track OOS comparison: LSTM vs linear vs naive on a synthetic-signal series
     (LSTM should win) and a near-random series (LSTM should NOT win — the honest result).
     Reports statistical metrics plus the economics of a sign-of-prediction rule, and can

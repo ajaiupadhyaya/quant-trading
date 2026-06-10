@@ -20,18 +20,31 @@ class ExecutionManager:
         return prog is not None and not prog.is_complete
 
     def start_entry(
-        self, parent: Order, *, tick_index: int,
-        sigma: float, eta: float, gamma: float,
+        self,
+        parent: Order,
+        *,
+        tick_index: int,
+        sigma: float,
+        eta: float,
+        gamma: float,
     ) -> bool:
         if self.has_active(parent.symbol):
             return False
         plan = optimal_schedule(
-            total_shares=parent.qty, n_intervals=self._cfg.horizon_ticks, tau=1.0,
-            sigma=sigma, eta=eta, gamma=gamma, risk_aversion=self._cfg.risk_aversion,
+            total_shares=parent.qty,
+            n_intervals=self._cfg.horizon_ticks,
+            tau=1.0,
+            sigma=sigma,
+            eta=eta,
+            gamma=gamma,
+            risk_aversion=self._cfg.risk_aversion,
         )
         self._programs[parent.symbol] = ExecutionProgram(
-            symbol=parent.symbol, side=parent.side, total_qty=parent.qty,
-            child_sizes=plan.child_sizes, start_tick=tick_index,
+            symbol=parent.symbol,
+            side=parent.side,
+            total_qty=parent.qty,
+            child_sizes=plan.child_sizes,
+            start_tick=tick_index,
         )
         return True
 

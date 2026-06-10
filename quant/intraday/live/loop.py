@@ -40,9 +40,17 @@ from quant.intraday.strategy import IntradayStrategy, Order, Side
 class _Broker(Protocol):
     def account(self) -> Any: ...
     def positions(self) -> list[Any]: ...
-    def submit_simple_order(self, *, symbol: str, side: str, qty: int,
-                            client_order_id: str, order_type: str = "market",
-                            limit_price: float | None = None, dry_run: bool = False) -> str: ...
+    def submit_simple_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        qty: int,
+        client_order_id: str,
+        order_type: str = "market",
+        limit_price: float | None = None,
+        dry_run: bool = False,
+    ) -> str: ...
 
 
 class _Feed(Protocol):
@@ -116,20 +124,23 @@ def _flatten_all(deps: TickDeps, marks: dict[str, float]) -> int:
         side = "sell" if pos > 0 else "buy"
         coid = make_sleeve_coid(sym, deps.now, n)
         deps.broker.submit_simple_order(
-            symbol=sym, side=side, qty=abs(pos),
-            client_order_id=coid, dry_run=deps.dry_run,
+            symbol=sym,
+            side=side,
+            qty=abs(pos),
+            client_order_id=coid,
+            dry_run=deps.dry_run,
         )
         # Record the closing fill in the ledger (modelled at mid-price; fall back to
         # avg cost so P&L is ~0 for unmarked symbols rather than a total-loss artefact).
         signed = -pos  # closing is opposite sign of position
-        deps.ledger.record(Fill(symbol=sym, qty=signed, price=marks.get(sym, deps.ledger.avg_cost(sym))))
+        deps.ledger.record(
+            Fill(symbol=sym, qty=signed, price=marks.get(sym, deps.ledger.avg_cost(sym)))
+        )
         n += 1
     return n
 
 
-def _work_active_programs(
-    deps: TickDeps, marks: dict[str, float], allocation: float
-) -> int:
+def _work_active_programs(deps: TickDeps, marks: dict[str, float], allocation: float) -> int:
     """Submit due child slices for all in-flight execution programs. Returns the
     number of slices submitted (for the tick's n_orders journal count)."""
     mgr = deps.exec_manager
@@ -142,17 +153,20 @@ def _work_active_programs(
         if price is None:
             continue
         qty = clamp_qty_to_caps(
-            desired_qty=child.qty, price=price,
+            desired_qty=child.qty,
+            price=price,
             gross_notional=deps.ledger.gross_notional(marks),
-            sleeve_allocation=allocation, config=cfg,
+            sleeve_allocation=allocation,
+            config=cfg,
         )
         if qty <= 0:
             continue
         side_str = "buy" if child.side is Side.BUY else "sell"
         # offset by 1000 to avoid COID collisions with strategy-loop orders (0-indexed)
         coid = make_sleeve_coid(child.symbol, deps.now, 1000 + i)
-        deps.broker.submit_simple_order(symbol=child.symbol, side=side_str, qty=qty,
-                                        client_order_id=coid, dry_run=deps.dry_run)
+        deps.broker.submit_simple_order(
+            symbol=child.symbol, side=side_str, qty=qty, client_order_id=coid, dry_run=deps.dry_run
+        )
         signed = qty if child.side is Side.BUY else -qty
         deps.ledger.record(Fill(symbol=child.symbol, qty=signed, price=price))
         mgr.record_fill(child.symbol, qty)
@@ -247,8 +261,11 @@ def run_tick(deps: TickDeps) -> None:
                 config=ec,
             )
             deps.exec_manager.start_entry(
-                order, tick_index=deps.tick_index,
-                sigma=sigma, eta=eta, gamma=gamma,
+                order,
+                tick_index=deps.tick_index,
+                sigma=sigma,
+                eta=eta,
+                gamma=gamma,
             )
             continue  # slices worked after the strategy loop (see below)
         # An in-flight program already owns this symbol's entry. The only permitted
@@ -274,8 +291,11 @@ def run_tick(deps: TickDeps) -> None:
         side_str = "buy" if order.side is Side.BUY else "sell"
         coid = make_sleeve_coid(order.symbol, deps.now, n_orders)
         deps.broker.submit_simple_order(
-            symbol=order.symbol, side=side_str, qty=qty,
-            client_order_id=coid, dry_run=deps.dry_run,
+            symbol=order.symbol,
+            side=side_str,
+            qty=qty,
+            client_order_id=coid,
+            dry_run=deps.dry_run,
         )
         # Model the fill at quote mid for the internal ledger.
         signed_qty = qty if order.side is Side.BUY else -qty

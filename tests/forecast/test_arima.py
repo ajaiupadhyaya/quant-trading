@@ -94,7 +94,9 @@ def test_determinism_identical_inputs_identical_model() -> None:
 
 def test_walk_forward_eval_runs() -> None:
     y = _ar1(1200, seed=8, phi=0.4)
-    ev = walk_forward_arima_eval(y, config=ARIMAConfig(p=1, d=0, q=0), min_train=300, refit_every=42)
+    ev = walk_forward_arima_eval(
+        y, config=ARIMAConfig(p=1, d=0, q=0), min_train=300, refit_every=42
+    )
     assert ev.n_oos > 0
     assert ev.hit_rate is None or 0.0 <= ev.hit_rate <= 1.0
     assert len(ev.oos_strategy_returns) == ev.n_oos
@@ -102,7 +104,9 @@ def test_walk_forward_eval_runs() -> None:
 
 def test_walk_forward_detects_edge_on_strong_ar1() -> None:
     y = _ar1(1600, seed=9, phi=0.5)
-    ev = walk_forward_arima_eval(y, config=ARIMAConfig(p=1, d=0, q=0), min_train=300, refit_every=42)
+    ev = walk_forward_arima_eval(
+        y, config=ARIMAConfig(p=1, d=0, q=0), min_train=300, refit_every=42
+    )
     assert ev.mean_ic is not None and ev.mean_ic > 0.0
     assert ev.hit_rate is not None and ev.hit_rate > 0.5  # better than a coin flip
 

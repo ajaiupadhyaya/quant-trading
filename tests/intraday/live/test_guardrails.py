@@ -14,22 +14,25 @@ from quant.intraday.live.guardrails import (
 
 def test_clamp_to_per_trade_cap():
     c = SleeveConfig(per_trade_cap=2_000.0)
-    qty = clamp_qty_to_caps(desired_qty=100, price=100.0, gross_notional=0.0,
-                            sleeve_allocation=10_000.0, config=c)
+    qty = clamp_qty_to_caps(
+        desired_qty=100, price=100.0, gross_notional=0.0, sleeve_allocation=10_000.0, config=c
+    )
     assert qty == 20
 
 
 def test_clamp_to_remaining_sleeve_room():
     c = SleeveConfig(per_trade_cap=5_000.0)
-    qty = clamp_qty_to_caps(desired_qty=40, price=100.0, gross_notional=9_000.0,
-                            sleeve_allocation=10_000.0, config=c)
+    qty = clamp_qty_to_caps(
+        desired_qty=40, price=100.0, gross_notional=9_000.0, sleeve_allocation=10_000.0, config=c
+    )
     assert qty == 10
 
 
 def test_clamp_never_negative():
     c = SleeveConfig()
-    qty = clamp_qty_to_caps(desired_qty=10, price=100.0, gross_notional=10_000.0,
-                            sleeve_allocation=10_000.0, config=c)
+    qty = clamp_qty_to_caps(
+        desired_qty=10, price=100.0, gross_notional=10_000.0, sleeve_allocation=10_000.0, config=c
+    )
     assert qty == 0
 
 
@@ -62,9 +65,10 @@ def test_property_clamp_never_exceeds_caps(desired, price, gross):
     """Spec invariant: a clamped order NEVER breaches the per-trade cap nor the
     remaining sleeve room, for ANY input."""
     c = SleeveConfig()
-    qty = clamp_qty_to_caps(desired_qty=desired, price=price, gross_notional=gross,
-                            sleeve_allocation=10_000.0, config=c)
+    qty = clamp_qty_to_caps(
+        desired_qty=desired, price=price, gross_notional=gross, sleeve_allocation=10_000.0, config=c
+    )
     assert qty >= 0
-    assert qty * price <= c.per_trade_cap + price          # within one share of cap
+    assert qty * price <= c.per_trade_cap + price  # within one share of cap
     assert qty * price <= max(0.0, 10_000.0 - gross) + price
     assert qty <= desired

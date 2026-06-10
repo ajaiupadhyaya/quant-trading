@@ -239,7 +239,9 @@ def combined_book(start: str, end: str | None) -> None:
         tag = "part" if rep.binding == "participation" else "impact"
         aum = rep.capacity_aum
         unit = (
-            f"${aum / 1e9:.1f}B" if aum >= 1e9 else f"${aum / 1e6:.1f}M"
+            f"${aum / 1e9:.1f}B"
+            if aum >= 1e9
+            else f"${aum / 1e6:.1f}M"
             if aum >= 1e6
             else f"${aum / 1e3:.0f}K"
         )
@@ -679,12 +681,16 @@ def rebalance(
             why = ", ".join(d.get("reasons") or ["no engine state"])
             console.print(f"[dim]de-risk overlay: standby — {why}[/dim]")
         elif d.get("reasons"):
-            tag = "[red]APPLIED[/red]" if d.get("actuated") else "[yellow]SHADOW (not applied)[/yellow]"
-            console.print(
-                f"de-risk overlay: gross x{mult:.2f} {tag} <- {', '.join(d['reasons'])}"
+            tag = (
+                "[red]APPLIED[/red]"
+                if d.get("actuated")
+                else "[yellow]SHADOW (not applied)[/yellow]"
             )
+            console.print(f"de-risk overlay: gross x{mult:.2f} {tag} <- {', '.join(d['reasons'])}")
         else:
-            console.print(f"[green]de-risk overlay: neutral (gross x{mult:.2f}, engine risk-on)[/green]")
+            console.print(
+                f"[green]de-risk overlay: neutral (gross x{mult:.2f}, engine risk-on)[/green]"
+            )
     if report.skipped_reason:
         console.print(f"[yellow]Skipped: {report.skipped_reason}[/yellow]")
 
@@ -2955,7 +2961,9 @@ def analyst() -> None:
     "spend",
     help="Claude-spend meter: total + per-day / model / call-site cost from the ledger. Read-only.",
 )
-@click.option("--asof", default=None, help="Highlight this day's spend YYYY-MM-DD (default: today).")
+@click.option(
+    "--asof", default=None, help="Highlight this day's spend YYYY-MM-DD (default: today)."
+)
 @click.option("--days", type=int, default=14, help="Recent days to show in the by-day table.")
 def analyst_spend(asof: str | None, days: int) -> None:
     from rich.table import Table

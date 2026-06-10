@@ -9,8 +9,9 @@ def test_default_is_not_halted(tmp_path):
 
 
 def test_set_then_load_is_active(tmp_path):
-    set_sleeve_halt(tmp_path, reason="daily loss breach",
-                    created_at=datetime(2026, 6, 7, tzinfo=UTC))
+    set_sleeve_halt(
+        tmp_path, reason="daily loss breach", created_at=datetime(2026, 6, 7, tzinfo=UTC)
+    )
     st = load_sleeve_halt(tmp_path)
     assert st.active is True
     assert "daily loss" in st.reason
