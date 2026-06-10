@@ -148,4 +148,115 @@ DSR collapsed 0.64→0.119 — the 81-combo grid (3×3×3×3) × 19 windows ≈ 
 E[max] ≈ 3.3σ, a self-inflicted deflation. Grid tightening is the obvious DSR
 lever (same as trend). But the bootstrap gap (−14.8%) is far larger than trend's
 (−1.5%) — momentum will likely need BOTH grid tightening AND a genuine tail fix.
-Pre-registration of the momentum change is pending (next iteration).
+
+### Momentum — root cause (OOS 2015–2024)
+
+CAGR 4.68%, vol 11.50%, **Sharpe 0.45** (weaker than rehabbed trend's 0.69), max
+DD −21.2%. **Three momentum-crash years**: 2015 (−13.3%), 2018 (−11.1%), 2022
+(−12.6%) — the signature being the **Jan-2022 growth→value reversal** (worst
+21-day stretch −15.0% ending 2022-01-27). These are classic *momentum crashes*
+(Daniel-Moskowitz 2016; Barroso–Santa-Clara 2015): sharp factor reversals, often
+while the broad market is NOT in a bear (so the SPY-200dma/VIX overlay misses
+them). Already-present protections (per-name inverse-vol to 10% target, DM
+dd-control, regime overlay) are insufficient. Two levers:
+- **DSR** ← 1539-trial grid (same as trend).
+- **bootstrap p05 −14.8%** ← signal-driven momentum crashes (needs genuine
+  crash protection, not param noise).
+
+### Momentum — Change 1 (PRE-REGISTERED)
+
+Apply the trend principle, *more conservatively*. Momentum's 4 grid dims split:
+- **Risk-filters (non-alpha → COMMIT a priori):** `trend_filter_days=200`
+  (Faber 2007 canonical), `regime_overlay_vix_threshold=30` (round risk-gate
+  standard). These are overlays, not the momentum signal.
+- **Genuine alpha (KEEP searched):** `lookback_months ∈ {6,9,12}` (the formation
+  window IS the momentum signal — I will NOT claim to know it a priori),
+  `top_pct ∈ {0.25,0.30,0.40}` (selection breadth).
+
+New grid: 9 combos × 19 windows ≈ 171 trials (was 1539). Unlike trend, the core
+alpha search is preserved, so this is a strictly more conservative tightening.
+
+**Predictions (pre-committed):** DSR rises materially (171 vs 1539 trials, less
+dispersion) and may clear 0.30; **bootstrap p05 expected to remain FAILING** —
+the −14.8% tail is driven by the 2015/2018/2022 crashes, not the searched params.
+If so, Change 2 (a genuine, committed crash-protection feature —
+Barroso–Santa-Clara constant-volatility scaling) is pre-registered separately.
+Momentum may honestly pass, or may be a documented NULL; both are valid.
+
+### Momentum — Change 1 RESULT (2026-06-10) — ❌ HONEST NULL
+
+| Gate | v2 baseline | after Change 1 | bar |
+|------|-------------|----------------|-----|
+| DSR  | 0.119 | 0.137 (barely moved) | ❌ ≥0.30 |
+| PSR  | 0.928 | 0.851 (dropped) | ✅ |
+| bootstrap p05 | −14.8% | **−26.8% (WORSE)** | ❌ >0 |
+| regime | 2/4 ✅ | 2/4 ✅ | ✅ |
+| holdout | +11.8% ✅ | +15.4% ✅ | ✅ |
+
+**Insight:** tightening HURT because the baseline's better numbers were partly an
+artifact of filter-overfitting — the 81-combo WF had selected `trend_filter=150,
+VIX=35` (data-preferred in-sample). Committing canonical `200/30` removed that
+overfit and revealed momentum's TRUE non-overfit tail is even worse (−26.8%);
+DSR barely moved because the cleaner selection also had a lower raw Sharpe
+(PSR 0.93→0.85). The DSR philosophy working correctly: momentum's apparent
+robustness was substantially data-mined. This change is KEPT (the canonical
+filters are the honest spec; reverting to 150/35 would be gate-chasing in
+reverse).
+
+### Momentum — Change 2 (PRE-REGISTERED) + STOPPING RULE
+
+**Genuine crash protection: Barroso–Santa-Clara (2015) constant-volatility
+scaling**, the most-cited momentum-crash fix. Committed design feature (NOT a
+searched param — trial count stays 9). Scale the selected-portfolio weights by
+`min(1.0, vol_target / σ̂_portfolio)`, where `σ̂_portfolio = sqrt(wᵀΣw)·√252` uses
+the FULL covariance Σ of the picked names over a 126-day (6-month) window. The
+1.0 cap makes it **de-risk-only** — it cuts exposure when crash-time correlation
+blowups push portfolio vol above target, but never adds leverage (momentum stays
+long-only/no-leverage, the house style; I will NOT lever up just to lift DSR).
+
+Rationale: momentum's existing per-name inverse-vol scaling assumes independence;
+during crashes correlations spike, so the realized PORTFOLIO vol far exceeds the
+per-name target. B-SC scales on the actual portfolio vol, anticipating crashes.
+
+**STOPPING RULE (binding):** this is the ONE decisive crash-fix test. If momentum
+still fails any gate after Change 2, it is declared a documented honest NULL and
+stays quarantined — no further changes, no fishing for a 3rd/4th lever.
+
+**Predictions:** bootstrap tail should improve (cutting the high-vol crash
+stretches); DSR may rise modestly but the de-risk-only (no-leverage) version
+likely leaves it short of 0.30 — in which case momentum is a NULL.
+
+### Momentum — Change 2 RESULT (2026-06-10) — ❌ HONEST NULL (fails bootstrap only)
+
+| Gate | baseline | Change 1 | Change 2 | bar |
+|------|----------|----------|----------|-----|
+| DSR  | 0.119 | 0.137 | **0.303** ✅ | ≥0.30 |
+| PSR  | 0.928 | 0.851 | 0.941 ✅ | ≥0.70 |
+| bootstrap p05 | −14.8% | −26.8% | **−10.1%** ❌ | >0 |
+| regime | 2/4 ✅ | 2/4 ✅ | 2/4 ✅ | ≥50% |
+| holdout | +11.8% ✅ | +15.4% ✅ | +8.6% ✅ | >0 |
+
+OOS: CAGR 4.71%, vol 10.77%, Sharpe 0.48, max DD −21.9%. The constant-vol scaling
+worked as B-SC theory predicts — DSR crossed the bar (0.137→0.303), the crash tail
+roughly halved (−26.8%→−10.1%), helped most by taming the 2022 correlation-crash
+(−12.6%→−8.9%). But 2015 (−14.2%) and 2018 (−13.8%) remain — fast factor reversals
+that a 126-day realized-vol estimate reacts to too slowly.
+
+**VERDICT (binding stopping rule): momentum is a DOCUMENTED HONEST NULL.** It now
+fails ONLY the bootstrap gate (−10.1%), but "close" is not "passing." Stays
+quarantined; no 3rd lever, no threshold change — the one-way trap holds. The
+Change-1+2 code edits are KEPT: they are genuine, honest improvements (less
+overfit grid, canonical crash protection) that make momentum a better research
+strategy and improve its odds on any future re-validation as data accrues.
+
+## Status summary (2026-06-10)
+
+| Strategy | Verdict | Detail |
+|----------|---------|--------|
+| **trend** | ✅ REHABBED → LIVE | tightened grid; all 5 gates; blessed + traded |
+| **momentum** | ❌ honest null | grid-tighten + B-SC constant-vol; DSR now passes, bootstrap −10.1% |
+| multi-factor | (pending task #5) | v1: DSR 0.007, 4 gates fail |
+| pairs | (pending task #5) | v1: DSR 0.02, 0/4 regimes |
+| risk-parity | (pending task #5) | v1: DSR 0.08, 3 gates fail |
+
+Honesty bar held: 1 honest live promotion (trend) + 1 honest null (momentum).

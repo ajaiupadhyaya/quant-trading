@@ -73,14 +73,29 @@ class CrossSectionalMomentum(Strategy):
         "regime_overlay_enabled": True,
         "regime_overlay_spy_ma_days": 200,
         "regime_overlay_vix_threshold": 30.0,
+        # Barroso-Santa-Clara (2015) constant-volatility scaling — the canonical
+        # momentum-crash fix. The per-name inverse-vol sizing above assumes
+        # independence; during crashes correlations spike, so the realized
+        # PORTFOLIO vol (sqrt(wᵀΣw)) far exceeds the per-name target. Scale the
+        # whole book by vol_target / realized_portfolio_vol, CAPPED at 1.0 so it
+        # only ever de-risks (no leverage — momentum stays long-only, house style).
+        "constant_vol_enabled": True,
+        "constant_vol_lookback_days": 126,
+        "constant_vol_max_scale": 1.0,
     }
 
-    # Spec §2.1: lookback (6/9/12), top_pct (0.25/0.30/0.40), trend (150/200/250).
+    # Declared search space: the two GENUINE alpha/construction choices only —
+    # the momentum formation window and the selection breadth. We commit a priori
+    # to canonical values for the two RISK-FILTER dimensions rather than searching
+    # them (see docs/specs/2026-06-10-strategy-rehabilitation.md):
+    #   - trend_filter_days=200: Faber (2007) canonical 200-day trend filter — a
+    #     risk overlay, not the momentum signal.
+    #   - regime_overlay_vix_threshold=30: a round risk-gate standard, non-alpha.
+    # This keeps the DSR trial count honest (9 combos vs 81) while preserving the
+    # genuine alpha search (unlike trend, the core signal stays searched).
     param_grid: ClassVar[dict[str, list[Any]]] = {
         "lookback_months": [6, 9, 12],
         "top_pct": [0.25, 0.30, 0.40],
-        "trend_filter_days": [150, 200, 250],
-        "regime_overlay_vix_threshold": [25.0, 30.0, 35.0],
     }
 
     def __init__(
@@ -151,6 +166,9 @@ class CrossSectionalMomentum(Strategy):
         if weights.empty:
             return {}
 
+        if bool(self.params.get("constant_vol_enabled", True)):
+            weights = weights * self._constant_vol_factor(weights, loc)
+
         if bool(self.params["dd_control_enabled"]):
             weights = weights * drawdown_leverage_factor(
                 self._returns,
@@ -197,6 +215,34 @@ class CrossSectionalMomentum(Strategy):
         if gross > 1.0 and gross > 0:
             weights = weights / gross
         return weights
+
+    def _constant_vol_factor(self, weights: pd.Series, loc: int) -> float:
+        """Barroso-Santa-Clara constant-volatility scale factor in ``[0, cap]``.
+
+        Estimates the selected portfolio's realized annualized vol from the FULL
+        covariance of the picked names over ``constant_vol_lookback_days`` and
+        returns ``min(cap, vol_target / realized_vol)``. With ``cap = 1.0`` this
+        only ever de-risks: when crash-time correlations push ``sqrt(wᵀΣw)`` above
+        target it scales the book down; in calm regimes it stays at 1.0 (no
+        leverage). Falls back to 1.0 on insufficient history or degenerate cov.
+        """
+        lookback = int(self.params["constant_vol_lookback_days"])
+        cap = float(self.params["constant_vol_max_scale"])
+        picks = [str(s) for s in weights.index]
+        win = self._returns.loc[:, picks].iloc[max(loc - lookback, 0) : loc + 1]
+        win = win.dropna(how="all")
+        if len(win) < 20:
+            return 1.0
+        cov = win.cov()
+        w = weights.reindex(cov.index).fillna(0.0).to_numpy(dtype=float)
+        var_daily = float(w @ cov.to_numpy() @ w)
+        if not np.isfinite(var_daily) or var_daily <= 0.0:
+            return 1.0
+        ann_vol = float(np.sqrt(var_daily) * np.sqrt(252.0))
+        if ann_vol <= 0.0:
+            return 1.0
+        target = float(self.params["vol_target_annual"])
+        return float(min(cap, max(0.0, target / ann_vol)))
 
 
 def _load_vix_safe() -> pd.Series | None:
