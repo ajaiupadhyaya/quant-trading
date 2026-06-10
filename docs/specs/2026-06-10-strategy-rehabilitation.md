@@ -255,8 +255,55 @@ strategy and improve its odds on any future re-validation as data accrues.
 |----------|---------|--------|
 | **trend** | ✅ REHABBED → LIVE | tightened grid; all 5 gates; blessed + traded |
 | **momentum** | ❌ honest null | grid-tighten + B-SC constant-vol; DSR now passes, bootstrap −10.1% |
-| multi-factor | (pending task #5) | v1: DSR 0.007, 4 gates fail |
-| pairs | (pending task #5) | v1: DSR 0.02, 0/4 regimes |
-| risk-parity | (pending task #5) | v1: DSR 0.08, 3 gates fail |
+| multi-factor | ❌ null (degenerate) | v2 DSR ~0, regime 1/4 fail |
+| pairs | ❌ null (marginal) | v2 --quick fails bootstrap; full-grid DSR ~0.02 |
+| risk-parity | ❌ null (no edge) | v2 DSR 0.005, bootstrap −39% |
 
-Honesty bar held: 1 honest live promotion (trend) + 1 honest null (momentum).
+## Structural-3 — v2 re-baselines (2026-06-10) — ALL NULL
+
+Re-baselined under v2 (task #5). The runbook bounds full-grid multi-factor/pairs
+runtime deliberately; the 324-combo pairs full-grid (~4h) was switched to a
+`--quick` diagnostic after a reboot interrupted it.
+
+**risk-parity (full grid):** DSR **0.005**, PSR ~0, bootstrap **−39.4%**, regime
+2/4. Clean NULL — no risk-adjusted edge to recover; deflation isn't the problem,
+the signal is. HRP on 8 ETFs simply doesn't clear the bar.
+
+**multi-factor (full grid):** DSR **~0** (9.7e-09), PSR ~1.0, bootstrap +290%,
+regime **1/4 (FAIL)**, holdout +5.1%. The headline (10×'d to $1.04M, CAGR 26%,
+Sharpe 1.27) is a MIRAGE: a **+31.7% single day**, 2017 +131%, on the chosen
+config `dollar_neutral=False` — a concentrated directional blow-up (likely a
+mega-cap price glitch amplified by the un-neutralized book), not robust alpha.
+DSR ~0 because the 54-combo trial-Sharpe dispersion is enormous (some configs
+explode) → astronomical deflation benchmark. NULL + a data-quality flag on the
++31.7% day. Would need genuine fundamentals + a hardened dollar-neutral book.
+
+**pairs (--quick diagnostic):** on DEFAULT params — DSR 0.585*, PSR 0.892,
+bootstrap **−5.4%**, regime 2/4, holdout +3.9%; fails ONLY bootstrap. OOS
+Sharpe 0.40 (the weakest candidate), vol 6.2%, maxDD −12%. *The 0.585 DSR is
+the `--quick` (defaults-only, ~1 trial, no deflation) number — NOT the honest
+full-grid DSR. pairs' declared grid is 324 combos and its searched dims
+(entry/exit/stop z-scores) ARE its alpha — they can't be committed a priori like
+trend's vol-target. The honest full-grid DSR is ~0.02 (v1). So pairs fails DSR
+under any honest specification AND fails bootstrap on defaults. **Decision: NULL,
+research-only** — closer than the other two, but the z-score search legitimately
+deflates a weak signal; "closer" isn't a pass. pairs' canonical (full-grid)
+evidence is left as-is (the `--quick` run was a diagnostic, not committed as
+evidence).
+
+## FINAL TALLY (Phase 9 rehab, 2026-06-10)
+
+| Strategy | Verdict |
+|----------|---------|
+| **trend** | ✅ REHABBED → LIVE (all 5 gates; blessed + traded) |
+| momentum | ❌ honest null (DSR fixed via B-SC; bootstrap −10.1%) |
+| pairs | ❌ null (marginal; z-score search deflates a weak signal) |
+| multi-factor | ❌ null (degenerate blow-up, not alpha) |
+| risk-parity | ❌ null (no edge) |
+
+**1 honest live promotion + 4 honest nulls.** The honesty bar held throughout:
+re-baselined at production fidelity before every claim; never lowered a
+threshold; honored pre-committed stopping rules; rejected degenerate gaming;
+recorded fortunate emergent results as such. The live paper book is now a genuine
+2-strategy blend (defensive-etf 40% + trend 40%), giving the HRP/allocation
+machinery a real second name — the Phase 9 alpha gap is materially narrowed.
