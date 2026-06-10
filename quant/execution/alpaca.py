@@ -214,10 +214,10 @@ class AlpacaClient:
         self,
         *,
         symbol: str,
-        side: str,                       # "buy" | "sell"
+        side: str,  # "buy" | "sell"
         qty: int,
         client_order_id: str,
-        order_type: str = "market",      # "market" | "limit"
+        order_type: str = "market",  # "market" | "limit"
         limit_price: float | None = None,
         dry_run: bool = False,
     ) -> str:
@@ -254,7 +254,10 @@ class AlpacaClient:
         if dry_run:
             logger.info(
                 "[DRY-RUN] sleeve would submit {} {} {} (coid={})",
-                side, qty, symbol, client_order_id,
+                side,
+                qty,
+                symbol,
+                client_order_id,
             )
             return client_order_id
         self._trading.submit_order(req)

@@ -9,13 +9,13 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class Fill:
     symbol: str
-    qty: int          # signed: +buy, -sell
+    qty: int  # signed: +buy, -sell
     price: float
 
 
 @dataclass
 class _Lot:
-    qty: int = 0      # signed net position
+    qty: int = 0  # signed net position
     avg_price: float = 0.0
 
 
@@ -45,9 +45,8 @@ class SleeveLedger:
         # Same direction (or opening): blend average price.
         if old_qty == 0 or (old_qty > 0) == (fill.qty > 0):
             new_qty = old_qty + fill.qty
-            lot.avg_price = (
-                (abs(old_qty) * lot.avg_price + abs(fill.qty) * fill.price)
-                / (abs(old_qty) + abs(fill.qty))
+            lot.avg_price = (abs(old_qty) * lot.avg_price + abs(fill.qty) * fill.price) / (
+                abs(old_qty) + abs(fill.qty)
             )
             lot.qty = new_qty
             return

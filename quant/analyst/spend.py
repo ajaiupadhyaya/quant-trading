@@ -172,9 +172,7 @@ def summarize(records: list[dict[str, Any]], *, asof_date: str | None = None) ->
     }
 
 
-def over_daily_budget(
-    records: list[dict[str, Any]], *, daily_budget_usd: float, date: str
-) -> bool:
+def over_daily_budget(records: list[dict[str, Any]], *, daily_budget_usd: float, date: str) -> bool:
     """True if ``date``'s spend already meets/exceeds the soft daily budget (<=0 disables).
 
     Provided for a future opt-in budget gate; the live analyst call sites do NOT consult

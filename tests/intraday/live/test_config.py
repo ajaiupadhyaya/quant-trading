@@ -37,5 +37,5 @@ def test_rejects_entry_z_not_greater_than_exit_z():
 
 def test_sleeve_allocation_is_min_of_pct_and_abs():
     c = SleeveConfig(notional_cap_pct=0.10, notional_cap_abs=10_000.0)
-    assert c.sleeve_allocation(equity=50_000.0) == 5_000.0   # pct binds
+    assert c.sleeve_allocation(equity=50_000.0) == 5_000.0  # pct binds
     assert c.sleeve_allocation(equity=200_000.0) == 10_000.0  # abs cap binds

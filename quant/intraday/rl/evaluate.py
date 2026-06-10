@@ -43,21 +43,32 @@ def _ac_schedule(config: RLConfig) -> list[int]:
     cfg = config
     per_slice = max(1, cfg.total_shares // cfg.n_steps)
     _, eta, gamma = calibrate(
-        price=cfg.start_price, slice_shares=per_slice, adv_dollar=cfg.adv_dollar,
-        recent_returns=[0.0], config=ExecConfig(impact_coef_bps=cfg.impact_coef_bps),
+        price=cfg.start_price,
+        slice_shares=per_slice,
+        adv_dollar=cfg.adv_dollar,
+        recent_returns=[0.0],
+        config=ExecConfig(impact_coef_bps=cfg.impact_coef_bps),
     )
     plan = optimal_schedule(
-        total_shares=cfg.total_shares, n_intervals=cfg.n_steps, tau=cfg.dt,
-        sigma=cfg.sigma, eta=eta, gamma=gamma, risk_aversion=cfg.risk_aversion,
+        total_shares=cfg.total_shares,
+        n_intervals=cfg.n_steps,
+        tau=cfg.dt,
+        sigma=cfg.sigma,
+        eta=eta,
+        gamma=gamma,
+        risk_aversion=cfg.risk_aversion,
     )
     return plan.child_sizes
 
 
 def _mean_cost(schedule: list[int], config: RLConfig, n_eval_paths: int) -> float:
-    return sum(
-        cost_schedule(schedule, config, seed=config.seed + 10_000 + j)
-        for j in range(n_eval_paths)
-    ) / n_eval_paths
+    return (
+        sum(
+            cost_schedule(schedule, config, seed=config.seed + 10_000 + j)
+            for j in range(n_eval_paths)
+        )
+        / n_eval_paths
+    )
 
 
 def compare(config: RLConfig, n_eval_paths: int = 200) -> dict[str, Any]:

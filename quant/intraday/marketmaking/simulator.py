@@ -44,12 +44,12 @@ def run_market_making(prices: list[float], config: MMConfig) -> MMResult:
         bid, ask = quotes(mid, inventory, config.gamma, config.sigma, tau, config.k)
         p_bid = fill_probability(delta=mid - bid, a=config.fill_rate_a, k=config.k, dt=dt)
         p_ask = fill_probability(delta=ask - mid, a=config.fill_rate_a, k=config.k, dt=dt)
-        if draws_fill(p_bid, rng):           # we BUY at our bid
+        if draws_fill(p_bid, rng):  # we BUY at our bid
             inventory += lot
             cash -= bid * lot
             spread_captured += abs(mid - bid) * lot
             n_bid += 1
-        if draws_fill(p_ask, rng):           # we SELL at our ask
+        if draws_fill(p_ask, rng):  # we SELL at our ask
             inventory -= lot
             cash += ask * lot
             spread_captured += abs(ask - mid) * lot

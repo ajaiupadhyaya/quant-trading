@@ -38,5 +38,5 @@ def test_higher_gamma_strictly_controls_inventory():
     cfg_hi = MMConfig(gamma=2.0, horizon_seconds=800.0, dt_seconds=1.0, seed=4)
     lo = run_market_making(prices, cfg_lo)
     hi = run_market_making(prices, cfg_hi)
-    assert lo.max_abs_inventory > 0                      # low gamma actually drifts
-    assert hi.max_abs_inventory < lo.max_abs_inventory   # high gamma STRICTLY tighter
+    assert lo.max_abs_inventory > 0  # low gamma actually drifts
+    assert hi.max_abs_inventory < lo.max_abs_inventory  # high gamma STRICTLY tighter

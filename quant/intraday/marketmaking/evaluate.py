@@ -27,12 +27,14 @@ def gamma_sweep(prices: list[float], config: MMConfig, gammas: list[float]) -> l
     for g in gammas:
         cfg = dataclasses.replace(config, gamma=g)
         r = run_market_making(prices, cfg)
-        pts.append(SweepPoint(
-            gamma=g,
-            final_pnl=r.final_pnl,
-            n_fills=r.n_bid_fills + r.n_ask_fills,
-            mean_abs_inventory=r.mean_abs_inventory,
-            max_abs_inventory=r.max_abs_inventory,
-            terminal_inventory=r.terminal_inventory,
-        ))
+        pts.append(
+            SweepPoint(
+                gamma=g,
+                final_pnl=r.final_pnl,
+                n_fills=r.n_bid_fills + r.n_ask_fills,
+                mean_abs_inventory=r.mean_abs_inventory,
+                max_abs_inventory=r.max_abs_inventory,
+                terminal_inventory=r.terminal_inventory,
+            )
+        )
     return pts

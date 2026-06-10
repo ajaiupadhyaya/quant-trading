@@ -52,9 +52,7 @@ class GBMModel:
     trees: tuple[_Tree, ...] = field(default_factory=tuple)
 
 
-def _best_split(
-    x: np.ndarray, y: np.ndarray, min_samples_leaf: int
-) -> tuple[int, float] | None:
+def _best_split(x: np.ndarray, y: np.ndarray, min_samples_leaf: int) -> tuple[int, float] | None:
     """Feature + threshold minimizing child SSE, or ``None`` if no valid split.
 
     The per-feature split-gain over every candidate position is computed

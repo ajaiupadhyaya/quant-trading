@@ -132,8 +132,10 @@ def derisk_multiplier(
         reduction += cfg.w_recession
         reasons.append(f"recession={state.get('recession_risk_label')}(-{cfg.w_recession:.2f})")
     intraday = _num(state.get("intraday_spy_ret"))
-    if cfg.w_intraday_drawdown > 0.0 and intraday is not None and (
-        intraday <= cfg.intraday_drawdown_threshold
+    if (
+        cfg.w_intraday_drawdown > 0.0
+        and intraday is not None
+        and (intraday <= cfg.intraday_drawdown_threshold)
     ):
         reduction += cfg.w_intraday_drawdown
         reasons.append(f"intraday_dd={intraday:.3f}(-{cfg.w_intraday_drawdown:.2f})")

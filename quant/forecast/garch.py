@@ -154,7 +154,7 @@ def fit_garch(returns: np.ndarray, *, kind: GarchKind = "garch") -> GarchModel |
     best_nll = _neg_loglik(eps, kind, *best, var_uncond)
     for da in np.linspace(0.0, 0.30, 13):
         for db in np.linspace(0.50, 0.98, 13):
-            for dg in (np.linspace(0.0, 0.30, 7) if kind == "gjr" else (0.0,)):
+            for dg in np.linspace(0.0, 0.30, 7) if kind == "gjr" else (0.0,):
                 a, b, g = float(da), float(db), float(dg)
                 if a + b + 0.5 * g >= _MAX_PERSIST:
                     continue

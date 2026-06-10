@@ -13,8 +13,9 @@ def test_start_entry_builds_program_and_blocks_restart():
 
 def test_due_slices_emit_orders_summing_to_parent_over_horizon():
     mgr = ExecutionManager(ExecConfig(horizon_ticks=3))
-    mgr.start_entry(Order("QQQ", Side.BUY, 90, OrderType.MARKET),
-                    tick_index=0, sigma=0.02, eta=1e-4, gamma=1e-5)
+    mgr.start_entry(
+        Order("QQQ", Side.BUY, 90, OrderType.MARKET), tick_index=0, sigma=0.02, eta=1e-4, gamma=1e-5
+    )
     total = 0
     for t in range(3):
         for o in mgr.due_slices(t):
@@ -27,8 +28,13 @@ def test_due_slices_emit_orders_summing_to_parent_over_horizon():
 
 def test_cancel_removes_program():
     mgr = ExecutionManager(ExecConfig(horizon_ticks=3))
-    mgr.start_entry(Order("IWM", Side.SELL, 30, OrderType.MARKET),
-                    tick_index=0, sigma=0.02, eta=1e-4, gamma=1e-5)
+    mgr.start_entry(
+        Order("IWM", Side.SELL, 30, OrderType.MARKET),
+        tick_index=0,
+        sigma=0.02,
+        eta=1e-4,
+        gamma=1e-5,
+    )
     mgr.cancel("IWM")
     assert not mgr.has_active("IWM")
     assert mgr.due_slices(0) == []

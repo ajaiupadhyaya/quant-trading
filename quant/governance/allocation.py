@@ -62,9 +62,7 @@ def allocate_capital(
             evidence = evidence_by_slug.get(slug)
             raw[slug] = max(float(evidence.deflated_sharpe), 0.0) if evidence else 0.0
     elif config.mode in _RISK_MODES:
-        risk_raw = risk_based_raw_weights(
-            returns_by_slug or {}, list(live), config.mode, config
-        )
+        risk_raw = risk_based_raw_weights(returns_by_slug or {}, list(live), config.mode, config)
         # Fail open: any unmeasurable strategy / all-zero edge -> equal-live.
         raw = risk_raw if risk_raw is not None else {slug: 1.0 for slug in live}
     elif config.mode == "hrp":
@@ -125,9 +123,7 @@ def risk_based_raw_weights(
         if mode == "risk-parity":
             raw[slug] = 1.0 / std
         else:  # fractional-kelly
-            raw[slug] = fractional_kelly(
-                mean, std * std, config.kelly_fraction, config.kelly_cap
-            )
+            raw[slug] = fractional_kelly(mean, std * std, config.kelly_fraction, config.kelly_cap)
     if sum(raw.values()) <= 0.0:
         return None
     return raw

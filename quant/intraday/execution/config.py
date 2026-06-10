@@ -8,12 +8,12 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ExecConfig:
-    horizon_ticks: int = 5           # number of 60s ticks to work a parent over
-    risk_aversion: float = 1e-6      # Almgren-Chriss lambda (per-share-var units)
-    perm_impact_frac: float = 0.1    # gamma = perm_impact_frac * eta
-    sigma_lookback_bars: int = 60    # bars for realized-vol estimate
-    adv_window_bars: int = 20        # bars for trailing dollar-ADV
-    impact_coef_bps: float = 10.0    # sqrt-impact coefficient at 100% ADV (bps)
+    horizon_ticks: int = 5  # number of 60s ticks to work a parent over
+    risk_aversion: float = 1e-6  # Almgren-Chriss lambda (per-share-var units)
+    perm_impact_frac: float = 0.1  # gamma = perm_impact_frac * eta
+    sigma_lookback_bars: int = 60  # bars for realized-vol estimate
+    adv_window_bars: int = 20  # bars for trailing dollar-ADV
+    impact_coef_bps: float = 10.0  # sqrt-impact coefficient at 100% ADV (bps)
 
     def __post_init__(self) -> None:
         if self.horizon_ticks <= 0:

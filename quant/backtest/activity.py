@@ -141,9 +141,7 @@ def capacity_report(
     p95 = float(np.percentile(participation, 95))
     p_max = float(participation.max())
 
-    participation_capacity = (
-        mean_equity * (max_participation / p95) if p95 > 0.0 else math.inf
-    )
+    participation_capacity = mean_equity * (max_participation / p95) if p95 > 0.0 else math.inf
 
     # Impact ceiling: annualized fractional drag at current AUM, growing as sqrt(k).
     impact_cost = notional * (impact_coef_bps * np.sqrt(participation)) / 1e4

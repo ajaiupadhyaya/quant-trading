@@ -517,8 +517,7 @@ def gbm_research_verdict(
     passes_psr = psr >= _PSR_GATE
     passes = passes_dsr and passes_psr
     note = (
-        "GBM is promotion-eligible (research-only; a live tilt still needs a "
-        "separate green-light)"
+        "GBM is promotion-eligible (research-only; a live tilt still needs a separate green-light)"
         if passes
         else "GBM does not clear the DSR/PSR bar — not promotion-eligible"
     )
