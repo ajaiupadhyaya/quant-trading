@@ -77,3 +77,29 @@ live rebalance path (strategies vol-target internally). Actuating this requires 
 further explicit human greenlight + a separate wiring step (either route the
 sizing overlay into live rebalance, or wire the forecast into the strategies' own
 vol-targeting). The default stays trailing/shadow until then.
+
+## Live wiring (2026-06-10) — SHADOW, default-OFF
+
+Wired as a **portfolio-level one-way overlay** in the rebalance path (Route B —
+does NOT touch the strategies' internal sizing, so their validated evidence
+stands). Mirrors the de-risk overlay exactly.
+
+- `quant/live/voltarget.py`: `voltarget_multiplier(book_returns, cfg)` →
+  `min(cap=1.0, trailing_vol / forecast_vol)` clamped to `floor=0.5`. **De-risk
+  only** (cap 1.0 — never levers up; house style + one-way safety). `applied` =
+  factor when `actuate` else 1.0 (shadow). Fail-safe: short/degenerate history ⇒
+  1.0. `forecast_vol_ann_next` is the live one-day-ahead forecast.
+- **Book vol proxy:** the live equity curve is days-long, far too short to fit a
+  forecast — so the overlay reads the **allocation-weighted blend of the live
+  strategies' OOS curves** (`_book_returns_for_voltarget`), the honest long proxy
+  for the current book. (Switch to live history once it accrues 252 days.)
+- `rebalance.py`: computes + reports the overlay, applies `voltarget.applied` to
+  each strategy slice **alongside** de-risk (both ≤ 1.0 ⇒ compose one-way, the
+  book can only ever be de-risked). CLI `--voltarget-actuate` (default shadow).
+- Live dry-run today: forecast 12.6% > trailing 10.9% ⇒ computed **x0.87**,
+  applied **x1.0 (SHADOW)** — 8 orders unchanged (byte-identical). 6 overlay
+  unit-tests incl. fail-safe / de-risk-only / floor / shadow-gate.
+
+**Status: SHADOW bake-in.** Actuation (`--voltarget-actuate`) is the final
+explicit human greenlight after the overlay is observed across sessions — exactly
+how the de-risk overlay was rolled out.

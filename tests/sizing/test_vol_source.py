@@ -112,7 +112,11 @@ def test_apply_sizing_forecast_pit_no_lookahead() -> None:
 def test_compare_vol_source_structure_and_tracking() -> None:
     r = pd.Series(_regime_returns(), index=pd.bdate_range("2015-01-01", periods=1000))
     cfg = SizingConfig(
-        target_vol=0.15, use_kelly=False, use_drawdown=False, use_regime=False, vol_forecast_model="gjr"
+        target_vol=0.15,
+        use_kelly=False,
+        use_drawdown=False,
+        use_regime=False,
+        vol_forecast_model="gjr",
     )
     c = compare_vol_source(r, cfg)
     assert c.target_vol == 0.15
