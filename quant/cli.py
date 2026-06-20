@@ -2953,6 +2953,55 @@ def ops_alert_test() -> None:
         raise SystemExit(1)
 
 
+@ops.command(
+    "selfcheck", help="Validate the reliability surface (alerting/logs/pmset/disk/launchd)."
+)
+def ops_selfcheck() -> None:
+    import shutil
+    import subprocess as _sp
+
+    from quant.deploy.alerts import AlertConfig
+    from quant.deploy.selfcheck import (
+        check_alerting,
+        check_disk,
+        check_launchd,
+        check_log_rotation,
+        check_pmset,
+        run_checks,
+    )
+
+    settings = Settings()  # type: ignore[call-arg]
+    # The newsyslog conf lives in the REPO-ROOT deploy/ (host config), not the
+    # quant/deploy/ python package; parents[1] is the repo root.
+    repo_root = Path(__file__).resolve().parents[1]
+    conf = repo_root / "deploy" / "newsyslog" / "quant-deploy.conf"
+    conf_text = conf.read_text(encoding="utf-8") if conf.exists() else ""
+
+    def _probe(cmd: list[str]) -> str | None:
+        if shutil.which(cmd[0]) is None:
+            return None
+        try:
+            return _sp.run(cmd, capture_output=True, text=True, timeout=10).stdout
+        except Exception:
+            return None
+
+    pmset_text = _probe(["pmset", "-g"])
+    launchd_text = _probe(["launchctl", "list"])
+    free = shutil.disk_usage(settings.data_dir).free if settings.data_dir.exists() else None
+
+    results = [
+        check_alerting(AlertConfig.from_settings(settings)),
+        check_log_rotation(conf_text, ("engine", "guard", "tick")),
+        check_pmset(pmset_text),
+        check_disk(free),
+        check_launchd(launchd_text, ("com.ajaiupadhyaya.quant-tick",)),
+    ]
+    for r in results:
+        color = {"OK": "green", "FAIL": "red", "SKIP": "yellow"}[r.status]
+        console.print(f"[{color}]{r.status:<4}[/{color}] {r.name}: {r.detail}")
+    raise SystemExit(run_checks(results))
+
+
 @cli.group(help="Analyst layer — a daily Claude-written digest delivered to Slack (read-only).")
 def analyst() -> None:
     pass
