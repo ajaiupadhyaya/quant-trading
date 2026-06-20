@@ -3,7 +3,19 @@
 **Date:** 2026-06-20
 **Parent:** `docs/specs/2026-06-19-completion-roadmap.md`
 **Predecessor:** `docs/audits/2026-06-19-honesty-audit.md` (Phase 1 punch-list)
-**Status:** Draft design — for checkpoint before the implementation plan.
+**Status:** Approved (decisions resolved 2026-06-20). Split into 2a (correctness/safety) then 2b
+(observability + M4 proofs); 2a planned + built first.
+
+## Resolved decisions (2026-06-20 checkpoint)
+
+1. **Dashboard (E):** **E1 — extend the Textual TUI** (not the HTTP page). Add ops panes to
+   `quant monitor`; SSH-viewed. No new dependency.
+2. **Intraday-live plist (F):** **F1 — defer + mark experimental.** Not installed in Phase 2; adopt
+   in Phase 3 when the intraday showcase is wired live.
+3. **Scope:** **Split 2a → 2b.** **2a = correctness/safety:** C (job-timeout), B (alerting
+   hardening + self-test), A (self-check), D (structured logging). **2b = observability + M4 proofs:**
+   E1 (TUI ops panes), F1 (mark intraday experimental), G (host-verify + reboot), H (soak harness +
+   relay runbook), I (MCP creds). Checkpoint between 2a and 2b.
 
 ---
 
@@ -141,11 +153,8 @@ soak) run last via relay once the tooling exists. I is operator config, do anyti
 
 ## Open decisions for the checkpoint
 
-1. **Dashboard (E):** minimal read-only HTTP page (E2, recommended, no new dep, browser-viewable) vs.
-   extend the TUI (E1, SSH-only)?
-2. **Intraday-live plist (F):** defer/mark-experimental (F1, recommended) vs. adopt now (F2)?
-3. **Scope size:** all of A–I in one Phase 2, or split into 2a (correctness: B/C/D/A) and 2b
-   (observability + M4 proofs: E/G/H/I)? A–I is a lot; 2a first gives the biggest safety win fast.
+Resolved 2026-06-20 — see "Resolved decisions" at the top: E1 (extend TUI), F1 (defer intraday
+plist), split 2a→2b.
 
 ## Non-goals (YAGNI)
 
