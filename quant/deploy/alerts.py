@@ -51,7 +51,7 @@ class AlertConfig:
     slack_webhook_url: str | None = None
 
     @classmethod
-    def from_settings(cls, settings: _SettingsLike) -> "AlertConfig":
+    def from_settings(cls, settings: _SettingsLike) -> AlertConfig:
         """Build from any object exposing the five alert-setting attributes."""
         return cls(
             healthcheck_tick_url=settings.healthcheck_tick_url,
