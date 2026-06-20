@@ -2869,15 +2869,7 @@ def guard_run(interval: float, once: bool, dry_run: bool, max_ticks: int | None)
     )
     from quant.deploy.alerts import AlertClient, AlertConfig
 
-    _alerts = AlertClient(
-        AlertConfig(
-            healthcheck_tick_url=settings.healthcheck_tick_url,
-            healthcheck_guard_url=settings.healthcheck_guard_url,
-            pushover_app_token=settings.pushover_app_token,
-            pushover_user_key=settings.pushover_user_key,
-            slack_webhook_url=settings.slack_webhook_url,
-        )
-    )
+    _alerts = AlertClient(AlertConfig.from_settings(settings))
     # Box-recovery signal: the guard is KeepAlive, so it (re)starts on boot/crash.
     # A one-line Slack ping on start is the positive counterpart to the off-box
     # dead-man's-switch — "the box is back and the safety daemon is live."
@@ -2911,15 +2903,7 @@ def ops_tick() -> None:
     from quant.governance.halt import load_halt
 
     settings = Settings()  # type: ignore[call-arg]
-    alerts = AlertClient(
-        AlertConfig(
-            healthcheck_tick_url=settings.healthcheck_tick_url,
-            healthcheck_guard_url=settings.healthcheck_guard_url,
-            pushover_app_token=settings.pushover_app_token,
-            pushover_user_key=settings.pushover_user_key,
-            slack_webhook_url=settings.slack_webhook_url,
-        )
-    )
+    alerts = AlertClient(AlertConfig.from_settings(settings))
     manifest_path = Path(__file__).resolve().parent / "deploy" / "jobs.toml"
     disp = Dispatcher(
         data_dir=settings.data_dir,
@@ -3015,15 +2999,7 @@ def analyst_digest(asof: str | None, dry_run: bool) -> None:
     settings = Settings()  # type: ignore[call-arg]
     session_date = date.fromisoformat(asof) if asof else date.today()
 
-    alerts = AlertClient(
-        AlertConfig(
-            healthcheck_tick_url=settings.healthcheck_tick_url,
-            healthcheck_guard_url=settings.healthcheck_guard_url,
-            pushover_app_token=settings.pushover_app_token,
-            pushover_user_key=settings.pushover_user_key,
-            slack_webhook_url=settings.slack_webhook_url,
-        )
-    )
+    alerts = AlertClient(AlertConfig.from_settings(settings))
 
     # Best-effort live snapshot from Alpaca; the digest degrades gracefully without it.
     account: dict[str, float] | None = None
@@ -3082,15 +3058,7 @@ def analyst_brief(asof: str | None, dry_run: bool) -> None:
 
     settings = Settings()  # type: ignore[call-arg]
     session_date = date.fromisoformat(asof) if asof else date.today()
-    alerts = AlertClient(
-        AlertConfig(
-            healthcheck_tick_url=settings.healthcheck_tick_url,
-            healthcheck_guard_url=settings.healthcheck_guard_url,
-            pushover_app_token=settings.pushover_app_token,
-            pushover_user_key=settings.pushover_user_key,
-            slack_webhook_url=settings.slack_webhook_url,
-        )
-    )
+    alerts = AlertClient(AlertConfig.from_settings(settings))
 
     # Best-effort live Alpaca snapshot; everything degrades gracefully without it.
     account: dict[str, float] | None = None
@@ -3181,15 +3149,7 @@ def analyst_watch(asof: str | None, dry_run: bool, slot: str) -> None:
 
     settings = Settings()  # type: ignore[call-arg]
     session_date = date.fromisoformat(asof) if asof else date.today()
-    alerts = AlertClient(
-        AlertConfig(
-            healthcheck_tick_url=settings.healthcheck_tick_url,
-            healthcheck_guard_url=settings.healthcheck_guard_url,
-            pushover_app_token=settings.pushover_app_token,
-            pushover_user_key=settings.pushover_user_key,
-            slack_webhook_url=settings.slack_webhook_url,
-        )
-    )
+    alerts = AlertClient(AlertConfig.from_settings(settings))
 
     # Best-effort live Alpaca snapshot; everything degrades gracefully without it.
     account: dict[str, float] | None = None

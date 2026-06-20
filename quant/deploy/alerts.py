@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 import requests
 
@@ -33,6 +34,14 @@ def _default_post_json(url: str, payload: dict[str, object], timeout: float) -> 
     return requests.post(url, json=payload, timeout=timeout).status_code
 
 
+class _SettingsLike(Protocol):
+    healthcheck_tick_url: str | None
+    healthcheck_guard_url: str | None
+    pushover_app_token: str | None
+    pushover_user_key: str | None
+    slack_webhook_url: str | None
+
+
 @dataclass(frozen=True)
 class AlertConfig:
     healthcheck_tick_url: str | None
@@ -40,6 +49,32 @@ class AlertConfig:
     pushover_app_token: str | None
     pushover_user_key: str | None
     slack_webhook_url: str | None = None
+
+    @classmethod
+    def from_settings(cls, settings: _SettingsLike) -> "AlertConfig":
+        """Build from any object exposing the five alert-setting attributes."""
+        return cls(
+            healthcheck_tick_url=settings.healthcheck_tick_url,
+            healthcheck_guard_url=settings.healthcheck_guard_url,
+            pushover_app_token=settings.pushover_app_token,
+            pushover_user_key=settings.pushover_user_key,
+            slack_webhook_url=settings.slack_webhook_url,
+        )
+
+    def configured_channels(self) -> tuple[str, ...]:
+        """Names of the channels that have enough config to actually deliver."""
+        out: list[str] = []
+        if self.healthcheck_tick_url or self.healthcheck_guard_url:
+            out.append("healthchecks")
+        if self.pushover_app_token and self.pushover_user_key:
+            out.append("pushover")
+        if self.slack_webhook_url:
+            out.append("slack")
+        return tuple(out)
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.configured_channels())
 
 
 class AlertClient:
