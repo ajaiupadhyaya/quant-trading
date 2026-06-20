@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from loguru import logger as _logger
 
 logger = _logger
 
 
-def configure_logging(level: str = "INFO") -> None:
-    """Reset loguru sinks and add a single stderr sink at the requested level.
+def configure_logging(level: str = "INFO", *, json_path: str | Path | None = None) -> None:
+    """Reset loguru sinks: a colorized stderr sink, plus an optional ANSI-free JSON file sink.
 
-    Idempotent — safe to call repeatedly.
+    The JSON sink (``serialize=True``, ``colorize=False``) gives grep/jq-able logs for the
+    long-running M4 agents without ANSI escape codes leaking into the files. Idempotent.
     """
     logger.remove()
     logger.add(
@@ -28,3 +30,12 @@ def configure_logging(level: str = "INFO") -> None:
         backtrace=False,
         diagnose=False,
     )
+    if json_path is not None:
+        logger.add(
+            str(json_path),
+            level=level.upper(),
+            serialize=True,
+            colorize=False,
+            backtrace=False,
+            diagnose=False,
+        )
