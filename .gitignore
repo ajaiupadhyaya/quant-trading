@@ -67,3 +67,13 @@ data/research/signals_latest.json
 # Continuous engine (Phase 6) run-state: hot MarketState snapshot + append-only
 # state/event audit logs + heartbeat (host-local, advisory, grows unbounded).
 data/engine/
+
+# Phase 1 trust-audit Step-0 sweep: host-local regenerable run artifacts.
+# Already-tracked canonical/trail files (data/governance/allocation.json, the
+# committed dated analyst/recon .md trail, the one tracked snapshot manifest)
+# stay tracked — gitignore only suppresses NEW untracked outputs on dev boxes.
+context.md
+data/snapshots/snapshot-*/
+data/governance/allocation_compare.*.json
+data/risk/portfolio_risk_gate.*.json
+data/backtests/_combined/
