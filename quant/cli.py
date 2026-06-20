@@ -2947,7 +2947,7 @@ def ops_run_job(name: str, force: bool) -> None:
         raise click.ClickException("refusing to run off-schedule without --force")
     disp = Dispatcher(data_dir=settings.data_dir, manifest=manifest)
     for args in _expand(job):
-        rc = disp.runner(args, Path(__file__).resolve().parents[1])
+        rc = disp.runner(args, Path(__file__).resolve().parents[1], float(job.max_runtime_s))
         if rc != 0:
             raise SystemExit(rc)
 

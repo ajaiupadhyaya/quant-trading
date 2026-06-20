@@ -42,7 +42,8 @@ class Alerts(Protocol):
     def send_emergency(self, title: str, message: str) -> bool: ...
 
 
-Runner = Callable[[list[str], Path], int]
+Runner = Callable[[list[str], Path, float | None], int]
+TIMEOUT_RC = 124  # conventional "command timed out" exit code
 
 
 def _build_command(args: list[str]) -> list[str]:
@@ -57,9 +58,15 @@ def _build_command(args: list[str]) -> list[str]:
     return [UV_BIN, "run", "quant", *args]
 
 
-def default_runner(args: list[str], cwd: Path) -> int:
-    """Run an expanded step via `uv` and return its exit code."""
-    return subprocess.run(_build_command(args), cwd=cwd, check=False).returncode
+def default_runner(args: list[str], cwd: Path, timeout_s: float | None = None) -> int:
+    """Run an expanded step via `uv`; return its exit code (124 on timeout)."""
+    try:
+        return subprocess.run(
+            _build_command(args), cwd=cwd, check=False, timeout=timeout_s
+        ).returncode
+    except subprocess.TimeoutExpired:
+        logger.error("step {} exceeded {:.0f}s budget; killed", args, timeout_s or 0.0)
+        return TIMEOUT_RC
 
 
 def _expand(job: Job) -> list[list[str]]:
@@ -198,8 +205,18 @@ class Dispatcher:
 
     def _run_chain(self, disp: Dispatch) -> int:
         start = _time.monotonic()
+        deadline = start + float(disp.job.max_runtime_s)
         for args in _expand(disp.job):
-            rc = self.runner(args, REPO_ROOT)
+            remaining = deadline - _time.monotonic()
+            if remaining <= 0:
+                logger.error(
+                    "job {} exceeded {}s budget before step {}",
+                    disp.job.name,
+                    disp.job.max_runtime_s,
+                    args,
+                )
+                return TIMEOUT_RC
+            rc = self.runner(args, REPO_ROOT, remaining)
             if rc != 0:
                 logger.error("job {} step {} failed rc={}", disp.job.name, args, rc)
                 return rc

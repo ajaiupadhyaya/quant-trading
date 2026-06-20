@@ -17,7 +17,7 @@ class _Runner:
         self.calls: list[list[str]] = []
         self.rc = rc
 
-    def __call__(self, args: list[str], cwd: Path) -> int:
+    def __call__(self, args: list[str], cwd: Path, timeout_s: float | None = None) -> int:
         self.calls.append(args)
         return self.rc
 
@@ -70,7 +70,7 @@ def test_doctor_failure_stops_rebalance_chain(tmp_path: Path) -> None:
     # A runner that fails ONLY on `doctor` must stop the daily-rebalance chain
     # before `rebalance` runs.
     class _DoctorFails(_Runner):
-        def __call__(self, args: list[str], cwd: Path) -> int:
+        def __call__(self, args: list[str], cwd: Path, timeout_s: float | None = None) -> int:
             self.calls.append(args)
             return 1 if args == ["doctor"] else 0
 
