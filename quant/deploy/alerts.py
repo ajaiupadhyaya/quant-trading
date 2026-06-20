@@ -125,6 +125,26 @@ class AlertClient:
             return False
         return True
 
+    def send_test(self) -> dict[str, bool]:
+        """Fire each CONFIGURED channel with a benign test payload. Returns per-channel delivery."""
+        out: dict[str, bool] = {}
+        channels = self._cfg.configured_channels()
+        if "healthchecks" in channels:
+            url = self._cfg.healthcheck_tick_url or self._cfg.healthcheck_guard_url
+            try:
+                if url:
+                    self._get(url, 10.0)
+                out["healthchecks"] = True
+            except Exception:
+                out["healthchecks"] = False
+        if "pushover" in channels:
+            out["pushover"] = self._pushover_emergency(
+                "quant alert-test", "Phase 2a alert self-test — channel OK."
+            )
+        if "slack" in channels:
+            out["slack"] = self.send_slack(":test_tube: quant alert-test — Slack channel OK.")
+        return out
+
     def _pushover_emergency(self, title: str, message: str) -> bool:
         if not (self._cfg.pushover_app_token and self._cfg.pushover_user_key):
             return False

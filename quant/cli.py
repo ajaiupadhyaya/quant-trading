@@ -2936,6 +2936,23 @@ def ops_run_job(name: str, force: bool) -> None:
             raise SystemExit(rc)
 
 
+@ops.command("alert-test", help="Fire every configured alert channel to prove delivery.")
+def ops_alert_test() -> None:
+    from quant.deploy.alerts import AlertClient, AlertConfig
+
+    settings = Settings()  # type: ignore[call-arg]
+    cfg = AlertConfig.from_settings(settings)
+    if not cfg.is_configured:
+        raise click.ClickException(
+            "no alert channels configured — set PUSHOVER_*/HEALTHCHECKS_*/SLACK_WEBHOOK_URL in .env"
+        )
+    results = AlertClient(cfg).send_test()
+    for channel, ok in results.items():
+        console.print(f"{'[green]OK[/green]' if ok else '[red]FAIL[/red]'}  {channel}")
+    if not all(results.values()):
+        raise SystemExit(1)
+
+
 @cli.group(help="Analyst layer — a daily Claude-written digest delivered to Slack (read-only).")
 def analyst() -> None:
     pass
