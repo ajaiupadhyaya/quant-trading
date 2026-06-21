@@ -101,6 +101,7 @@ class RebalanceReport:
     skipped_reason: str | None = None
     winddown_outcomes: list[WindDownOutcome] = field(default_factory=list)
     derisk: dict[str, Any] | None = None  # deterministic de-risk overlay (shadow unless actuated)
+    leverage: float | None = None  # explicit portfolio gross target (None = today's behaviour)
 
     @property
     def total_orders(self) -> int:
@@ -333,6 +334,19 @@ def _write_allocation_compare_artifact(
     write_json_atomic(path, payload)
 
 
+def _leveraged_weights(allocation: dict[str, float], target_leverage: float) -> dict[str, float]:
+    """Deploy the NORMALIZED allocation at ``target_leverage`` total gross.
+
+    Hard-capped at 2.0x for safety and clamped at 0. A degenerate (zero-sum)
+    allocation is returned unchanged. ``sum(result) == clamp(target_leverage)``.
+    """
+    lev = max(0.0, min(2.0, float(target_leverage)))
+    alloc_sum = sum(w for w in allocation.values() if w > 0.0)
+    if alloc_sum <= 0.0:
+        return dict(allocation)
+    return {slug: (w / alloc_sum) * lev for slug, w in allocation.items()}
+
+
 def run_rebalance(
     *,
     asof: date | None = None,
@@ -349,8 +363,16 @@ def run_rebalance(
     exec_policy: ExecutionPolicyConfig | None = None,
     alloc_config: AllocationConfig | None = None,
     derisk_config: DeriskConfig | None = None,
+    target_leverage: float | None = None,
 ) -> RebalanceReport:
-    """Execute one rebalance pass. Returns a structured report for the CLI to render."""
+    """Execute one rebalance pass. Returns a structured report for the CLI to render.
+
+    ``target_leverage`` (opt-in) deploys the normalized allocation at an explicit
+    total gross (e.g. 1.5x), hard-capped at 2.0x for safety; the one-way de-risk
+    overlay still scales DOWN from there, and the pre-trade risk gate (Guard-5)
+    sees the levered orders and fails closed if they breach the envelope. ``None``
+    keeps today's behaviour exactly (allocation deployed as-is).
+    """
     from quant.live.safety import (
         CheckResult,
         StrategyRiskBudget,
@@ -587,6 +609,18 @@ def run_rebalance(
             ", ".join(derisk.reasons),
         )
 
+    # Explicit portfolio leverage (opt-in, hard-capped at 2.0x). Deploy the
+    # NORMALIZED allocation at `target_leverage` total gross; None keeps today's
+    # behaviour (allocation deployed as-is). The de-risk overlay still scales this
+    # down, and the pre-trade Guard-5 sees the resulting orders and fails closed.
+    deploy_weights = dict(allocation)
+    if target_leverage is not None:
+        deploy_weights = _leveraged_weights(allocation, target_leverage)
+        report.leverage = max(0.0, min(2.0, float(target_leverage)))
+        logger.info(
+            "portfolio leverage: deploying normalized allocation at x{} gross", report.leverage
+        )
+
     for slug in enabled:
         if slug in halted:
             report.outcomes.append(
@@ -646,7 +680,7 @@ def run_rebalance(
         try:
             # `derisk.applied` is 1.0 in shadow mode (byte-identical) and the one-way
             # de-risk factor (<= 1.0) only when actuation is consciously enabled.
-            strategy_equity = account.equity * allocation.get(slug, 0.0) * derisk.applied
+            strategy_equity = account.equity * deploy_weights.get(slug, 0.0) * derisk.applied
             target = strategy.target_positions(asof, strategy_equity)
         except Exception as exc:
             logger.exception("strategy {} target_positions raised", slug)

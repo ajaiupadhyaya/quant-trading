@@ -642,6 +642,14 @@ def validate(
     help="Apply the engine-driven one-way de-risk overlay to gross exposure "
     "(default: shadow — computed and reported, not applied).",
 )
+@click.option(
+    "--leverage",
+    type=float,
+    default=None,
+    help="Deploy the normalized allocation at this total gross (e.g. 1.5). "
+    "Hard-capped at 2.0x; de-risk overlay still scales down; Guard-5 fails closed "
+    "if breached. Omit to keep today's behaviour (allocation deployed as-is).",
+)
 def rebalance(
     dry_run: bool,
     asof: str | None,
@@ -649,6 +657,7 @@ def rebalance(
     include_quarantined: bool,
     winddown_participation: float,
     derisk_actuate: bool,
+    leverage: float | None,
 ) -> None:
     from quant.live import run_rebalance
     from quant.live.derisk import DeriskConfig
@@ -665,6 +674,7 @@ def rebalance(
         include_quarantined=include_quarantined,
         winddown_participation=winddown_participation,
         derisk_config=DeriskConfig(actuate=derisk_actuate),
+        target_leverage=leverage,
     )
 
     header = Table(title=f"Rebalance {report.asof} — {'DRY RUN' if dry_run else 'LIVE'}")
@@ -673,6 +683,8 @@ def rebalance(
     header.add_row("Account equity", f"${report.equity:,.2f}")
     header.add_row("Enabled strategies", str(len(report.enabled_strategies)))
     header.add_row("Total orders", str(report.total_orders))
+    if report.leverage is not None:
+        header.add_row("Portfolio leverage", f"x{report.leverage:.2f} gross target")
     console.print(header)
     if report.derisk is not None:
         d = report.derisk
