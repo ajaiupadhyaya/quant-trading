@@ -642,6 +642,13 @@ def validate(
     help="Apply the engine-driven one-way de-risk overlay to gross exposure "
     "(default: shadow — computed and reported, not applied).",
 )
+@click.option(
+    "--voltarget-actuate/--no-voltarget-actuate",
+    default=False,
+    show_default=True,
+    help="Apply the gate-passed forecast-vol-target overlay (one-way, de-risk only) "
+    "to gross exposure (default: shadow — computed and reported, not applied).",
+)
 def rebalance(
     dry_run: bool,
     asof: str | None,
@@ -649,9 +656,11 @@ def rebalance(
     include_quarantined: bool,
     winddown_participation: float,
     derisk_actuate: bool,
+    voltarget_actuate: bool,
 ) -> None:
     from quant.live import run_rebalance
     from quant.live.derisk import DeriskConfig
+    from quant.live.voltarget import VolTargetConfig
 
     if include_quarantined and not dry_run:
         raise click.ClickException("--include-quarantined is allowed only with --dry-run.")
@@ -665,6 +674,7 @@ def rebalance(
         include_quarantined=include_quarantined,
         winddown_participation=winddown_participation,
         derisk_config=DeriskConfig(actuate=derisk_actuate),
+        voltarget_config=VolTargetConfig(actuate=voltarget_actuate),
     )
 
     header = Table(title=f"Rebalance {report.asof} — {'DRY RUN' if dry_run else 'LIVE'}")
@@ -690,6 +700,25 @@ def rebalance(
         else:
             console.print(
                 f"[green]de-risk overlay: neutral (gross x{mult:.2f}, engine risk-on)[/green]"
+            )
+    if report.voltarget is not None:
+        v = report.voltarget
+        vmult = v.get("multiplier", 1.0)
+        if v.get("degraded"):
+            why = ", ".join(v.get("reasons") or ["insufficient history"])
+            console.print(f"[dim]voltarget overlay: standby — {why}[/dim]")
+        elif v.get("reasons"):
+            tag = (
+                "[red]APPLIED[/red]"
+                if v.get("actuated")
+                else "[yellow]SHADOW (not applied)[/yellow]"
+            )
+            fc, tr = v.get("forecast_vol_ann"), v.get("trailing_vol_ann")
+            ctx = f" (forecast {fc:.1%} vs trailing {tr:.1%})" if fc and tr else ""
+            console.print(f"voltarget overlay: gross x{vmult:.2f} {tag}{ctx}")
+        else:
+            console.print(
+                f"[green]voltarget overlay: neutral (gross x{vmult:.2f}, forecast<=trailing)[/green]"
             )
     if report.skipped_reason:
         console.print(f"[yellow]Skipped: {report.skipped_reason}[/yellow]")

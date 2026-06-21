@@ -365,6 +365,93 @@ def compute_vol_forecast(
     )
 
 
+def forecast_vol_series(
+    returns: np.ndarray,
+    *,
+    model: str = "gjr",
+    refit_every: int = 21,
+    min_obs: int = 252,
+) -> np.ndarray:
+    """Point-in-time one-day-ahead ANNUALISED vol forecast for every day.
+
+    ``out[t]`` is the annualised volatility forecast for day ``t`` built ONLY from
+    ``returns[:t]`` (strictly prior — no lookahead), so it can size day ``t``; it
+    is ``NaN`` until ``min_obs`` history accrues. The chosen ``model`` is refit
+    every ``refit_every`` steps for speed (the same cadence as
+    ``walk_forward_eval``); between refits the latest fit forecasts daily off the
+    most recent features. Cascade per the requested model — ``gjr -> har -> ewma``
+    (or ``har -> ewma`` / ``ewma`` for the lighter choices) — so a fit failure
+    degrades rather than raising. Pure / no I/O.
+
+    This is the bridge from the OOS-validated vol forecast into vol-targeting; it
+    stays behind a default-OFF sizing toggle and an honest economic gate (the
+    "separate deliberate gate" — accuracy does not imply sizing value).
+    """
+    r = np.asarray(returns, dtype=float)
+    n = r.size
+    out = np.full(n, np.nan, dtype=float)
+    if n == 0:
+        return out
+    rv = realized_variance(r)
+    ewma_all = ewma_forecast_series(rv)  # f[t] predicts RV at t+1 (causal)
+    want_gjr = model == "gjr"
+    want_har = model in ("gjr", "har")
+
+    gjr_model: GarchModel | None = None
+    har_model: HARModel | None = None
+    start = max(int(min_obs), _HAR_M)
+    fitted = False
+    for t in range(start, n):
+        if not fitted or (t - start) % int(refit_every) == 0:
+            gjr_model = fit_garch(r[:t], kind="gjr") if (want_gjr and t >= 250) else None
+            har_model = fit_har(rv[:t]) if want_har else None
+            fitted = True
+        var_next: float | None = None
+        if gjr_model is not None:
+            var_next = garch_forecast_next(gjr_model, r[:t])
+        if var_next is None and har_model is not None:
+            var_next = har_forecast_next(har_model, rv[:t])
+        if var_next is None:
+            var_next = float(ewma_all[t - 1])  # forecast made at t-1 predicts day t
+        if var_next is not None and var_next > 0:
+            out[t] = math.sqrt(_TRADING_DAYS * var_next)
+    return out
+
+
+def forecast_vol_ann_next(
+    returns: np.ndarray,
+    *,
+    model: str = "gjr",
+    min_obs: int = 252,
+) -> float | None:
+    """Single one-day-ahead ANNUALISED vol forecast from a returns array ("now").
+
+    Fits the chosen ``model`` on the FULL series and forecasts the next
+    (unobserved) day — the live analogue of ``forecast_vol_series`` (which is the
+    per-day PIT path for backtests). Cascade ``gjr -> har -> ewma``; returns
+    ``None`` on insufficient history or a degenerate fit so callers fail safe.
+    """
+    r = np.asarray(returns, dtype=float)
+    r = r[np.isfinite(r)]
+    if r.size < int(min_obs):
+        return None
+    rv = realized_variance(r)
+    var_next: float | None = None
+    if model == "gjr" and r.size >= 250:
+        gjr = fit_garch(r, kind="gjr")
+        if gjr is not None:
+            var_next = garch_forecast_next(gjr, r)
+    if var_next is None and model in ("gjr", "har") and rv.size > 60:
+        har = fit_har(rv)
+        if har is not None:
+            var_next = har_forecast_next(har, rv)
+    if var_next is None and rv.size > 0:
+        var_next = float(ewma_forecast_series(rv)[-1])
+    if var_next is not None and var_next > 0:
+        return math.sqrt(_TRADING_DAYS * var_next)
+    return None
+
+
 def live_vol_forecast(
     settings: Any, asof: date, *, symbol: str = "SPY", oos_skill: str | None = None
 ) -> VolForecast:

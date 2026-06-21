@@ -21,6 +21,14 @@ class SizingConfig:
     vol_lookback_days: int = 63
     max_leverage: float = 2.0
     use_vol_target: bool = True
+    # Vol estimate driving the target: "trailing" realized stdev (default, the
+    # incumbent) or "forecast" — the OOS-validated one-day-ahead vol forecast
+    # (GJR-GARCH -> HAR -> EWMA cascade). DEFAULT-OFF and behind the honest
+    # economic gate: a forecast validated for *accuracy* (QLIKE) is not yet
+    # validated for *sizing value*. See quant/forecast/vol.py:forecast_vol_series.
+    vol_source: str = "trailing"
+    vol_forecast_model: str = "gjr"
+    vol_forecast_refit_every: int = 21
 
     kelly_fraction: float = 0.5
     kelly_cap: float = 1.0

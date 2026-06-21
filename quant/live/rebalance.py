@@ -26,6 +26,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from quant.backtest.impact import trailing_dollar_adv
@@ -53,6 +54,11 @@ from quant.live.derisk import (
     load_engine_state,
     to_report_dict,
 )
+from quant.live.voltarget import (
+    VolTargetConfig,
+    voltarget_multiplier,
+)
+from quant.live.voltarget import to_report_dict as voltarget_to_report_dict
 from quant.strategies import REGISTRY
 from quant.strategies.base import Strategy
 from quant.util.config import Settings
@@ -101,6 +107,7 @@ class RebalanceReport:
     skipped_reason: str | None = None
     winddown_outcomes: list[WindDownOutcome] = field(default_factory=list)
     derisk: dict[str, Any] | None = None  # deterministic de-risk overlay (shadow unless actuated)
+    voltarget: dict[str, Any] | None = None  # forecast-vol-target overlay (shadow unless actuated)
 
     @property
     def total_orders(self) -> int:
@@ -333,6 +340,39 @@ def _write_allocation_compare_artifact(
     write_json_atomic(path, payload)
 
 
+def _book_returns_for_voltarget(settings: Settings, allocation: dict[str, float]) -> np.ndarray:
+    """Allocation-weighted blend of the live strategies' OOS curves — the book's vol proxy.
+
+    The live equity curve is far too short (days) to fit a vol forecast, so the
+    forecast-vol-target overlay reads the book's *representative* return history:
+    each live strategy's walk-forward OOS daily returns, date-aligned and blended
+    at the current allocation weights. Best-effort — any unreadable curve is
+    dropped; an empty result makes the overlay degrade to a no-op (fail-safe).
+    """
+    import pandas as pd
+
+    cols: dict[str, pd.Series] = {}
+    for slug, weight in allocation.items():
+        if weight <= 0.0:
+            continue
+        path = settings.data_dir / "backtests" / slug / "walkforward.parquet"
+        if not path.exists():
+            continue
+        try:
+            equity = pd.read_parquet(path)["equity"].astype(float)
+            cols[slug] = equity.pct_change().dropna()
+        except Exception:
+            continue
+    if not cols:
+        return np.array([], dtype=float)
+    frame = pd.DataFrame(cols).dropna(how="any")
+    if frame.empty:
+        return np.array([], dtype=float)
+    weights = np.array([allocation[s] for s in frame.columns], dtype=float)
+    weights = weights / weights.sum() if weights.sum() > 0 else weights
+    return np.asarray(frame.to_numpy(dtype=float) @ weights, dtype=float)
+
+
 def run_rebalance(
     *,
     asof: date | None = None,
@@ -349,6 +389,7 @@ def run_rebalance(
     exec_policy: ExecutionPolicyConfig | None = None,
     alloc_config: AllocationConfig | None = None,
     derisk_config: DeriskConfig | None = None,
+    voltarget_config: VolTargetConfig | None = None,
 ) -> RebalanceReport:
     """Execute one rebalance pass. Returns a structured report for the CLI to render."""
     from quant.live.safety import (
@@ -587,6 +628,25 @@ def run_rebalance(
             ", ".join(derisk.reasons),
         )
 
+    # Forecast-vol-target overlay (gate-passed, default SHADOW). Reads the book's
+    # representative return history (allocation-blended OOS curves) and cuts gross
+    # one-way when the validated vol forecast exceeds the book's trailing vol. Like
+    # de-risk it can ONLY shrink gross; both compose multiplicatively below.
+    voltarget_config = voltarget_config or VolTargetConfig()
+    voltarget = voltarget_multiplier(
+        _book_returns_for_voltarget(settings, allocation), voltarget_config
+    )
+    report.voltarget = voltarget_to_report_dict(voltarget)
+    if not voltarget.degraded and voltarget.reasons:
+        verb = "APPLYING" if voltarget.actuated else "shadow"
+        logger.info(
+            "voltarget overlay {}: computed x{} applied x{} ({})",
+            verb,
+            voltarget.multiplier,
+            voltarget.applied,
+            ", ".join(voltarget.reasons),
+        )
+
     for slug in enabled:
         if slug in halted:
             report.outcomes.append(
@@ -644,9 +704,12 @@ def run_rebalance(
             logger.info("Using chosen_params.json[latest] for {}: {}", slug, chosen)
         strategy = strategy_cls.build(bars=bars, params=chosen or None)
         try:
-            # `derisk.applied` is 1.0 in shadow mode (byte-identical) and the one-way
-            # de-risk factor (<= 1.0) only when actuation is consciously enabled.
-            strategy_equity = account.equity * allocation.get(slug, 0.0) * derisk.applied
+            # Both overlays' `applied` are 1.0 in shadow mode (byte-identical) and a
+            # one-way factor (<= 1.0) only when actuation is consciously enabled; they
+            # compose multiplicatively, so the book can only ever be de-risked.
+            strategy_equity = (
+                account.equity * allocation.get(slug, 0.0) * derisk.applied * voltarget.applied
+            )
             target = strategy.target_positions(asof, strategy_equity)
         except Exception as exc:
             logger.exception("strategy {} target_positions raised", slug)
